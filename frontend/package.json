@@ -12,10 +12,14 @@
     "test:evidence": "node --experimental-strip-types --test unit/evidence.test.ts"
   },
   "dependencies": {
+    "@astryxdesign/core": "0.7.6",
+    "@astryxdesign/theme-neutral": "0.7.6",
+    "@stylexjs/stylex": "0.19.1",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },
   "devDependencies": {
+    "@astryxdesign/cli": "0.7.6",
     "@types/node": "^24.19.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
