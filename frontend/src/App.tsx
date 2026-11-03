@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useState } from "react";
 import { AppShell } from "@astryxdesign/core/AppShell";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
@@ -11,7 +11,7 @@ import { Spinner } from "@astryxdesign/core/Spinner";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TopNav, TopNavHeading, TopNavItem } from "@astryxdesign/core/TopNav";
-import { api, oauthStartUrl, sample, setupDone, useLoad } from "./api";
+import { api, oauthStartUrl, sample, setupDone, useLoad, useStream } from "./api";
 
 const pages = { today: "Today", inbox: "Inbox", agents: "Agents", setup: "Setup", settings: "Settings" } as const;
 type Page = keyof typeof pages;
@@ -67,6 +67,9 @@ export default function App() {
   }, []);
   const loading = <Center minHeight={240}><Spinner size="lg" aria-label="Loading" /></Center>;
   const signedIn = Boolean(user);
+  const { setData: setMe } = me;
+  const signOut = useCallback(() => { setMe({ signed_in: false }); location.hash = ""; }, [setMe]);
+  const reconnecting = useStream(signedIn, signOut);
   useEffect(() => { document.title = signedIn ? `${pages[page]} · Secnd` : "Secnd"; }, [signedIn, page]);
 
   const connect = () => setConnecting(true);
@@ -81,7 +84,7 @@ export default function App() {
   else if (user && page === "today") body = <Suspense fallback={loading}><Today state={user} /></Suspense>;
   else if (user && page === "inbox") body = <Suspense fallback={loading}><Inbox /></Suspense>;
   else if (user && page === "agents") body = <Suspense fallback={loading}><Agents state={user} /></Suspense>;
-  else if (user) body = <Suspense fallback={loading}><Settings name={user.name} onSignedOut={() => { me.setData({ signed_in: false }); location.hash = ""; }} /></Suspense>;
+  else if (user) body = <Suspense fallback={loading}><Settings name={user.name} onSignedOut={signOut} /></Suspense>;
   else if (me.data || me.error?.status === 401) body = (
     <VStack gap={10} paddingBlockStart={8} hAlign="center">
       <VStack gap={4} hAlign="center" maxWidth={560}>
@@ -113,7 +116,12 @@ export default function App() {
       <TopNav label="Main navigation"
         heading={<TopNavHeading heading="Secnd" headingHref="#today" />}
         startContent={user && [...nav, ...ready ? [] : ["setup" as const]].map(id => <TopNavItem key={id} label={pages[id]} href={`#${id}`} isSelected={page === id} />)}
-        endContent={user && <TopNavItem label="Settings" href="#settings" isSelected={page === "settings"} />} />
+        endContent={user && (
+          <HStack gap={3} align="center">
+            {reconnecting && <Text type="supporting" size="sm" role="status">Reconnecting…</Text>}
+            <TopNavItem label="Settings" href="#settings" isSelected={page === "settings"} />
+          </HStack>
+        )} />
     }>
       <VStack gap={10}>
         {failed && <Banner status="warning" isDismissable onDismiss={() => setFailed(null)} title="Facebook didn't connect" description={failed}

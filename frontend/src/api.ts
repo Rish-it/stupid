@@ -61,7 +61,7 @@ export type Instagram = {
 };
 
 export type InboxKind = "whatsapp" | "messenger" | "instagram" | "instagram_comment";
-export type InboxItem = { id: string; kind: InboxKind; asset_id: string; sender: string; sender_name: string | null; text: string; created: number; replied: boolean };
+export type InboxItem = { id: string; kind: InboxKind; asset_id: string; sender: string; sender_name: string | null; text: string; created: number; replied: boolean; reply_error?: string | null };
 // ponytail: only India's +91 is grouped; other numbers show as +<digits>. Add a library if numbers from more countries arrive.
 const phone = (digits: string) => digits.length === 12 && digits.startsWith("91") ? `+91 ${digits.slice(2, 7)} ${digits.slice(7)}` : `+${digits}`;
 /** The name to show for a message; `sender` stays the id replies go to. A WhatsApp sender is a phone number. */
@@ -137,6 +137,9 @@ export const drafts = new Map<string, string>();
 
 // In-memory only: a screen shows what it last saw at once, then refreshes in the background.
 const cache = new Map<string, unknown>();
+// Screens on view, by what they load, so a live update can refetch just that.
+const loaders = new Map<string, Set<() => unknown>>();
+const refetch = (key: string) => loaders.get(key)?.forEach(load => load());
 
 export function useLoad<T>(key: string, load: () => Promise<T>) {
   const [data, setData] = useState(() => cache.get(key) as T | undefined);
@@ -144,6 +147,52 @@ export function useLoad<T>(key: string, load: () => Promise<T>) {
   const reload = useCallback(() => load()
     .then(next => { cache.set(key, next); setData(next); setError(undefined); })
     .catch((cause: unknown) => setError(cause instanceof ApiError ? cause : new ApiError(0, String(cause)))), [key, load]);
-  useEffect(() => { void reload(); }, [reload]);
+  useEffect(() => {
+    void reload();
+    const set = loaders.get(key) ?? new Set();
+    loaders.set(key, set.add(reload));
+    return () => void set.delete(reload);
+  }, [key, reload]);
   return { data, error, reload, setData };
+}
+
+// Which screen data each field of a live update stands for.
+const streamed = { inbox: "inbox", replies: "inbox", runs: "agents", connections: "me" } as const;
+
+/**
+ * Listens to /api/stream while signed in and refetches only what changed. Returns true once it has been down
+ * for more than 10 seconds. The browser reconnects by itself after a dropped connection; after a refused one
+ * it gives up, so we ask why: 401 means signed out, 404 means the server has no stream yet.
+ */
+export function useStream(on: boolean, onSignedOut: () => void) {
+  const [down, setDown] = useState(false);
+  useEffect(() => {
+    if (!on || sample) return;
+    let source: EventSource | undefined;
+    let last: Record<string, string> | undefined;
+    let slow: ReturnType<typeof setTimeout> | undefined, retry: ReturnType<typeof setTimeout> | undefined;
+    const up = () => { clearTimeout(slow); slow = undefined; setDown(false); };
+    const open = () => {
+      source = new EventSource("/api/stream");
+      source.onopen = up;
+      source.addEventListener("update", event => {
+        const next = JSON.parse((event as MessageEvent<string>).data) as Record<string, string>;
+        const changed = new Set(Object.entries(streamed).filter(([field]) => last && last[field] !== next[field]).map(([, key]) => key));
+        last = next;
+        changed.forEach(refetch);
+      });
+      source.onerror = () => {
+        slow ??= setTimeout(() => setDown(true), 10_000);
+        if (source?.readyState !== EventSource.CLOSED) return;
+        fetch("/api/stream", { method: "HEAD", credentials: "same-origin" }).then(res => {
+          if (res.status === 401) onSignedOut();
+          else if (res.status === 404) up();
+          else retry = setTimeout(open, 5000);
+        }, () => { retry = setTimeout(open, 5000); });
+      };
+    };
+    open();
+    return () => { source?.close(); clearTimeout(slow); clearTimeout(retry); };
+  }, [on, onSignedOut]);
+  return down;
 }
