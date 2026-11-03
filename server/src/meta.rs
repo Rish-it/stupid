@@ -20,6 +20,43 @@ pub struct Asset {
     pub kind: String,
     pub id: String,
     pub name: String,
+    /// What stops or limits this account, in plain words, from Meta's own health check.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub issues: Vec<Issue>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Issue {
+    pub blocking: bool,
+    pub text: String,
+    pub fix: String,
+    pub link: String,
+}
+
+/// Meta's WhatsApp health check turned into plain words and a link to the exact screen that fixes it.
+fn whatsapp_issues(health: &Value, business: &str, waba: &str) -> Vec<Issue> {
+    let mut out: Vec<Issue> = Vec::new();
+    let mut seen = Vec::new();
+    for entity in health["entities"].as_array().into_iter().flatten() {
+        let blocking = entity["can_send_message"] == "BLOCKED";
+        for e in entity["errors"].as_array().into_iter().flatten() {
+            let code = e["error_code"].as_i64().unwrap_or_default();
+            // Calling over SIP is not something Secnd uses.
+            if matches!(code, 138024 | 138025) || seen.contains(&code) {
+                continue;
+            }
+            seen.push(code);
+            let (text, fix, link) = match code {
+                141006 => ("WhatsApp needs a payment method before it can send.", "Add a payment method. Replies within 24 hours of a customer's message are free.", format!("https://business.facebook.com/billing_hub/accounts/details/?business_id={business}&asset_id={waba}")),
+                141007 => ("This WhatsApp account has no time zone.", "Set a time zone for the WhatsApp account.", format!("https://business.facebook.com/latest/settings/whatsapp_account?business_id={business}")),
+                141010 => ("Your business isn't verified, so new chats per day are limited.", "Verify your business with Meta. Replies still work.", format!("https://business.facebook.com/latest/settings/security_center?business_id={business}")),
+                131000 => ("Your business profile is missing its legal name, country or website.", "Fill in your business info.", format!("https://business.facebook.com/latest/settings/business_info?business_id={business}")),
+                _ => (e["error_description"].as_str().unwrap_or("Meta reported a problem with this account."), e["possible_solution"].as_str().unwrap_or("Open WhatsApp Manager to see what Meta needs."), format!("https://business.facebook.com/wa/manage/home/?business_id={business}&waba_id={waba}")),
+            };
+            out.push(Issue { blocking, text: text.chars().take(300).collect(), fix: fix.chars().take(300).collect(), link });
+        }
+    }
+    out
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -115,12 +152,18 @@ async fn discover(state: &AppState, token: &str) -> Grant {
     let mut wabas = Vec::new();
     for business in &businesses {
         let Some(b) = business["id"].as_str().filter(|b| numeric(b)) else { continue };
-        wabas.extend(take("WhatsApp accounts", rows(state, &format!("{b}/owned_whatsapp_business_accounts"), "id,name", token).await));
+        let owned = take("WhatsApp accounts", rows(state, &format!("{b}/owned_whatsapp_business_accounts"), "id,name", token).await);
+        wabas.extend(owned.into_iter().map(|w| (w, b.to_string())));
     }
     let mut numbers = Vec::new();
-    for waba in &wabas {
+    let mut issues = HashMap::new();
+    for (waba, b) in &wabas {
         let Some(w) = waba["id"].as_str().filter(|w| numeric(w)) else { continue };
-        numbers.extend(take("WhatsApp numbers", rows(state, &format!("{w}/phone_numbers"), "id,verified_name,display_phone_number", token).await));
+        let found = take("WhatsApp numbers", rows(state, &format!("{w}/phone_numbers"), "id,verified_name,display_phone_number,health_status", token).await);
+        for n in &found {
+            issues.insert(format!("whatsapp:{}", n["id"].as_str().unwrap_or_default()), whatsapp_issues(&n["health_status"], b, w));
+        }
+        numbers.extend(found);
         // Meta forwards a WhatsApp account's messages only once the app is subscribed to it.
         let what = format!("Messages from {}", waba["name"].as_str().unwrap_or("a WhatsApp account"));
         take(&what, post(state, &format!("{w}/subscribed_apps"), &json!({}), token).await.map(|_| Vec::new()));
@@ -144,7 +187,7 @@ async fn discover(state: &AppState, token: &str) -> Grant {
             page_tokens.insert(key.clone(), t.to_string());
         }
         let name: String = name.as_str().unwrap_or(fallback).chars().take(200).collect();
-        assets.push(Asset { key, kind: kind.into(), id, name });
+        assets.push(Asset { key, kind: kind.into(), id, name, issues: Vec::new() });
     };
     for row in &ad_accounts {
         add("ads", &row["id"], &row["name"], "Ad account", None);
@@ -159,6 +202,9 @@ async fn discover(state: &AppState, token: &str) -> Grant {
     }
     for number in &numbers {
         add("whatsapp", &number["id"], &number["verified_name"], "WhatsApp number", None);
+    }
+    for a in &mut assets {
+        a.issues = issues.remove(&a.key).unwrap_or_default();
     }
     let mut permissions: Vec<String> = permissions.iter().filter(|r| r["status"] == "granted").filter_map(|r| r["permission"].as_str().map(str::to_string)).collect();
     permissions.sort();
@@ -338,12 +384,12 @@ fn graph_time(t: &str) -> Option<i64> {
 /// Unpublished Meta apps get no real webhooks, so the inbox also reads recent Messenger and
 /// Instagram conversations and Instagram comments directly, at most once a minute per account.
 /// Rows share the webhook de-duplication keys, so a message never appears twice.
-async fn pull(state: &AppState, u: &User) -> ApiResult<()> {
+pub async fn pull(state: &AppState, u: &User) -> ApiResult<()> {
     let t = tokens(state, u)?;
     let oldest = now() - 30 * 86400;
     for a in u.assets.iter().filter(|a| u.selected.contains(&a.key) && (a.kind == "messenger" || a.kind == "instagram")) {
         let token = t.for_asset(&a.key).to_string();
-        let fetched = cached(state, format!("{}:pull:{}", u.id, a.key), Duration::from_secs(60), || async {
+        let fetched = cached(state, format!("{}:pull:{}", u.id, a.key), Duration::from_secs(15), || async {
             let mut rows: Vec<(String, String, String, String, i64, String)> = Vec::new();
             let fields = "messages.limit(10){id,message,from,created_time}".to_string();
             let conversations = get(state, "me/conversations", &[("platform", a.kind.clone()), ("fields", fields), ("limit", "20".into())], &token).await?;
@@ -412,6 +458,22 @@ pub fn inbox_rows(state: &AppState, u: &User) -> ApiResult<Vec<Value>> {
         Ok(json!({ "id": r.get::<_, i64>(0)?, "kind": r.get::<_, String>(1)?, "asset_id": r.get::<_, String>(2)?, "sender": r.get::<_, String>(3)?, "text": r.get::<_, String>(4)?, "created": r.get::<_, i64>(5)?, "replied": r.get::<_, bool>(6)?, "sender_name": r.get::<_, Option<String>>(7)?, "reply_error": r.get::<_, Option<String>>(8)? }))
     })?;
     Ok(rows.collect::<Result<_, _>>()?)
+}
+
+/// Version marks for what a signed-in screen shows, so the live stream can say what changed.
+pub fn marks(state: &AppState, u: &User) -> ApiResult<Value> {
+    let ids: Vec<String> = u.assets.iter().filter(|a| u.selected.contains(&a.key)).map(|a| a.id.clone()).collect();
+    let marks = vec!["?"; ids.len().max(1)].join(",");
+    let db = lock(&state.db);
+    let inbox: String = db.query_row(
+        &format!("SELECT IFNULL(MAX(id),0)||':'||COUNT(*) FROM events WHERE asset_id IN ({marks})"),
+        rusqlite::params_from_iter(ids.iter().map(String::as_str).chain(ids.is_empty().then_some(""))),
+        |r| r.get(0),
+    )?;
+    let replies: String = db.query_row("SELECT COUNT(*)||':'||COUNT(error) FROM replies WHERE user_id=?1", [&u.id], |r| r.get(0))?;
+    let runs: String = db.query_row("SELECT IFNULL(MAX(id),0)||':'||IFNULL(SUM(status='running'),0) FROM agent_runs WHERE user_id=?1", [&u.id], |r| r.get(0))?;
+    let connections = format!("{}:{}:{}", to_json(&u.assets).len(), u.selected.len(), u.problems.len());
+    Ok(json!({ "inbox": inbox, "replies": replies, "runs": runs, "connections": connections }))
 }
 
 pub async fn ads(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Value>> {
@@ -568,6 +630,20 @@ mod tests {
         assert!(numeric("act_123") && !numeric("act_") && !numeric("12a"));
         let st = json!({"entry":[{"changes":[{"value":{"statuses":[{"status":"delivered"},{"status":"failed","id":"wamid.1","recipient_id":"91","errors":[{"code":131031,"title":"Business Account locked","error_data":{"details":"Business account has been locked."}}]}]}}]}]});
         assert_eq!(failed_sends(&st), vec![("wamid.1".to_string(), "Business account has been locked. (131031)".to_string())]);
+    }
+
+    #[test]
+    fn whatsapp_health_in_plain_words() {
+        let health = json!({"can_send_message":"BLOCKED","entities":[
+            {"entity_type":"PHONE_NUMBER","can_send_message":"AVAILABLE","errors":[{"error_code":138024,"error_description":"SIP"}]},
+            {"entity_type":"WABA","can_send_message":"BLOCKED","errors":[{"error_code":141006,"error_description":"payment"}]},
+            {"entity_type":"BUSINESS","can_send_message":"LIMITED","errors":[{"error_code":141010},{"error_code":999,"error_description":"Odd","possible_solution":"Do X"}]}]});
+        let issues = whatsapp_issues(&health, "7", "8");
+        assert_eq!(issues.len(), 3);
+        assert!(issues[0].blocking && issues[0].link.contains("business_id=7&asset_id=8"));
+        assert!(!issues[1].blocking && issues[1].text.contains("verified"));
+        assert_eq!((issues[2].text.as_str(), issues[2].fix.as_str()), ("Odd", "Do X"));
+        assert!(whatsapp_issues(&Value::Null, "7", "8").is_empty());
     }
 
     #[test]
