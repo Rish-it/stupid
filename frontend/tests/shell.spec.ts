@@ -129,3 +129,33 @@ test("Agents point to Settings when there is no AI access", async ({ page }) => 
   await expect(page.getByText("Agents need AI access")).toBeVisible();
   await expect(page.getByRole("link", { name: "Open Settings" })).toHaveAttribute("href", "#settings");
 });
+
+test("Settings saves an AI key, confirms before deleting and signs out", async ({ page }) => {
+  await page.route("**/api/me", route => route.fulfill(json(signedIn)));
+  await page.route("**/api/settings/ai", route => route.request().method() === "GET"
+    ? route.fulfill(json({ has_key: false, model: "test-model", workspace_ai: true }))
+    : route.request().postDataJSON().api_key === "bad"
+      ? route.fulfill({ status: 400, ...json({ message: "Meta refused that key." }) })
+      : route.fulfill(json({ has_key: true, model: "test-model" })));
+  let deleted = false;
+  await page.route("**/api/connections", route => { deleted = route.request().method() === "DELETE"; route.fulfill(json({})); });
+  await page.goto("/#settings");
+
+  const key = page.getByLabel("Your Muse API key");
+  await key.fill("bad");
+  await page.getByRole("button", { name: "Save key" }).click();
+  await expect(page.getByText("Meta refused that key.")).toBeVisible();
+  await key.fill("good");
+  await page.getByRole("button", { name: "Save key" }).click();
+  await expect(page.getByText(/Key saved/)).toBeVisible();
+  await expect(page.getByText("Agents run on test-model with your own key.")).toBeVisible();
+  await expect(page.getByLabel("Replace your Muse API key")).toHaveValue("");
+
+  await page.getByRole("button", { name: "Disconnect and delete my data" }).click();
+  await page.getByRole("button", { name: "Cancel" }).click();
+  expect(deleted).toBe(false);
+  await page.getByRole("button", { name: "Disconnect and delete my data" }).click();
+  await page.getByRole("button", { name: "Yes, delete everything" }).click();
+  await expect(page.getByRole("link", { name: "Continue with Facebook" })).toBeVisible();
+  expect(deleted).toBe(true);
+});

@@ -17,6 +17,7 @@ const Connections = lazy(() => import("./Connections"));
 const Today = lazy(() => import("./Today"));
 const Inbox = lazy(() => import("./Inbox"));
 const Agents = lazy(() => import("./Agents"));
+const Settings = lazy(() => import("./Settings"));
 
 // Meta sends people back to /?connected=1 or /?meta_error=1. Read it once, then drop it from the address.
 const query = new URLSearchParams(location.search);
@@ -50,7 +51,7 @@ export default function App() {
   else if (user && page === "today") body = <Suspense fallback={loading}><Today state={user} /></Suspense>;
   else if (user && page === "inbox") body = <Suspense fallback={loading}><Inbox /></Suspense>;
   else if (user && page === "agents") body = <Suspense fallback={loading}><Agents state={user} /></Suspense>;
-  else if (user) body = <EmptyState headingLevel={1} title={pages[page]} description="This screen is on its way." />;
+  else if (user) body = <Suspense fallback={loading}><Settings name={user.name} onSignedOut={() => { me.setData({ signed_in: false }); location.hash = ""; }} /></Suspense>;
   else if (me.data || me.error?.status === 401) body = (
     <EmptyState headingLevel={1} title="Run your Meta business in plain words"
       description="Sign in with Facebook, then connect Ads, Instagram and WhatsApp one at a time. You choose what Secnd can see."
