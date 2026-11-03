@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { AppShell } from "@astryxdesign/core/AppShell";
 import { Button } from "@astryxdesign/core/Button";
 import { Center } from "@astryxdesign/core/Center";
@@ -12,6 +12,7 @@ import { api, oauthStartUrl, useLoad } from "./api";
 const pages = { today: "Today", inbox: "Inbox", agents: "Agents", connections: "Connections", settings: "Settings" } as const;
 type Page = keyof typeof pages;
 const nav: Page[] = ["today", "inbox", "agents", "connections"];
+const Connections = lazy(() => import("./Connections"));
 
 function usePage(): Page {
   const read = () => { const hash = location.hash.slice(1); return hash in pages ? hash as Page : "today"; };
@@ -28,9 +29,11 @@ export default function App() {
   const me = useLoad("me", api.me);
   const page = usePage();
   const user = me.data?.signed_in ? me.data : undefined;
+  const loading = <Center minHeight={240}><Spinner size="lg" aria-label="Loading" /></Center>;
 
   let body;
-  if (user) body = <EmptyState headingLevel={1} title={pages[page]} description="This screen is on its way." />;
+  if (user && page === "connections") body = <Suspense fallback={loading}><Connections state={user} onChange={next => me.setData({ ...user, ...next })} /></Suspense>;
+  else if (user) body = <EmptyState headingLevel={1} title={pages[page]} description="This screen is on its way." />;
   else if (me.data || me.error?.status === 401) body = (
     <EmptyState headingLevel={1} title="Run your Meta business in plain words"
       description="Sign in with Facebook, then connect Ads, Instagram and WhatsApp one at a time. You choose what Secnd can see."
@@ -41,7 +44,7 @@ export default function App() {
       description={me.error.status === 0 ? "We can't reach Secnd's server. Check your connection, then try again." : me.error.message}
       actions={<Button label="Try again" clickAction={me.reload} />} />
   );
-  else body = <Center minHeight={240}><Spinner size="lg" aria-label="Loading your workspace" /></Center>;
+  else body = loading;
 
   return (
     <AppShell contentPadding={6} topNav={
