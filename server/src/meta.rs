@@ -120,6 +120,14 @@ async fn inventory(state: &AppState, token: &str) -> (Vec<Asset>, HashMap<String
     (assets, page_tokens)
 }
 
+/// Permissions the person actually granted; Meta lets them untick some in the dialog.
+async fn granted(state: &AppState, token: &str) -> Vec<String> {
+    let rows = rows(state, "me/permissions", "permission,status", token).await.unwrap_or_default();
+    let mut out: Vec<String> = rows.iter().filter(|r| r["status"] == "granted").filter_map(|r| r["permission"].as_str().map(str::to_string)).collect();
+    out.sort();
+    out
+}
+
 /// Exchange the login code, store encrypted tokens, and return our user id.
 pub async fn sign_in(state: &AppState, code: &str) -> ApiResult<String> {
     let c = &state.cfg;
@@ -133,7 +141,8 @@ pub async fn sign_in(state: &AppState, code: &str) -> ApiResult<String> {
     let me = get(state, "me", &[("fields", "id,name".into())], &token).await?;
     let meta_user = me["id"].as_str().filter(|id| numeric(id)).ok_or_else(|| AppError::new(403, "Meta returned no user."))?.to_string();
     let name = me["name"].as_str().unwrap_or("You").to_string();
-    let (assets, page_tokens) = inventory(state, &token).await;
+    let (inventory, permissions) = tokio::join!(inventory(state, &token), granted(state, &token));
+    let (assets, page_tokens) = inventory;
     let fernet = state.fernet.as_ref().ok_or_else(|| AppError::new(503, "Token encryption is not configured."))?;
     let blob = fernet.encrypt(&serde_json::to_vec(&Tokens { user: token, assets: page_tokens }).expect("serializable"));
 
@@ -148,9 +157,9 @@ pub async fn sign_in(state: &AppState, code: &str) -> ApiResult<String> {
     };
     let selected: Vec<&String> = assets.iter().map(|a| &a.key).filter(|k| selected.contains(k) || !known.iter().any(|a| &a.key == *k)).collect();
     db.execute(
-        "INSERT INTO users (id,meta_user_id,name,token_blob,token_expires,assets_json,selected_json) VALUES (?1,?2,?3,?4,?5,?6,?7)
-         ON CONFLICT(meta_user_id) DO UPDATE SET name=?3,token_blob=?4,token_expires=?5,assets_json=?6,selected_json=?7",
-        params![id, meta_user, name, blob, expires, serde_json::to_string(&assets).expect("json"), serde_json::to_string(&selected).expect("json")],
+        "INSERT INTO users (id,meta_user_id,name,token_blob,token_expires,assets_json,selected_json,permissions_json) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)
+         ON CONFLICT(meta_user_id) DO UPDATE SET name=?3,token_blob=?4,token_expires=?5,assets_json=?6,selected_json=?7,permissions_json=?8",
+        params![id, meta_user, name, blob, expires, serde_json::to_string(&assets).expect("json"), serde_json::to_string(&selected).expect("json"), serde_json::to_string(&permissions).expect("json")],
     )?;
     Ok(id)
 }

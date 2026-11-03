@@ -145,10 +145,11 @@ fn hmac_ok(key: &str, data: &[u8], expected: &[u8]) -> bool {
     !key.is_empty() && mac.verify_slice(expected).is_ok()
 }
 
-const SCHEMA: &str = "
-PRAGMA journal_mode=WAL;
-PRAGMA synchronous=NORMAL;
-PRAGMA busy_timeout=5000;
+// Per connection, so they run at every start.
+const PRAGMAS: &str = "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA busy_timeout=5000;";
+// Append only: entry N moves a database from user_version N to N+1. Never edit a shipped entry.
+const MIGRATIONS: &[&str] = &[
+    "
 CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, meta_user_id TEXT UNIQUE NOT NULL, name TEXT NOT NULL,
   token_blob TEXT NOT NULL, token_expires INTEGER NOT NULL, assets_json TEXT NOT NULL, selected_json TEXT NOT NULL DEFAULT '[]');
 CREATE TABLE IF NOT EXISTS sessions (hash TEXT PRIMARY KEY, user_id TEXT NOT NULL, expires INTEGER NOT NULL);
@@ -161,7 +162,21 @@ CREATE TABLE IF NOT EXISTS agent_runs (id INTEGER PRIMARY KEY, user_id TEXT NOT 
 CREATE INDEX IF NOT EXISTS runs_user ON agent_runs(user_id, agent, id);
 CREATE TABLE IF NOT EXISTS spend (id INTEGER PRIMARY KEY, usd REAL NOT NULL, created INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS deletions (code TEXT PRIMARY KEY, created INTEGER NOT NULL);
-";
+",
+    "ALTER TABLE users ADD COLUMN permissions_json TEXT NOT NULL DEFAULT '[]';",
+];
+
+fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(PRAGMAS)?;
+    let version: usize = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    for (i, sql) in MIGRATIONS.iter().enumerate().skip(version) {
+        let tx = conn.transaction()?;
+        tx.execute_batch(sql)?;
+        tx.pragma_update(None, "user_version", i + 1)?;
+        tx.commit()?;
+    }
+    Ok(())
+}
 
 // ---------- sessions ----------
 
@@ -183,6 +198,7 @@ pub struct User {
     pub token_blob: String,
     pub assets: Vec<meta::Asset>,
     pub selected: Vec<String>,
+    pub permissions: Vec<String>,
 }
 impl User {
     pub fn selected_assets(&self, kind: &str) -> Vec<&meta::Asset> {
@@ -195,19 +211,20 @@ pub fn user(state: &AppState, headers: &HeaderMap) -> ApiResult<User> {
     let db = lock(&state.db);
     let row = db
         .query_row(
-            "SELECT u.id,u.name,u.token_blob,u.assets_json,u.selected_json FROM sessions s JOIN users u ON u.id=s.user_id
+            "SELECT u.id,u.name,u.token_blob,u.assets_json,u.selected_json,u.permissions_json FROM sessions s JOIN users u ON u.id=s.user_id
              WHERE s.hash=?1 AND s.expires>?2",
             params![digest(&session), now()],
-            |r| Ok((r.get::<_, String>(0)?, r.get(1)?, r.get(2)?, r.get::<_, String>(3)?, r.get::<_, String>(4)?)),
+            |r| Ok((r.get::<_, String>(0)?, r.get(1)?, r.get(2)?, r.get::<_, String>(3)?, r.get::<_, String>(4)?, r.get::<_, String>(5)?)),
         )
         .optional()?;
-    let (id, name, token_blob, assets, selected) = row.ok_or_else(|| AppError::new(401, "Your session ended. Sign in again."))?;
+    let (id, name, token_blob, assets, selected, permissions) = row.ok_or_else(|| AppError::new(401, "Your session ended. Sign in again."))?;
     Ok(User {
         id,
         name,
         token_blob,
         assets: serde_json::from_str(&assets).unwrap_or_default(),
         selected: serde_json::from_str(&selected).unwrap_or_default(),
+        permissions: serde_json::from_str(&permissions).unwrap_or_default(),
     })
 }
 
@@ -226,7 +243,7 @@ async fn health(State(s): State<AppState>) -> Json<Value> {
 
 async fn me(State(s): State<AppState>, headers: HeaderMap) -> Json<Value> {
     match user(&s, &headers) {
-        Ok(u) => Json(json!({ "signed_in": true, "name": u.name, "assets": u.assets, "selected": u.selected })),
+        Ok(u) => Json(json!({ "signed_in": true, "name": u.name, "assets": u.assets, "selected": u.selected, "permissions": u.permissions })),
         Err(_) => Json(json!({ "signed_in": false })),
     }
 }
@@ -506,8 +523,8 @@ async fn main() {
     tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into())).init();
     let cfg = Config::load();
     std::fs::create_dir_all(&cfg.data_dir).expect("create data dir");
-    let conn = Connection::open(cfg.data_dir.join("secnd.sqlite3")).expect("open database");
-    conn.execute_batch(SCHEMA).expect("migrate database");
+    let mut conn = Connection::open(cfg.data_dir.join("secnd.sqlite3")).expect("open database");
+    migrate(&mut conn).expect("migrate database");
     let fernet = fernet::Fernet::new(&env::var("SECND_META_TOKEN_KEY").unwrap_or_default()).map(Arc::new);
     if fernet.is_none() {
         tracing::warn!("SECND_META_TOKEN_KEY is missing or invalid; Meta sign-in is disabled");
@@ -576,6 +593,19 @@ mod tests {
         h.insert(header::COOKIE, HeaderValue::from_static("a=1; secnd_session=xyz"));
         assert_eq!(cookie(&h, "secnd_session").as_deref(), Some("xyz"));
         assert_eq!(cookie(&h, "missing"), None);
+    }
+
+    #[test]
+    fn migrations_run_once_and_upgrade_old_databases() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(MIGRATIONS[0]).unwrap(); // a database from before versioning
+        migrate(&mut conn).unwrap();
+        migrate(&mut conn).unwrap();
+        let version: usize = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, MIGRATIONS.len());
+        conn.execute("INSERT INTO users (id,meta_user_id,name,token_blob,token_expires,assets_json) VALUES ('a','1','n','b',0,'[]')", []).unwrap();
+        let p: String = conn.query_row("SELECT permissions_json FROM users", [], |r| r.get(0)).unwrap();
+        assert_eq!(p, "[]");
     }
 
     #[test]
