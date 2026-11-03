@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { Button } from "@astryxdesign/core/Button";
 import { Grid } from "@astryxdesign/core/Grid";
@@ -24,6 +24,7 @@ const hold = { main: 3250, other: 2500 }, exit = 150, enter = 200, enterDelay = 
 const words = (i: number) => phrases[i % phrases.length][0].split(" ").length;
 const swap = (from: number) => Math.max(exit + (words(from) - 1) * perWord, enterDelay + enter + (words(from + 1) - 1) * perWord);
 const apps = [["instagram", "Instagram"], ["whatsapp", "WhatsApp"], ["messenger", "Messenger"], ["ads", "Meta Ads"]] as const;
+const Mascot = lazy(() => import("./Mascot"));
 const still = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 const features: { title: string; text: string; art: ReactNode }[] = [
@@ -58,6 +59,7 @@ const features: { title: string; text: string; art: ReactNode }[] = [
 export default function Welcome({ instagram, onConnect, onPassed }: { instagram?: string; onConnect: () => void; onPassed: (passed: boolean) => void }) {
   const signIn = useRef<HTMLDivElement>(null);
   const tour = useRef<HTMLElement>(null);
+  const [excited, setExcited] = useState(false);
   useEffect(() => {
     const seen = new IntersectionObserver(([entry]) => onPassed(!entry.isIntersecting && entry.boundingClientRect.top < 0));
     seen.observe(signIn.current!);
@@ -114,7 +116,7 @@ export default function Welcome({ instagram, onConnect, onPassed }: { instagram?
       ))}
 
       <footer className="outro" aria-label="Footer">
-        <Mascot />
+        <div className="mascot-stage" aria-hidden><Suspense><Mascot excited={excited} /></Suspense></div>
         <div className="outro-start">
           <span className="tag">How it works</span>
           <p className="outro-line">Agents prepare,<br />you decide</p>
@@ -127,7 +129,7 @@ export default function Welcome({ instagram, onConnect, onPassed }: { instagram?
         <div className="outro-end">
           <span className="tag">Ready when you are</span>
           <h2 className="outro-line">Ready to try Stupid?</h2>
-          <VStack gap={3} width="100%" className="outro-buttons">{buttons}</VStack>
+          <VStack gap={3} width="100%" className="outro-buttons" onPointerEnter={() => setExcited(true)} onPointerLeave={() => setExcited(false)}>{buttons}</VStack>
           <p className="outro-note">Built for Meta's platform. Not an official Meta product.</p>
           <ul className="outro-apps" aria-label="Works with">
             {apps.map(([app, name]) => <li key={app} aria-label={name}><SourceIcon source={app} size={24} /></li>)}
@@ -195,40 +197,4 @@ function Avatar({ swapping }: { swapping?: number }) {
     addEventListener("pointercancel", release);
   };
   return <span className="rebus-avatar" ref={ref} data-pressed={pressed || undefined} onPointerDown={hold}><span /><span /><span /></span>;
-}
-
-/** The mascot at the foot of the page. On wide screens its eyes follow the pointer; on phones they look around. */
-function Mascot() {
-  const face = useRef<HTMLSpanElement>(null);
-  useEffect(() => {
-    const eyes = face.current!, body = eyes.parentElement!;
-    const wide = matchMedia("(min-width: 64rem)");
-    let pointer: { x: number; y: number } | undefined, frame = 0;
-    const look = () => {
-      frame = 0;
-      if (!wide.matches) return void (eyes.style.translate = "");
-      if (!pointer) return;
-      // offsetLeft/Top ignore the current translate, so this is where the eyes rest.
-      const r = body.getBoundingClientRect();
-      const dx = pointer.x - (r.left + eyes.offsetLeft + eyes.offsetWidth / 2);
-      const dy = pointer.y - (r.top + eyes.offsetTop + eyes.offsetHeight / 2);
-      const reach = Math.min(Math.hypot(dx, dy) / 400, 1) * r.width * .09, angle = Math.atan2(dy, dx);
-      eyes.style.translate = `${Math.cos(angle) * reach}px ${Math.sin(angle) * reach}px`;
-    };
-    const schedule = () => { frame ||= requestAnimationFrame(look); };
-    const move = (e: PointerEvent) => { pointer = { x: e.clientX, y: e.clientY }; schedule(); };
-    addEventListener("pointermove", move, { passive: true });
-    // The page scrolls inside the shell, so listen in the capture phase.
-    addEventListener("scroll", schedule, { passive: true, capture: true });
-    addEventListener("resize", schedule);
-    wide.addEventListener("change", schedule);
-    return () => {
-      cancelAnimationFrame(frame);
-      removeEventListener("pointermove", move);
-      removeEventListener("scroll", schedule, { capture: true });
-      removeEventListener("resize", schedule);
-      wide.removeEventListener("change", schedule);
-    };
-  }, []);
-  return <div className="mascot-stage" aria-hidden><span className="mascot"><span className="mascot-eyes" ref={face}><span /><span /><span /></span></span></div>;
 }

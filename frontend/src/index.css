@@ -111,7 +111,7 @@ body { background: var(--color-background-body); }
   .feature-alt .feature-art { order: 2; }
 }
 
-/* Welcome footer: two columns and the wordmark over a big mascot whose eyes follow the pointer.
+/* Welcome footer: two columns and the wordmark over the mascot, which follows the pointer.
    Wide screens keep the composition in vw; narrower ones stack it with the mascot last. */
 .outro {
   --outro-bg: light-dark(#e3eedf, #1a2417); --green: light-dark(#405c35, #5d8250);
@@ -134,17 +134,11 @@ body { background: var(--color-background-body); }
 .outro-apps { display: flex; gap: 18px; margin: 20px 0 0; padding: 0; list-style: none; }
 .outro-apps > li { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; }
 .outro-apps > li:first-child { margin-left: -10px; }
-.mascot-stage { order: 1; position: relative; flex: none; align-self: center; width: calc(100% + 48px); aspect-ratio: 4 / 3; margin-top: -16px; overflow: hidden; pointer-events: none; }
-.mascot { position: absolute; left: 50%; bottom: -25%; translate: -50% 0; width: 70%; aspect-ratio: 1; border-radius: 50%; background: var(--green); container-type: inline-size; }
-.mascot-eyes { position: absolute; inset-inline: 0; top: 28%; display: flex; justify-content: center; gap: 9cqi; }
-.mascot-eyes > span { width: 12cqi; aspect-ratio: 1; border-radius: 50%; background: #fff; }
-@media (max-width: 63.99rem) and (prefers-reduced-motion: no-preference) {
-  .mascot-eyes { animation: look-around 4s linear infinite; }
+.mascot-stage {
+  --mascot-size: min(62vw, 22rem); order: 1; position: relative; flex: none; display: flex; align-items: flex-end; justify-content: center;
+  align-self: center; width: calc(100% + 48px); aspect-ratio: 4 / 3; margin-top: -16px; padding-bottom: 6%; pointer-events: none;
 }
-@keyframes look-around {
-  0%, 100% { translate: 6cqi 0; } 12.5% { translate: 4.24cqi 4.24cqi; } 25% { translate: 0 6cqi; } 37.5% { translate: -4.24cqi 4.24cqi; }
-  50% { translate: -6cqi 0; } 62.5% { translate: -4.24cqi -4.24cqi; } 75% { translate: 0 -6cqi; } 87.5% { translate: 4.24cqi -4.24cqi; }
-}
+.mascot-stage canvas { pointer-events: auto; }
 @media (min-width: 64rem) {
   .outro { display: block; min-height: calc(100dvh - 3.5rem); padding: 6.54vw 0 0; }
   .tag { height: max(1.9vw, 26px); padding: .39vw max(.61vw, 9px); font-size: max(.88vw, 12px); }
@@ -159,9 +153,5 @@ body { background: var(--color-background-body); }
   .outro-apps { gap: 1.43vw; margin-top: 1.61vw; }
   .outro-apps > li { width: auto; height: auto; }
   .outro-apps > li:first-child { margin-left: 0; }
-  .mascot-stage { position: absolute; inset: 0; z-index: -1; align-self: auto; width: auto; aspect-ratio: auto; margin: 0; }
-  .mascot { bottom: -14vw; width: 40vw; }
-}
-@media (min-width: 64rem) and (prefers-reduced-motion: no-preference) {
-  .mascot-eyes { transition: translate .3s cubic-bezier(.2, .8, .2, 1); }
+  .mascot-stage { --mascot-size: min(30vw, 46dvh); position: absolute; inset: 0; z-index: -1; align-self: auto; width: auto; aspect-ratio: auto; margin: 0; padding-bottom: 3vw; }
 }

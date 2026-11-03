@@ -33,17 +33,14 @@ test("the welcome headline cycles, and holds still for reduced motion", async ({
   await expect(shown).toHaveText("does your Meta busywork");
 });
 
-test("the footer mascot looks toward the pointer on wide screens", async ({ page }) => {
+test("the footer mascot loads on its own and gets busy over the sign-in buttons", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json({ signed_in: false })));
-  await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto("/");
-  const eyes = page.locator(".mascot-eyes");
-  await eyes.scrollIntoViewIfNeeded();
-  const box = (await eyes.boundingBox())!;
-  await page.mouse.move(box.x + box.width / 2 + 300, box.y + box.height / 2);
-  await expect.poll(() => eyes.evaluate(e => parseFloat(e.style.translate))).toBeGreaterThan(0);
-  await page.mouse.move(box.x + box.width / 2 - 300, box.y + box.height / 2);
-  await expect.poll(() => eyes.evaluate(e => parseFloat(e.style.translate))).toBeLessThan(0);
+  const footer = page.locator("footer.outro");
+  await footer.scrollIntoViewIfNeeded();
+  await expect(footer.locator(".mascot-stage canvas")).toBeVisible();
+  await footer.getByRole("link", { name: "Continue with Facebook" }).hover();
+  await expect(footer.locator(".mascot-stage canvas")).toHaveAttribute("aria-label", /working/i);
 });
 
 test("a signed-in person moves between destinations", async ({ page }) => {
