@@ -1,26 +1,20 @@
 services:
   secnd:
-    build: .
+    build:
+      context: .
+      dockerfile: server/Dockerfile
     env_file:
       - path: .env
         required: false
+    # The image's own paths and bind address win over a local .env.
     environment:
-      SECND_FEATURIZER: ${SECND_FEATURIZER:-pt-minilm}
-      SECND_SERVING_BACKEND: ${SECND_SERVING_BACKEND:-head}
-      SECND_READER: '${SECND_READER:-{"model_id":"ic-ettin-150m-s6000-near","device":"cpu","examples":8}}'
-      SECND_WORKSPACE_BACKENDS: '${SECND_WORKSPACE_BACKENDS:-{}}'
-      SECND_WORKSPACE_READERS: '${SECND_WORKSPACE_READERS:-{}}'
-      SECND_ENCODER_REPO: ${SECND_ENCODER_REPO:-Secnd-AI/ren}
-      SECND_ENCODER_REVISION: ${SECND_ENCODER_REVISION:-5560f25414195f1d1224a6ae7efd19c6b7646d3f}
-      SECND_META_APP_SECRET: ${SECND_META_APP_SECRET:-}
-      SECND_META_VERIFY_TOKEN: ${SECND_META_VERIFY_TOKEN:-}
-      SECND_WHATSAPP_TOKEN: ${SECND_WHATSAPP_TOKEN:-}
-      SECND_WHATSAPP_SEND_ENABLED: ${SECND_WHATSAPP_SEND_ENABLED:-false}
-      SECND_META_GRAPH_VERSION: ${SECND_META_GRAPH_VERSION:-v25.0}
+      SECND_BIND: 0.0.0.0:8000
+      SECND_DATA_DIR: /home/nonroot/data
+      SECND_STATIC_DIR: /app/dist
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
-      - secnd-data:/app/.data
+      - secnd-data:/home/nonroot/data
 
 volumes:
   secnd-data:
