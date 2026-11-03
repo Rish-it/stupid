@@ -7,7 +7,7 @@ import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
-import { api, useLoad } from "./api";
+import { api, drafts, useLoad } from "./api";
 import type { InboxItem } from "./api";
 import { Load } from "./Load";
 import SourceIcon from "./SourceIcon";
@@ -18,7 +18,7 @@ const where = { whatsapp: "WhatsApp", messenger: "Messenger", instagram: "Instag
 export default function Inbox() {
   const inbox = useLoad("inbox", api.inbox);
   const [filter, setFilter] = useState<keyof typeof filters>("all");
-  const [open, setOpen] = useState<string>();
+  const [open, setOpen] = useState(() => [...drafts.keys()].at(-1));
   return (
     <VStack gap={6}>
       <VStack gap={2}>
@@ -56,11 +56,12 @@ export default function Inbox() {
 }
 
 function Reply({ item, onSent }: { item: InboxItem; onSent: () => void }) {
-  const [text, setText] = useState("");
+  const [text, setText] = useState(() => drafts.get(item.id) ?? "");
   const [error, setError] = useState("");
   const send = async () => {
     try {
       await api.reply(item.id, text.trim());
+      drafts.delete(item.id);
       onSent();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));

@@ -101,6 +101,9 @@ export const api = {
   setAiKey: (api_key: string) => call<Omit<AiSettings, "workspace_ai">>("PUT", "/api/settings/ai", { api_key }),
 };
 
+/** Reply drafts handed from Agents to the Inbox, by message id. In memory only. */
+export const drafts = new Map<string, string>();
+
 // In-memory only: a screen shows what it last saw at once, then refreshes in the background.
 const cache = new Map<string, unknown>();
 
