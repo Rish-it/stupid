@@ -405,10 +405,11 @@ pub fn inbox_rows(state: &AppState, u: &User) -> ApiResult<Vec<Value>> {
     }
     let marks = vec!["?"; ids.len()].join(",");
     let db = lock(&state.db);
-    let mut stmt = db.prepare(&format!("SELECT id,kind,asset_id,sender,text,created,EXISTS(SELECT 1 FROM replies r WHERE r.event_id=events.id),sender_name
+    let mut stmt = db.prepare(&format!("SELECT id,kind,asset_id,sender,text,created,EXISTS(SELECT 1 FROM replies r WHERE r.event_id=events.id AND r.error IS NULL),sender_name,
+          (SELECT error FROM replies r WHERE r.event_id=events.id)
           FROM events WHERE asset_id IN ({marks}) ORDER BY created DESC, id DESC LIMIT 100"))?;
     let rows = stmt.query_map(rusqlite::params_from_iter(ids.iter()), |r| {
-        Ok(json!({ "id": r.get::<_, i64>(0)?, "kind": r.get::<_, String>(1)?, "asset_id": r.get::<_, String>(2)?, "sender": r.get::<_, String>(3)?, "text": r.get::<_, String>(4)?, "created": r.get::<_, i64>(5)?, "replied": r.get::<_, bool>(6)?, "sender_name": r.get::<_, Option<String>>(7)? }))
+        Ok(json!({ "id": r.get::<_, i64>(0)?, "kind": r.get::<_, String>(1)?, "asset_id": r.get::<_, String>(2)?, "sender": r.get::<_, String>(3)?, "text": r.get::<_, String>(4)?, "created": r.get::<_, i64>(5)?, "replied": r.get::<_, bool>(6)?, "sender_name": r.get::<_, Option<String>>(7)?, "reply_error": r.get::<_, Option<String>>(8)? }))
     })?;
     Ok(rows.collect::<Result<_, _>>()?)
 }
@@ -467,15 +468,26 @@ pub async fn reply(State(s): State<AppState>, headers: HeaderMap, Path(id): Path
     }
     let (path, payload) = reply_request(&kind, &asset_id, &sender, &dedupe, text).ok_or_else(missing)?;
     let t = tokens(&s, &u)?;
-    // Claim the message before sending, so a double tap cannot send twice.
-    let claimed = lock(&s.db).execute("INSERT OR IGNORE INTO replies (event_id,user_id,text,created) VALUES (?1,?2,?3,?4)", params![id, u.id, text, now()])?;
+    // Claim the message before sending, so a double tap cannot send twice. A reply Meta failed
+    // to deliver frees the message for another try.
+    let claimed = {
+        let db = lock(&s.db);
+        db.execute("DELETE FROM replies WHERE event_id=?1 AND error IS NOT NULL", [id])?;
+        db.execute("INSERT OR IGNORE INTO replies (event_id,user_id,text,created) VALUES (?1,?2,?3,?4)", params![id, u.id, text, now()])?
+    };
     if claimed == 0 {
         return Err(AppError::new(409, "You already replied to this message."));
     }
-    if let Err(e) = post(&s, &path, &payload, t.for_asset(&asset.key)).await {
-        let _ = lock(&s.db).execute("DELETE FROM replies WHERE event_id=?1", [id]);
-        return Err(e);
-    }
+    let sent = match post(&s, &path, &payload, t.for_asset(&asset.key)).await {
+        Ok(sent) => sent,
+        Err(e) => {
+            let _ = lock(&s.db).execute("DELETE FROM replies WHERE event_id=?1", [id]);
+            return Err(e);
+        }
+    };
+    // Meta's id for the sent message, so a later delivery failure can be matched to this reply.
+    let message_id = [&sent["messages"][0]["id"], &sent["message_id"], &sent["id"]].into_iter().find_map(|v| v.as_str());
+    lock(&s.db).execute("UPDATE replies SET message_id=?2 WHERE event_id=?1", params![id, message_id])?;
     Ok(Json(json!({ "sent": true })))
 }
 
@@ -527,14 +539,15 @@ pub fn parse_webhook(payload: &Value) -> Vec<Event> {
 }
 
 /// WhatsApp delivery failures, which Meta reports only through the webhook after accepting a send.
-pub fn failed_sends(payload: &Value) -> Vec<String> {
+pub fn failed_sends(payload: &Value) -> Vec<(String, String)> {
     let changes = payload["entry"].as_array().into_iter().flatten().flat_map(|e| e["changes"].as_array().into_iter().flatten());
     changes
         .flat_map(|c| c["value"]["statuses"].as_array().into_iter().flatten())
         .filter(|st| st["status"] == "failed")
         .map(|st| {
             let e = &st["errors"][0];
-            format!("to {}: {} {} {}", st["recipient_id"].as_str().unwrap_or("?"), e["code"], e["title"].as_str().unwrap_or(""), e["error_data"]["details"].as_str().unwrap_or(""))
+            let reason = format!("{} ({})", e["error_data"]["details"].as_str().or(e["title"].as_str()).unwrap_or("unknown error"), e["code"]);
+            (st["id"].as_str().unwrap_or_default().to_string(), reason)
         })
         .collect()
 }
@@ -553,8 +566,8 @@ mod tests {
         assert_eq!(e.len(), 1);
         assert_eq!((e[0].kind.as_str(), e[0].asset_id.as_str()), ("instagram", "77"));
         assert!(numeric("act_123") && !numeric("act_") && !numeric("12a"));
-        let st = json!({"entry":[{"changes":[{"value":{"statuses":[{"status":"delivered"},{"status":"failed","recipient_id":"91","errors":[{"code":131026,"title":"Undeliverable"}]}]}}]}]});
-        assert_eq!(failed_sends(&st), vec!["to 91: 131026 Undeliverable ".to_string()]);
+        let st = json!({"entry":[{"changes":[{"value":{"statuses":[{"status":"delivered"},{"status":"failed","id":"wamid.1","recipient_id":"91","errors":[{"code":131031,"title":"Business Account locked","error_data":{"details":"Business account has been locked."}}]}]}}]}]});
+        assert_eq!(failed_sends(&st), vec![("wamid.1".to_string(), "Business account has been locked. (131031)".to_string())]);
     }
 
     #[test]
