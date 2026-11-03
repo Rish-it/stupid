@@ -122,6 +122,15 @@ async fn discover(state: &AppState, token: &str) -> Grant {
         let Some(w) = waba["id"].as_str().filter(|w| numeric(w)) else { continue };
         numbers.extend(take("WhatsApp numbers", rows(state, &format!("{w}/phone_numbers"), "id,verified_name,display_phone_number", token).await));
     }
+    // Meta forwards a Page's messages only once the app is subscribed to that Page.
+    let mut subscribed = 0;
+    for row in &pages {
+        let (Some(id), Some(t)) = (row["id"].as_str().filter(|i| numeric(i)), row["access_token"].as_str()) else { continue };
+        match post(state, &format!("{id}/subscribed_apps"), &json!({ "subscribed_fields": "messages" }), t).await {
+            Ok(_) => subscribed += 1,
+            Err(e) => problems.push(format!("Messages from {}: {}", row["name"].as_str().unwrap_or("a Page"), e.1.trim_start_matches("Meta: "))),
+        }
+    }
     let mut add = |kind: &str, id: &Value, name: &Value, fallback: &str, token: Option<&str>| {
         let id = id.as_str().map(str::to_string).unwrap_or_else(|| id.to_string());
         if !numeric(&id) {
@@ -152,7 +161,7 @@ async fn discover(state: &AppState, token: &str) -> Grant {
     permissions.sort();
     let count = |k: &str| assets.iter().filter(|a| a.kind == k).count();
     tracing::info!(
-        "Meta shared: ads={} pages={} instagram={} whatsapp={} (businesses={} wabas={}) permissions={} problems={:?}",
+        "Meta shared: ads={} pages={} (subscribed={subscribed}) instagram={} whatsapp={} (businesses={} wabas={}) permissions={} problems={:?}",
         count("ads"), count("messenger"), count("instagram"), count("whatsapp"), businesses.len(), wabas.len(), permissions.len(), problems
     );
     Grant { assets, page_tokens, permissions, problems }
