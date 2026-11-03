@@ -5,9 +5,10 @@ import { Button } from "@astryxdesign/core/Button";
 import { Center } from "@astryxdesign/core/Center";
 import { Grid } from "@astryxdesign/core/Grid";
 import { Heading } from "@astryxdesign/core/Heading";
+import { Link } from "@astryxdesign/core/Link";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Spinner } from "@astryxdesign/core/Spinner";
-import { VStack } from "@astryxdesign/core/Stack";
+import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TopNav, TopNavHeading, TopNavItem } from "@astryxdesign/core/TopNav";
 import { api, oauthStartUrl, sample, useLoad } from "./api";
@@ -16,10 +17,11 @@ const pages = { today: "Today", inbox: "Inbox", agents: "Agents", connections: "
 type Page = keyof typeof pages;
 const nav: Page[] = ["today", "inbox", "agents", "connections"];
 const welcome = [
-  ["Your numbers, plainly", "Ad spend, reach and new messages from the last 7 days, without the jargon."],
-  ["Work done for you", "Agents find leads, draft posts and write replies while you get on with your day."],
-  ["You stay in charge", "Nothing is sent or changed until you tap. Switch any account off at any time."],
+  ["Inbox", "Messenger, Instagram and WhatsApp messages in one place."],
+  ["Agents", "Drafts replies, post ideas and ad advice. Nothing is sent without your tap."],
+  ["Ads in plain words", "What you spent, what worked and what to change."],
 ] as const;
+const legal = [["Privacy", "/privacy.html"], ["Terms", "/terms.html"], ["Data deletion", "/deletion.html"]] as const;
 const Connections = lazy(() => import("./Connections"));
 const Today = lazy(() => import("./Today"));
 const Inbox = lazy(() => import("./Inbox"));
@@ -67,7 +69,7 @@ export default function App() {
     <VStack gap={10} paddingBlockStart={8} hAlign="center">
       <VStack gap={4} hAlign="center" maxWidth={560}>
         <Heading level={1} type="display-2" justify="center" textWrap="balance">Run your Meta business in plain words</Heading>
-        <Text as="p" justify="center">Sign in with Facebook, then connect Ads, Instagram and WhatsApp one at a time. You choose what Secnd can see.</Text>
+        <Text as="p" justify="center">Your messages, posts and ads from Facebook, Instagram and WhatsApp, in one calm place.</Text>
         <Button variant="primary" size="lg" label="Continue with Facebook" href={oauthStartUrl} />
       </VStack>
       <Grid columns={{ minWidth: 220 }} gap={6} maxWidth={880} width="100%">
@@ -75,6 +77,7 @@ export default function App() {
           <VStack key={title} gap={1}><Heading level={2}>{title}</Heading><Text as="p" type="supporting">{text}</Text></VStack>
         ))}
       </Grid>
+      <Text as="p" type="supporting" justify="center">Secnd only reads what you allow. Tokens are encrypted. Disconnect any time.</Text>
     </VStack>
   );
   else if (me.error) body = (
@@ -100,7 +103,12 @@ export default function App() {
             : { status: "success", title: "You're connected", description: "Choose which accounts Secnd can read. You can change this any time." }} />
         )}
         {body}
-        <Text as="p" type="supporting" justify="center">Built for Meta's platform. Not an official Meta product.</Text>
+        <VStack as="footer" gap={2} hAlign="center">
+          <HStack as="nav" aria-label="Legal" gap={4} wrap="wrap" hAlign="center">
+            {legal.map(([label, href]) => <Link key={href} href={href} type="supporting">{label}</Link>)}
+          </HStack>
+          <Text as="p" type="supporting" justify="center">Built for Meta's platform. Not an official Meta product.</Text>
+        </VStack>
       </VStack>
     </AppShell>
   );
