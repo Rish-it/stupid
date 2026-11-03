@@ -6,6 +6,13 @@ export type Health = { status: "ok" | "degraded"; meta_configured: boolean; ai_c
 export type Me = { signed_in: false } | { signed_in: true; name: string; assets: Asset[]; selected: string[] };
 export type Connections = { assets: Asset[]; selected: string[] };
 
+export const apps: { kind: AssetKind; name: string; does: string }[] = [
+  { kind: "ads", name: "Meta Ads", does: "Reads your spend and results, and tells you in plain words which ads to pause, keep or grow." },
+  { kind: "instagram", name: "Instagram", does: "Reads your reach, posts, comments and DMs, and drafts post ideas and replies for you to approve." },
+  { kind: "whatsapp", name: "WhatsApp", does: "Brings customer chats into your inbox and drafts replies. Nothing is sent until you tap send." },
+  { kind: "messenger", name: "Facebook Page", does: "Brings Messenger chats from your Page into your inbox and drafts replies for you." },
+];
+
 export type Campaign = {
   campaign_id: string; campaign_name: string; spend: string; impressions: string; reach: string;
   clicks: string; ctr: string; cpc: string; actions?: { action_type: string; value: string }[];
@@ -53,7 +60,11 @@ export class ApiError extends Error {
   }
 }
 
+/** Dev builds only: ?fixtures=1 answers from labelled sample data instead of the server. */
+export const sample = import.meta.env.DEV && new URLSearchParams(location.search).has("fixtures");
+
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+  if (sample) return (await import("./fixtures")).answer(method, path, body) as Promise<T>;
   let res: Response;
   try {
     res = await fetch(path, {
