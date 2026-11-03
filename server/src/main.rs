@@ -165,6 +165,7 @@ CREATE TABLE IF NOT EXISTS deletions (code TEXT PRIMARY KEY, created INTEGER NOT
 ",
     "ALTER TABLE users ADD COLUMN permissions_json TEXT NOT NULL DEFAULT '[]';",
     "CREATE TABLE replies (event_id INTEGER PRIMARY KEY, user_id TEXT NOT NULL, text TEXT NOT NULL, created INTEGER NOT NULL);",
+    "ALTER TABLE users ADD COLUMN ai_key_blob TEXT; ALTER TABLE spend ADD COLUMN own INTEGER NOT NULL DEFAULT 0;",
 ];
 
 fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
@@ -566,6 +567,7 @@ async fn main() {
         .route("/api/instagram", get(meta::instagram))
         .route("/api/inbox", get(meta::inbox))
         .route("/api/inbox/{id}/reply", post(meta::reply))
+        .route("/api/settings/ai", get(agents::settings).put(agents::save_key))
         .route("/api/agents", get(agents::list))
         .route("/api/agents/{agent}/run", post(agents::run))
         .route("/webhooks/meta", get(webhook_verify).post(webhook))
