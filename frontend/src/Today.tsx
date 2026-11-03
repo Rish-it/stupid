@@ -6,6 +6,8 @@ import { Heading } from "@astryxdesign/core/Heading";
 import { Link } from "@astryxdesign/core/Link";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
+import { Timestamp } from "@astryxdesign/core/Timestamp";
+import { Token } from "@astryxdesign/core/Token";
 import { api, apps, senderName, useLoad } from "./api";
 import type { AssetKind, Campaign, Connections } from "./api";
 import { Load } from "./Load";
@@ -24,19 +26,19 @@ export default function Today({ state }: { state: Connections }) {
         <Text as="p" type="supporting">How your business did over the last 7 days.</Text>
       </VStack>
       <Grid columns={{ minWidth: 300 }} gap={4}>
-        <Tile kind="ads" title="Ads">{on("ads") ? <Ads /> : <Connect kind="ads" />}</Tile>
-        <Tile kind="instagram" title="Instagram">{on("instagram") ? <Instagram /> : <Connect kind="instagram" />}</Tile>
-        <Tile kind="whatsapp" title="Messages">{messaging ? <Messages /> : <Connect kind="whatsapp" />}</Tile>
+        <Tile icon="ads" title="Ads">{on("ads") ? <Ads /> : <Connect kind="ads" />}</Tile>
+        <Tile icon="instagram" title="Instagram">{on("instagram") ? <Instagram /> : <Connect kind="instagram" />}</Tile>
+        <Tile icon="chat" title="Messages">{messaging ? <Messages /> : <Connect kind="whatsapp" />}</Tile>
       </Grid>
     </VStack>
   );
 }
 
-function Tile({ kind, title, children }: { kind: AssetKind; title: string; children: ReactNode }) {
+function Tile({ icon, title, children }: { icon: string; title: string; children: ReactNode }) {
   return (
-    <Card variant="muted">
+    <Card variant="muted" height="100%">
       <VStack gap={4}>
-        <HStack gap={3} align="center"><SourceIcon source={kind} /><Heading level={2}>{title}</Heading></HStack>
+        <HStack gap={3} align="center"><SourceIcon source={icon} /><Heading level={2}>{title}</Heading></HStack>
         {children}
       </VStack>
     </Card>
@@ -123,7 +125,17 @@ function Messages() {
     return (
       <VStack gap={4}>
         <Stat label="New in the last day" value={count(day.length)} />
-        {items.slice(0, 3).map(i => <Text key={i.id} as="p" maxLines={1}><strong>{senderName(i)}</strong>: {i.text}</Text>)}
+        {items.slice(0, 3).map(i => (
+          <VStack key={i.id} gap={1}>
+            <HStack gap={2} align="center" wrap="wrap">
+              <SourceIcon source={i.kind} size={16} />
+              <Text weight="semibold">{senderName(i)}</Text>
+              <Timestamp value={i.created} format="relative" type="supporting" />
+              {i.replied && <Token size="sm" label="Replied" />}
+            </HStack>
+            <Text as="p" maxLines={1}>{i.text}</Text>
+          </VStack>
+        ))}
         {items.length ? <Link hasUnderline href="#inbox">Open your inbox</Link> : <Text as="p" type="supporting">No messages yet.</Text>}
       </VStack>
     );
