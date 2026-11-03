@@ -1,5 +1,5 @@
 // Monochrome platform marks, kept inline for offline demos and consistent contrast.
-export default function SourceIcon({ source, size = 24 }: { source: string; size?: number }) {
+export default function SourceIcon({ source, size = 24 }: { source: string; size?: number | string }) {
   if (source === "instagram_comment") source = "instagram";
   const name = source === "ads" ? "Meta Ads" : source === "whatsapp" ? "WhatsApp" : source === "messenger" ? "Messenger" : source === "instagram" ? "Instagram" : source === "chat" ? "Messages" : "Business";
   return <svg className="source-icon" role="img" aria-label={name} width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
