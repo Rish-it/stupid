@@ -12,7 +12,6 @@
     "dev": "concurrently --kill-others --names api,web --prefix-colors cyan,green \"npm run dev:api\" \"npm run dev:web\"",
     "dev:api": "cargo run --manifest-path server/Cargo.toml",
     "dev:web": "npm run dev --workspace @secnd/frontend",
-    "test:meta": "npm run test:inbox",
     "build": "npm run build --workspace @secnd/frontend",
     "lint": "npm run lint --workspace @secnd/frontend",
     "check": "cd server && cargo clippy --locked -- -D warnings && cargo test --locked && cd .. && npm run lint && npm run build",
