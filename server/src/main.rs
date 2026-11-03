@@ -452,8 +452,8 @@ async fn webhook(State(s): State<AppState>, headers: HeaderMap, body: Bytes) -> 
     let db = lock(&s.db);
     for e in events {
         db.execute(
-            "INSERT OR IGNORE INTO events (kind,asset_id,sender,text,created,dedupe) VALUES (?1,?2,?3,?4,?5,?6)",
-            params![e.kind, e.asset_id, e.sender, e.text, now(), e.dedupe],
+            "INSERT OR IGNORE INTO events (kind,asset_id,sender,sender_name,text,created,dedupe) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+            params![e.kind, e.asset_id, e.sender, e.sender_name, e.text, now(), e.dedupe],
         )?;
     }
     Ok(StatusCode::OK)
