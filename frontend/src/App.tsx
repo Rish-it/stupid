@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { AppShell } from "@astryxdesign/core/AppShell";
+import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { Center } from "@astryxdesign/core/Center";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
@@ -13,6 +14,10 @@ const pages = { today: "Today", inbox: "Inbox", agents: "Agents", connections: "
 type Page = keyof typeof pages;
 const nav: Page[] = ["today", "inbox", "agents", "connections"];
 const Connections = lazy(() => import("./Connections"));
+
+// Meta sends people back to /?connected=1 or /?meta_error=1. Read it once, then drop it from the address.
+const returned = new URLSearchParams(location.search).has("meta_error") ? "error" : new URLSearchParams(location.search).has("connected") ? "connected" : null;
+if (returned) history.replaceState(null, "", `/${returned === "connected" ? "#connections" : location.hash}`);
 
 function usePage(): Page {
   const read = () => { const hash = location.hash.slice(1); return hash in pages ? hash as Page : "today"; };
@@ -29,6 +34,7 @@ export default function App() {
   const me = useLoad("me", api.me);
   const page = usePage();
   const user = me.data?.signed_in ? me.data : undefined;
+  const [notice, setNotice] = useState(returned);
   const loading = <Center minHeight={240}><Spinner size="lg" aria-label="Loading" /></Center>;
 
   let body;
@@ -54,6 +60,11 @@ export default function App() {
         endContent={user && <TopNavItem label="Settings" href="#settings" isSelected={page === "settings"} />} />
     }>
       <VStack gap={10}>
+        {notice && (notice === "error" || user) && (
+          <Banner isDismissable onDismiss={() => setNotice(null)} {...notice === "error"
+            ? { status: "error", title: "Facebook didn't connect", description: "Nothing was shared with Secnd. You can try again whenever you like." }
+            : { status: "success", title: "You're connected", description: "Choose which accounts Secnd can read. You can change this any time." }} />
+        )}
         {body}
         <Text as="p" type="supporting" justify="center">Built for Meta's platform. Not an official Meta product.</Text>
       </VStack>
