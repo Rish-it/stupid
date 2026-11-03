@@ -80,7 +80,7 @@ function Ads() {
         <Stat label="Spent on ads" value={spend} />
         {ranked[0] && <Text as="p">Doing best: <strong>{ranked[0].campaign_name}</strong>, {line(ranked[0])}.</Text>}
         {ranked.length > 1 && <Text as="p">Costing most: <strong>{ranked.at(-1)!.campaign_name}</strong>, {line(ranked.at(-1)!)}.</Text>}
-        <Link href="#agents">Ask the Ad watcher what to change</Link>
+        <Link hasUnderline href="#agents">Ask the Ad watcher what to change</Link>
       </VStack>
     );
   }}</Load>;
@@ -105,7 +105,7 @@ function Instagram() {
             <VStack gap={2}>
               <Text weight="semibold">Top posts</Text>
               {top.map(m => (
-                <Link key={m.id} href={m.permalink} isExternalLink maxLines={1}>
+                <Link hasUnderline key={m.id} href={m.permalink} isExternalLink maxLines={1}>
                   {`${m.caption?.split("\n")[0] || "Untitled post"} · ${count(m.like_count ?? 0)} likes, ${count(m.comments_count ?? 0)} comments`}
                 </Link>
               ))}
@@ -124,7 +124,7 @@ function Messages() {
       <VStack gap={4}>
         <Stat label="New in the last day" value={count(day.length)} />
         {items.slice(0, 3).map(i => <Text key={i.id} as="p" maxLines={1}><strong>{i.sender}</strong>: {i.text}</Text>)}
-        {items.length ? <Link href="#inbox">Open your inbox</Link> : <Text as="p" type="supporting">No messages yet.</Text>}
+        {items.length ? <Link hasUnderline href="#inbox">Open your inbox</Link> : <Text as="p" type="supporting">No messages yet.</Text>}
       </VStack>
     );
   }}</Load>;
