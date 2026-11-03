@@ -11,18 +11,18 @@ import { Spinner } from "@astryxdesign/core/Spinner";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TopNav, TopNavHeading, TopNavItem } from "@astryxdesign/core/TopNav";
-import { api, oauthStartUrl, sample, useLoad } from "./api";
+import { api, oauthStartUrl, sample, setupDone, useLoad } from "./api";
 
-const pages = { today: "Today", inbox: "Inbox", agents: "Agents", connections: "Connections", settings: "Settings" } as const;
+const pages = { today: "Today", inbox: "Inbox", agents: "Agents", setup: "Setup", settings: "Settings" } as const;
 type Page = keyof typeof pages;
-const nav: Page[] = ["today", "inbox", "agents", "connections"];
+const nav: Page[] = ["today", "inbox", "agents"];
 const welcome = [
   ["Inbox", "Messenger, Instagram and WhatsApp messages in one place."],
   ["Agents", "Drafts replies, post ideas and ad advice. Nothing is sent without your tap."],
   ["Ads in plain words", "What you spent, what worked and what to change."],
 ] as const;
 const legal = [["Privacy", "/privacy.html"], ["Terms", "/terms.html"], ["Data deletion", "/deletion.html"]] as const;
-const Connections = lazy(() => import("./Connections"));
+const Setup = lazy(() => import("./Setup"));
 const Today = lazy(() => import("./Today"));
 const Inbox = lazy(() => import("./Inbox"));
 const Agents = lazy(() => import("./Agents"));
@@ -34,11 +34,12 @@ const failure = query.get("error")?.slice(0, 300) || (query.has("meta_error") ? 
 const returned = failure ? "error" : query.has("connected") ? "connected" : null;
 if (returned) {
   for (const key of ["error", "meta_error", "connected"]) query.delete(key);
-  history.replaceState(null, "", `/${query.size ? `?${query}` : ""}${returned === "connected" ? "#connections" : location.hash}`);
+  history.replaceState(null, "", `/${query.size ? `?${query}` : ""}${returned === "connected" ? "#setup" : location.hash}`);
 }
 
-function usePage(): Page {
-  const read = () => { const hash = location.hash.slice(1); return hash in pages ? hash as Page : "today"; };
+/** The page named in the address, or null when there is none. */
+function usePage(): Page | null {
+  const read = () => { const hash = location.hash.slice(1); return hash in pages ? hash as Page : null; };
   const [page, setPage] = useState(read);
   useEffect(() => {
     const onHash = () => setPage(read());
@@ -50,9 +51,13 @@ function usePage(): Page {
 
 export default function App() {
   const me = useLoad("me", api.me);
-  const page = usePage();
   const user = me.data?.signed_in ? me.data : undefined;
-  const [notice, setNotice] = useState(returned);
+  const ready = user && setupDone(user);
+  // Until setup is done, it is home; afterwards it lives in Settings. Pin it to the address so finishing doesn't jump away.
+  const named = usePage();
+  const page = named ?? (user && !ready ? "setup" : "today");
+  useEffect(() => { if (!named && page === "setup") location.replace("#setup"); }, [named, page]);
+  const [failed, setFailed] = useState(failure);
   const [connecting, setConnecting] = useState(false);
   // Coming back with the browser's Back button restores this page as it was; drop the loader then.
   useEffect(() => {
@@ -60,8 +65,6 @@ export default function App() {
     addEventListener("pageshow", onShow);
     return () => removeEventListener("pageshow", onShow);
   }, []);
-  // "You're connected" belongs to the page Meta sends people back to; leaving it retires the notice for good.
-  if (notice === "connected" && page !== "connections") setNotice(null);
   const loading = <Center minHeight={240}><Spinner size="lg" aria-label="Loading" /></Center>;
   const signedIn = Boolean(user);
   useEffect(() => { document.title = signedIn ? `${pages[page]} · Secnd` : "Secnd"; }, [signedIn, page]);
@@ -74,7 +77,7 @@ export default function App() {
   );
 
   let body;
-  if (user && page === "connections") body = <Suspense fallback={loading}><Connections state={user} onChange={next => me.setData({ ...user, ...next })} /></Suspense>;
+  if (user && page === "setup") body = <Suspense fallback={loading}><Setup state={user} onChange={next => me.setData({ ...user, ...next })} onConnect={connect} /></Suspense>;
   else if (user && page === "today") body = <Suspense fallback={loading}><Today state={user} /></Suspense>;
   else if (user && page === "inbox") body = <Suspense fallback={loading}><Inbox /></Suspense>;
   else if (user && page === "agents") body = <Suspense fallback={loading}><Agents state={user} /></Suspense>;
@@ -109,15 +112,12 @@ export default function App() {
       topNav={
       <TopNav label="Main navigation"
         heading={<TopNavHeading heading="Secnd" headingHref="#today" />}
-        startContent={user && nav.map(id => <TopNavItem key={id} label={pages[id]} href={`#${id}`} isSelected={page === id} />)}
+        startContent={user && [...nav, ...ready ? [] : ["setup" as const]].map(id => <TopNavItem key={id} label={pages[id]} href={`#${id}`} isSelected={page === id} />)}
         endContent={user && <TopNavItem label="Settings" href="#settings" isSelected={page === "settings"} />} />
     }>
       <VStack gap={10}>
-        {notice && (notice === "error" || user) && (
-          <Banner isDismissable onDismiss={() => setNotice(null)} {...notice === "error"
-            ? { status: "error", title: "Facebook didn't connect", description: failure, endContent: <Button size="sm" label="Try again" href={oauthStartUrl} onClick={connect} /> }
-            : { status: "success", title: "You're connected", description: "Choose which accounts Secnd can read. You can change this any time." }} />
-        )}
+        {failed && <Banner status="warning" isDismissable onDismiss={() => setFailed(null)} title="Facebook didn't connect" description={failed}
+          endContent={<Button size="sm" label="Try again" href={oauthStartUrl} onClick={connect} />} />}
         {body}
         <VStack as="footer" gap={2} hAlign="center">
           <HStack as="nav" aria-label="Legal" gap={4} wrap="wrap" hAlign="center">

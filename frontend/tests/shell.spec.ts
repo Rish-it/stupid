@@ -21,7 +21,7 @@ test("asks a signed-out visitor to continue with Facebook", async ({ page }) => 
 test("a signed-in person moves between destinations", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json({ signed_in: true, name: "Test", assets: [], selected: [] })));
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Today" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Set up Secnd" })).toBeVisible();
   await page.getByRole("link", { name: "Inbox" }).click();
   await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Inbox" })).toHaveAttribute("aria-current", "page");
@@ -32,7 +32,7 @@ const signedIn = { signed_in: true, name: "Test", selected: ["ads:act_1"], asset
   { key: "instagram:1", kind: "instagram", id: "1", name: "Test Instagram" },
 ] };
 
-test("returning from Meta opens Connections and saves account switches", async ({ page }) => {
+test("returning from Meta opens Setup and saves account switches", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json(signedIn)));
   let saved: unknown;
   await page.route("**/api/connections", route => {
@@ -40,21 +40,13 @@ test("returning from Meta opens Connections and saves account switches", async (
     route.fulfill(json({ assets: signedIn.assets, selected: (saved as { selected: string[] }).selected }));
   });
   await page.goto("/?connected=1");
-  await expect(page.getByText("You're connected")).toBeVisible();
-  await expect(page).toHaveURL(/\/#connections$/);
+  await expect(page).toHaveURL(/\/#setup$/);
   await expect(page.getByRole("link", { name: "Connect WhatsApp" })).toHaveAttribute("href", "/api/v1/meta/oauth/start");
   const instagram = page.getByRole("switch", { name: "Test Instagram" });
   await expect(instagram).not.toBeChecked();
   await instagram.click();
   await expect(instagram).toBeChecked();
   expect(saved).toEqual({ selected: ["ads:act_1", "instagram:1"] });
-
-  await page.getByRole("link", { name: "Today" }).click();
-  await expect(page.getByRole("heading", { name: "Today" })).toBeVisible();
-  await expect(page.getByText("You're connected")).toBeHidden();
-  await page.getByRole("link", { name: "Connections" }).click();
-  await expect(page.getByRole("heading", { name: "Connections" })).toBeVisible();
-  await expect(page.getByText("You're connected")).toBeHidden();
 });
 
 test("a refused Meta sign-in shows Meta's reason and offers to try again", async ({ page }) => {
@@ -191,6 +183,7 @@ test("Settings saves an AI key, confirms before deleting and signs out", async (
   let deleted = false;
   await page.route("**/api/connections", route => { deleted = route.request().method() === "DELETE"; route.fulfill(json({})); });
   await page.goto("/#settings");
+  await expect(page.getByRole("link", { name: "Open setup" })).toHaveAttribute("href", "#setup");
 
   const key = page.getByLabel("Your Muse API key");
   await key.fill("bad");

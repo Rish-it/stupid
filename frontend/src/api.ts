@@ -1,18 +1,43 @@
 import { useCallback, useEffect, useState } from "react";
 
 export type AssetKind = "ads" | "instagram" | "whatsapp" | "messenger";
-export type Asset = { key: string; kind: AssetKind; id: string; name: string };
+/** Something Meta still needs from the person. `blocking` means the account can't work yet; otherwise it works with limits. */
+export type Issue = { blocking: boolean; text: string; fix: string; link?: string | null };
+export type Asset = { key: string; kind: AssetKind; id: string; name: string; issues?: Issue[] };
 export type Health = { status: "ok" | "degraded"; meta_configured: boolean; ai_configured: boolean };
 /** `instagram_oauth_start` appears once the server offers Instagram sign-in for creators without a Facebook Page. */
-export type Me = { signed_in: false; instagram_oauth_start?: string } | { signed_in: true; name: string; assets: Asset[]; selected: string[]; permissions: string[] };
+export type Me = { signed_in: false; instagram_oauth_start?: string } | { signed_in: true; name: string; assets: Asset[]; selected: string[]; permissions: string[]; problems?: string[] };
 export type Connections = { assets: Asset[]; selected: string[] };
+export type Account = Connections & { permissions?: string[]; problems?: string[] };
 
-export const apps: { kind: AssetKind; name: string; does: string }[] = [
-  { kind: "ads", name: "Meta Ads", does: "Reads your spend and results, and tells you in plain words which ads to pause, keep or grow." },
-  { kind: "instagram", name: "Instagram", does: "Reads your reach, posts, comments and DMs, and drafts post ideas and replies for you to approve." },
-  { kind: "whatsapp", name: "WhatsApp", does: "Brings customer chats into your inbox and drafts replies. Nothing is sent until you tap send." },
-  { kind: "messenger", name: "Facebook Page", does: "Brings Messenger chats from your Page into your inbox and drafts replies for you." },
+/** In setup order. `pick` is what to choose in Meta's dialog. */
+export const apps: { kind: AssetKind; name: string; why: string; pick: string }[] = [
+  { kind: "instagram", name: "Instagram", why: "See your reach and answer DMs and comments.", pick: "In Meta's window, pick your Instagram account." },
+  { kind: "whatsapp", name: "WhatsApp", why: "Answer customer chats from your inbox.", pick: "In Meta's window, pick your WhatsApp Business account and number." },
+  { kind: "messenger", name: "Facebook Page", why: "Answer Messenger chats from your Page.", pick: "In Meta's window, pick your Facebook Page." },
+  { kind: "ads", name: "Meta Ads", why: "See what you spent and what worked, in plain words.", pick: "In Meta's window, pick your ad account." },
 ];
+
+// What each Meta permission turns on, in the person's words.
+const features: Record<AssetKind, [permission: string, feature: string][]> = {
+  ads: [["ads_read", "your ad results"]],
+  instagram: [["instagram_manage_insights", "reach and insights"], ["instagram_manage_comments", "comments"], ["instagram_manage_messages", "DMs"]],
+  whatsapp: [["whatsapp_business_messaging", "chats"]],
+  messenger: [["pages_messaging", "Messenger chats"]],
+};
+
+export type Status = "ready" | "step" | "off";
+/** One app's setup state. Only switched-on accounts count; an empty permission list means the server doesn't know yet. */
+export function appStatus(state: Account, kind: AssetKind) {
+  const on = state.assets.filter(a => a.kind === kind && state.selected.includes(a.key));
+  const refused = on.length && state.permissions?.length ? features[kind].filter(([p]) => !state.permissions!.includes(p)).map(([, f]) => f) : [];
+  const blocked = on.some(a => a.issues?.some(i => i.blocking));
+  const status: Status = !on.length ? "off" : blocked || refused.length ? "step" : "ready";
+  return { status, on, refused };
+}
+/** Setup is done when nothing was refused, nothing needs a step, and at least one app is ready. */
+export const setupDone = (state: Account) => !state.problems?.length
+  && apps.every(a => appStatus(state, a.kind).status !== "step") && apps.some(a => appStatus(state, a.kind).status === "ready");
 
 export type Campaign = {
   campaign_id: string; campaign_name: string; spend: string; impressions: string; reach: string;
@@ -96,6 +121,7 @@ export const api = {
   signOut: () => call<{ signed_in: false }>("POST", "/api/sign-out"),
   select: (selected: string[]) => call<Connections>("PUT", "/api/connections", { selected }),
   disconnect: () => call<unknown>("DELETE", "/api/connections"),
+  refresh: () => call<Required<Account>>("POST", "/api/connections/refresh"),
   ads: () => call<Ads>("GET", "/api/ads"),
   instagram: () => call<Instagram>("GET", "/api/instagram"),
   inbox: () => call<{ items: InboxItem[] }>("GET", "/api/inbox"),
