@@ -351,23 +351,6 @@ pub async fn instagram_data(state: &AppState, u: &User) -> ApiResult<Value> {
     Ok(json!({ "accounts": out }))
 }
 
-/// Recent comments on the six newest posts, for agents: one Graph call per account.
-pub async fn instagram_comments(state: &AppState, u: &User) -> ApiResult<Vec<Value>> {
-    let t = tokens(state, u)?;
-    let mut comments = Vec::new();
-    for a in u.selected_assets("instagram") {
-        let fields = ("fields", "caption,comments.limit(50){text,username,timestamp}".to_string());
-        let Ok(page) = get(state, &format!("{}/media", a.id), &[fields, ("limit", "6".into())], t.for_asset(&a.key)).await else { continue };
-        for post in page["data"].as_array().into_iter().flatten() {
-            let caption: String = post["caption"].as_str().unwrap_or("").chars().take(120).collect();
-            for c in post["comments"]["data"].as_array().into_iter().flatten() {
-                comments.push(json!({ "username": c["username"], "text": c["text"], "post": caption }));
-            }
-        }
-    }
-    Ok(comments)
-}
-
 /// Unix seconds from Graph's "2026-11-03T07:00:00+0000". Graph sends UTC, so the offset is not read.
 fn graph_time(t: &str) -> Option<i64> {
     let n = |r: std::ops::Range<usize>| t.get(r).and_then(|v| v.parse::<i64>().ok());

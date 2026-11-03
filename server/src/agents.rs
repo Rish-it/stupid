@@ -99,7 +99,8 @@ pub async fn run(State(s): State<AppState>, headers: HeaderMap, Path(agent): Pat
     // Checked again below under the same lock as the insert; this only avoids Meta calls for a refused run.
     busy(&lock(&s.db), &u.id, name)?;
     let context = match name {
-        "leads" => json!({ "instagram_comments": meta::instagram_comments(&s, &u).await.unwrap_or_default(), "messages": meta::fresh_inbox(&s, &u).await? }),
+        // The inbox already holds Instagram comments next to messages.
+        "leads" => json!({ "messages": meta::fresh_inbox(&s, &u).await? }),
         "ideas" => {
             let ig = meta::instagram_data(&s, &u).await?;
             json!({ "accounts": ig["accounts"].as_array().into_iter().flatten().map(|a| json!({
