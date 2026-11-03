@@ -1,6 +1,10 @@
 //! Meta Graph API: sign-in, account inventory, Ads and Instagram reads, webhook parsing.
 use crate::{hmac_sha256, lock, now, random_token, tokens, user, ApiResult, AppError, AppState, User};
-use axum::{extract::State, http::HeaderMap, Json};
+use axum::{
+    extract::{Path, State},
+    http::HeaderMap,
+    Json,
+};
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -51,6 +55,13 @@ async fn send(request: reqwest::RequestBuilder) -> ApiResult<Value> {
 pub async fn get(state: &AppState, path: &str, query: &[(&str, String)], token: &str) -> ApiResult<Value> {
     let proof = hex::encode(hmac_sha256(&state.cfg.app_secret, token.as_bytes()));
     let request = state.http.get(format!("{}/{path}", state.cfg.graph)).query(query).query(&[("access_token", token), ("appsecret_proof", &proof)]);
+    send(request).await
+}
+
+/// POST to a Graph path, signed the same way as `get`.
+pub async fn post(state: &AppState, path: &str, body: &Value, token: &str) -> ApiResult<Value> {
+    let proof = hex::encode(hmac_sha256(&state.cfg.app_secret, token.as_bytes()));
+    let request = state.http.post(format!("{}/{path}", state.cfg.graph)).query(&[("access_token", token), ("appsecret_proof", &proof)]).json(body);
     send(request).await
 }
 
@@ -267,9 +278,10 @@ pub fn inbox_rows(state: &AppState, u: &User) -> ApiResult<Vec<Value>> {
     }
     let marks = vec!["?"; ids.len()].join(",");
     let db = lock(&state.db);
-    let mut stmt = db.prepare(&format!("SELECT id,kind,asset_id,sender,text,created FROM events WHERE asset_id IN ({marks}) ORDER BY id DESC LIMIT 100"))?;
+    let mut stmt = db.prepare(&format!("SELECT id,kind,asset_id,sender,text,created,EXISTS(SELECT 1 FROM replies r WHERE r.event_id=events.id)
+          FROM events WHERE asset_id IN ({marks}) ORDER BY id DESC LIMIT 100"))?;
     let rows = stmt.query_map(rusqlite::params_from_iter(ids.iter()), |r| {
-        Ok(json!({ "id": r.get::<_, i64>(0)?, "kind": r.get::<_, String>(1)?, "asset_id": r.get::<_, String>(2)?, "sender": r.get::<_, String>(3)?, "text": r.get::<_, String>(4)?, "created": r.get::<_, i64>(5)? }))
+        Ok(json!({ "id": r.get::<_, i64>(0)?, "kind": r.get::<_, String>(1)?, "asset_id": r.get::<_, String>(2)?, "sender": r.get::<_, String>(3)?, "text": r.get::<_, String>(4)?, "created": r.get::<_, i64>(5)?, "replied": r.get::<_, bool>(6)? }))
     })?;
     Ok(rows.collect::<Result<_, _>>()?)
 }
@@ -285,6 +297,59 @@ pub async fn instagram(State(s): State<AppState>, headers: HeaderMap) -> ApiResu
 pub async fn inbox(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Value>> {
     let u = user(&s, &headers)?;
     Ok(Json(json!({ "items": inbox_rows(&s, &u)? })))
+}
+
+#[derive(Deserialize)]
+pub struct ReplyBody {
+    text: String,
+}
+
+/// Meta allows free-form replies to messages only within 24 hours of the customer's message.
+const REPLY_WINDOW: i64 = 24 * 3600;
+
+/// The Graph call that answers one inbox message, or None when the message cannot be answered.
+fn reply_request(kind: &str, asset_id: &str, sender: &str, dedupe: &str, text: &str) -> Option<(String, Value)> {
+    match kind {
+        "whatsapp" => Some((format!("{asset_id}/messages"), json!({ "messaging_product": "whatsapp", "recipient_type": "individual", "to": sender, "type": "text", "text": { "body": text } }))),
+        "instagram_comment" => dedupe.strip_prefix("igc:").filter(|c| numeric(c)).map(|c| (format!("{c}/replies"), json!({ "message": text }))),
+        // With a Page token, me/messages sends from that Page, on Messenger or its Instagram account.
+        "messenger" | "instagram" => Some(("me/messages".into(), json!({ "recipient": { "id": sender }, "messaging_type": "RESPONSE", "message": { "text": text } }))),
+        _ => None,
+    }
+}
+
+/// Send the person's reply to one inbox message. Only their tap calls this; each message gets one reply.
+pub async fn reply(State(s): State<AppState>, headers: HeaderMap, Path(id): Path<i64>, Json(body): Json<ReplyBody>) -> ApiResult<Json<Value>> {
+    let u = user(&s, &headers)?;
+    let text = body.text.trim();
+    if text.is_empty() || text.chars().count() > 1000 {
+        return Err(AppError::new(400, "Write a reply of up to 1,000 characters."));
+    }
+    let missing = || AppError::new(404, "That message is no longer in your inbox.");
+    let event = lock(&s.db)
+        .query_row("SELECT kind,asset_id,sender,created,dedupe FROM events WHERE id=?1", [id], |r| {
+            Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, i64>(3)?, r.get::<_, String>(4)?))
+        })
+        .optional()?;
+    let (kind, asset_id, sender, created, dedupe) = event.ok_or_else(missing)?;
+    // Only messages to an account this person has switched on; anything else looks like it does not exist.
+    let asset_kind = if kind == "instagram_comment" { "instagram" } else { kind.as_str() };
+    let asset = u.selected_assets(asset_kind).into_iter().find(|a| a.id == asset_id).ok_or_else(missing)?;
+    if kind != "instagram_comment" && now() - created > REPLY_WINDOW {
+        return Err(AppError::new(409, "Meta only allows a reply within 24 hours of their message."));
+    }
+    let (path, payload) = reply_request(&kind, &asset_id, &sender, &dedupe, text).ok_or_else(missing)?;
+    let t = tokens(&s, &u)?;
+    // Claim the message before sending, so a double tap cannot send twice.
+    let claimed = lock(&s.db).execute("INSERT OR IGNORE INTO replies (event_id,user_id,text,created) VALUES (?1,?2,?3,?4)", params![id, u.id, text, now()])?;
+    if claimed == 0 {
+        return Err(AppError::new(409, "You already replied to this message."));
+    }
+    if let Err(e) = post(&s, &path, &payload, t.for_asset(&asset.key)).await {
+        let _ = lock(&s.db).execute("DELETE FROM replies WHERE event_id=?1", [id]);
+        return Err(e);
+    }
+    Ok(Json(json!({ "sent": true })))
 }
 
 pub struct Event {
@@ -344,5 +409,17 @@ mod tests {
         assert_eq!(e.len(), 1);
         assert_eq!((e[0].kind.as_str(), e[0].asset_id.as_str()), ("instagram", "77"));
         assert!(numeric("act_123") && !numeric("act_") && !numeric("12a"));
+    }
+
+    #[test]
+    fn reply_targets() {
+        let (path, body) = reply_request("whatsapp", "55", "91", "wa:m1", "hi").unwrap();
+        assert_eq!((path.as_str(), body["to"].as_str(), body["text"]["body"].as_str()), ("55/messages", Some("91"), Some("hi")));
+        let (path, body) = reply_request("instagram_comment", "77", "bob", "igc:123", "thanks").unwrap();
+        assert_eq!((path.as_str(), body["message"].as_str()), ("123/replies", Some("thanks")));
+        assert!(reply_request("instagram_comment", "77", "bob", "igc:1/../x", "t").is_none());
+        let (path, body) = reply_request("messenger", "5", "9", "messenger:x", "yo").unwrap();
+        assert_eq!((path.as_str(), body["recipient"]["id"].as_str()), ("me/messages", Some("9")));
+        assert!(reply_request("other", "5", "9", "", "yo").is_none());
     }
 }

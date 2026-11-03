@@ -164,6 +164,7 @@ CREATE TABLE IF NOT EXISTS spend (id INTEGER PRIMARY KEY, usd REAL NOT NULL, cre
 CREATE TABLE IF NOT EXISTS deletions (code TEXT PRIMARY KEY, created INTEGER NOT NULL);
 ",
     "ALTER TABLE users ADD COLUMN permissions_json TEXT NOT NULL DEFAULT '[]';",
+    "CREATE TABLE replies (event_id INTEGER PRIMARY KEY, user_id TEXT NOT NULL, text TEXT NOT NULL, created INTEGER NOT NULL);",
 ];
 
 fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
@@ -372,6 +373,7 @@ fn delete_user(s: &AppState, id: &str) -> rusqlite::Result<()> {
         for a in &assets {
             tx.execute("DELETE FROM events WHERE asset_id=?1", [&a.id])?;
         }
+        tx.execute("DELETE FROM replies WHERE user_id=?1", [id])?;
         tx.execute("DELETE FROM sessions WHERE user_id=?1", [id])?;
         tx.execute("DELETE FROM agent_runs WHERE user_id=?1", [id])?;
         tx.execute("DELETE FROM users WHERE id=?1", [id])?;
@@ -494,6 +496,7 @@ fn sweep(s: &AppState, startup: bool) {
         .and_then(|_| db.execute("DELETE FROM oauth_states WHERE expires<?1", [t]))
         // ponytail: fixed 30-day inbox retention; make it a setting if anyone needs longer history.
         .and_then(|_| db.execute("DELETE FROM events WHERE created<?1", [t - 30 * 86400]))
+        .and_then(|_| db.execute("DELETE FROM replies WHERE created<?1", [t - 30 * 86400]))
         .and_then(|_| db.execute(
             "UPDATE agent_runs SET status='failed',error='Interrupted. Run it again.',finished=?1 WHERE status='running' AND created<?2",
             params![t, stale],
@@ -562,6 +565,7 @@ async fn main() {
         .route("/api/ads", get(meta::ads))
         .route("/api/instagram", get(meta::instagram))
         .route("/api/inbox", get(meta::inbox))
+        .route("/api/inbox/{id}/reply", post(meta::reply))
         .route("/api/agents", get(agents::list))
         .route("/api/agents/{agent}/run", post(agents::run))
         .route("/webhooks/meta", get(webhook_verify).post(webhook))
