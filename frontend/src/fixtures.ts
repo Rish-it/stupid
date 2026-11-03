@@ -1,15 +1,15 @@
 // Sample data for dev builds only (?fixtures=1). Every name says "Sample"; nothing here is real.
 import { ApiError } from "./api";
-import type { AgentId, AgentRun, Me } from "./api";
+import type { AgentId, AgentRun, Asset, Me } from "./api";
 
 const now = () => Math.floor(Date.now() / 1000);
-const assets = [
+const assets: Asset[] = [
   { key: "ads:act_1", kind: "ads", id: "act_1", name: "Sample ad account" },
   { key: "instagram:1", kind: "instagram", id: "1", name: "@sample.studio" },
   { key: "whatsapp:1", kind: "whatsapp", id: "1", name: "Sample WhatsApp number" },
-  { key: "whatsapp:2", kind: "whatsapp", id: "2", name: "Sample second number" },
-] as const;
-let me: Me = { signed_in: true, name: "Sample creator", assets: [...assets], selected: ["ads:act_1", "instagram:1", "whatsapp:1"], permissions: ["ads_read", "instagram_basic", "instagram_manage_insights", "whatsapp_business_messaging"] };
+  { key: "whatsapp:2", kind: "whatsapp", id: "2", name: "Sample second number", issues: [{ blocking: true, text: "This number can't send messages yet.", fix: "Add a payment method in WhatsApp Manager.", link: "https://business.facebook.com/wa/manage/home/" }] },
+];
+let me: Me = { signed_in: true, name: "Sample creator", assets, selected: ["ads:act_1", "instagram:1", "whatsapp:1", "whatsapp:2"], permissions: ["ads_read", "instagram_basic", "instagram_manage_insights", "whatsapp_business_messaging"], problems: ["Messages from Sample Page: the Page wasn't shared."] };
 let hasKey = false;
 
 const campaign = (name: string, spend: string, clicks: string, ctr: string, cpc: string) => ({
@@ -34,6 +34,11 @@ export async function answer(method: string, path: string, body: unknown): Promi
   if (route === "PUT /api/connections" && me.signed_in) {
     me = { ...me, selected: (body as { selected: string[] }).selected };
     return { assets: me.assets, selected: me.selected };
+  }
+  // The first check finds the sample number fixed.
+  if (route === "POST /api/connections/refresh" && me.signed_in) {
+    me = { ...me, assets: me.assets.map(a => ({ ...a, issues: [] })) };
+    return { assets: me.assets, selected: me.selected, permissions: me.permissions, problems: me.problems ?? [] };
   }
   if (route === "DELETE /api/connections") return (me = { signed_in: false });
   if (route === "GET /api/ads") return { accounts: [{ id: "act_1", name: "Sample ad account", currency: "USD", status: 1, campaigns: [
