@@ -21,9 +21,10 @@ const Inbox = lazy(() => import("./Inbox"));
 const Agents = lazy(() => import("./Agents"));
 const Settings = lazy(() => import("./Settings"));
 
-// Meta sends people back to /?connected=1, /?error=<message> or /?meta_error=1. Read it once, then drop it from the address.
+// Meta sends people back to /?connected=1 or /?meta_error=1. Read it once, then drop it from the address.
+// Only fixed wording is shown: text from the address could be anyone's.
 const query = new URLSearchParams(location.search);
-const failure = query.get("error")?.slice(0, 300) || (query.has("meta_error") ? "Nothing was shared with Stupid. You can try again whenever you like." : null);
+const failure = query.has("meta_error") ? "Nothing was shared with Stupid. You can try again whenever you like." : null;
 const returned = failure ? "error" : query.has("connected") ? "connected" : null;
 if (returned) {
   for (const key of ["error", "meta_error", "connected"]) query.delete(key);
