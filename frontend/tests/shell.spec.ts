@@ -98,3 +98,34 @@ test("Inbox filters by app, sends a reply and shows the server's refusal", async
   await page.getByRole("button", { name: "Send" }).click();
   await expect(page.getByText("Meta only allows replies within 24 hours of the last message.").first()).toBeVisible();
 });
+
+test("Agents run, poll to a result and hand a reply draft to the Inbox", async ({ page }) => {
+  await page.route("**/api/me", route => route.fulfill(json({ ...signedIn, selected: ["ads:act_1", "instagram:1"] })));
+  await page.route("**/api/inbox", route => route.fulfill(json(inbox)));
+  let polls = 0;
+  await page.route("**/api/agents", route => route.fulfill(json({ ai_ready: true, own_key: false, model: "test-model", runs: polls++ < 1 ? [] : [
+    { agent: "replies", status: polls < 3 ? "running" : "done", result: polls < 3 ? null : { replies: [{ event_id: "w1", to: "Ana", draft: "We're open until 7." }] }, error: null, cost_usd: 0.002, created: 1, finished: polls < 3 ? null : 2 },
+  ] })));
+  await page.route("**/api/agents/replies/run", route => route.fulfill(json({ agent: "replies", status: "running" })));
+  await page.route("**/api/agents/ideas/run", route => route.fulfill({ status: 402, ...json({ message: "This month's AI budget is used up." }) }));
+  await page.goto("/#agents");
+
+  await page.getByRole("button", { name: "Run" }).nth(1).click();
+  await expect(page.getByText("This month's AI budget is used up.")).toBeVisible();
+
+  await page.getByRole("button", { name: "Run" }).nth(2).click();
+  await expect(page.getByText("Working on it.")).toBeVisible();
+  await expect(page.getByText("We're open until 7.")).toBeVisible({ timeout: 10000 });
+  await expect(page.getByText("cost $0.002")).toBeVisible();
+
+  await page.getByRole("link", { name: "Use this reply" }).click();
+  await expect(page.getByLabel("Reply to Ana")).toHaveValue("We're open until 7.");
+});
+
+test("Agents point to Settings when there is no AI access", async ({ page }) => {
+  await page.route("**/api/me", route => route.fulfill(json(signedIn)));
+  await page.route("**/api/agents", route => route.fulfill(json({ ai_ready: false, own_key: false, model: "", runs: [] })));
+  await page.goto("/#agents");
+  await expect(page.getByText("Agents need AI access")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Open Settings" })).toHaveAttribute("href", "#settings");
+});
