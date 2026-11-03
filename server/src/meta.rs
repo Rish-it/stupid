@@ -92,10 +92,15 @@ async fn inventory(state: &AppState, token: &str) -> (Vec<Asset>, HashMap<String
         let name: String = name.as_str().unwrap_or(fallback).chars().take(200).collect();
         assets.push(Asset { key, kind: kind.into(), id, name });
     };
-    for row in rows(state, "me/adaccounts", "id,name", token).await.unwrap_or_default() {
+    let (ad_accounts, pages, businesses) = tokio::join!(
+        async { rows(state, "me/adaccounts", "id,name", token).await },
+        async { rows(state, "me/accounts", "id,name,access_token,instagram_business_account{id,username}", token).await },
+        async { rows(state, "me/businesses", "id", token).await },
+    );
+    for row in ad_accounts.unwrap_or_default() {
         add("ads", &row["id"], &row["name"], "Ad account", None);
     }
-    for row in rows(state, "me/accounts", "id,name,access_token,instagram_business_account{id,username}", token).await.unwrap_or_default() {
+    for row in pages.unwrap_or_default() {
         let page_token = row["access_token"].as_str();
         add("messenger", &row["id"], &row["name"], "Facebook Page", page_token);
         let ig = &row["instagram_business_account"];
@@ -103,7 +108,7 @@ async fn inventory(state: &AppState, token: &str) -> (Vec<Asset>, HashMap<String
             add("instagram", &ig["id"], &ig["username"], "Instagram", page_token);
         }
     }
-    for business in rows(state, "me/businesses", "id", token).await.unwrap_or_default() {
+    for business in businesses.unwrap_or_default() {
         let Some(b) = business["id"].as_str().filter(|b| numeric(b)) else { continue };
         for waba in rows(state, &format!("{b}/owned_whatsapp_business_accounts"), "id,name", token).await.unwrap_or_default() {
             let Some(w) = waba["id"].as_str().filter(|w| numeric(w)) else { continue };
@@ -178,13 +183,15 @@ pub async fn ads_data(state: &AppState, u: &User) -> ApiResult<Value> {
     for a in u.selected_assets("ads") {
         let token = t.for_asset(&a.key).to_string();
         let account = cached(state, format!("{}:ads:{}", u.id, a.id), TTL, || async {
-            let info = get(state, &a.id, &[("fields", "name,currency,account_status".into())], &token).await?;
-            let campaigns = get(state, &format!("{}/insights", a.id), &[
-                ("level", "campaign".into()),
-                ("date_preset", "last_7d".into()),
-                ("fields", "campaign_id,campaign_name,spend,impressions,reach,clicks,ctr,cpc,actions".into()),
-                ("limit", "50".into()),
-            ], &token).await?;
+            let (info, campaigns) = tokio::try_join!(
+        async { get(state, &a.id, &[("fields", "name,currency,account_status".into())], &token).await },
+        async { get(state, &format!("{}/insights", a.id), &[
+                    ("level", "campaign".into()),
+                    ("date_preset", "last_7d".into()),
+                    ("fields", "campaign_id,campaign_name,spend,impressions,reach,clicks,ctr,cpc,actions".into()),
+                    ("limit", "50".into()),
+                ], &token).await },
+    )?;
             Ok(json!({ "id": a.id, "name": info["name"], "currency": info["currency"], "status": info["account_status"], "campaigns": campaigns["data"] }))
         }).await?;
         accounts.push(account);
@@ -198,20 +205,23 @@ pub async fn instagram_data(state: &AppState, u: &User) -> ApiResult<Value> {
     for a in u.selected_assets("instagram") {
         let token = t.for_asset(&a.key).to_string();
         let account = cached(state, format!("{}:ig:{}", u.id, a.id), TTL, || async {
-            let profile = get(state, &a.id, &[("fields", "username,name,followers_count,follows_count,media_count,profile_picture_url,biography".into())], &token).await?;
-            let media = get(state, &format!("{}/media", a.id), &[
-                ("fields", "id,caption,media_type,media_product_type,timestamp,like_count,comments_count,permalink,thumbnail_url,media_url".into()),
-                ("limit", "12".into()),
-            ], &token).await?;
             let until = now();
-            // Insights need their own permission; the rest of the screen still works without it.
-            let insights = get(state, &format!("{}/insights", a.id), &[
-                ("metric", "reach,views,accounts_engaged,total_interactions".into()),
-                ("period", "day".into()),
-                ("metric_type", "total_value".into()),
-                ("since", (until - 7 * 86400).to_string()),
-                ("until", until.to_string()),
-            ], &token).await;
+            let (profile, media, insights) = tokio::join!(
+        async { get(state, &a.id, &[("fields", "username,name,followers_count,follows_count,media_count,profile_picture_url,biography".into())], &token).await },
+        async { get(state, &format!("{}/media", a.id), &[
+                    ("fields", "id,caption,media_type,media_product_type,timestamp,like_count,comments_count,permalink,thumbnail_url,media_url".into()),
+                    ("limit", "12".into()),
+                ], &token).await },
+        async { // Insights need their own permission; the rest of the screen still works without it.
+                get(state, &format!("{}/insights", a.id), &[
+                    ("metric", "reach,views,accounts_engaged,total_interactions".into()),
+                    ("period", "day".into()),
+                    ("metric_type", "total_value".into()),
+                    ("since", (until - 7 * 86400).to_string()),
+                    ("until", until.to_string()),
+                ], &token).await },
+    );
+            let (profile, media) = (profile?, media?);
             let (insights, insights_error) = match insights {
                 Ok(v) => (v["data"].as_array().cloned().unwrap_or_default().into_iter()
                     .map(|m| json!({ "name": m["name"], "value": m["total_value"]["value"] })).collect::<Vec<_>>(), Value::Null),
@@ -224,19 +234,17 @@ pub async fn instagram_data(state: &AppState, u: &User) -> ApiResult<Value> {
     Ok(json!({ "accounts": out }))
 }
 
-/// Recent comments on the newest posts, for agents.
+/// Recent comments on the six newest posts, for agents: one Graph call per account.
 pub async fn instagram_comments(state: &AppState, u: &User) -> ApiResult<Vec<Value>> {
     let t = tokens(state, u)?;
-    let data = instagram_data(state, u).await?;
     let mut comments = Vec::new();
-    for account in data["accounts"].as_array().into_iter().flatten() {
-        let key = format!("instagram:{}", account["id"].as_str().unwrap_or_default());
-        for post in account["media"].as_array().into_iter().flatten().take(6) {
-            let Some(id) = post["id"].as_str().filter(|id| numeric(id)) else { continue };
-            if let Ok(page) = get(state, &format!("{id}/comments"), &[("fields", "id,text,username,timestamp".into()), ("limit", "50".into())], t.for_asset(&key)).await {
-                for c in page["data"].as_array().into_iter().flatten() {
-                    comments.push(json!({ "username": c["username"], "text": c["text"], "post": post["caption"].as_str().unwrap_or("").chars().take(120).collect::<String>() }));
-                }
+    for a in u.selected_assets("instagram") {
+        let fields = ("fields", "caption,comments.limit(50){text,username,timestamp}".to_string());
+        let Ok(page) = get(state, &format!("{}/media", a.id), &[fields, ("limit", "6".into())], t.for_asset(&a.key)).await else { continue };
+        for post in page["data"].as_array().into_iter().flatten() {
+            let caption: String = post["caption"].as_str().unwrap_or("").chars().take(120).collect();
+            for c in post["comments"]["data"].as_array().into_iter().flatten() {
+                comments.push(json!({ "username": c["username"], "text": c["text"], "post": caption }));
             }
         }
     }
