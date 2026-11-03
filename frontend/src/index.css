@@ -110,4 +110,58 @@ body { background: var(--color-background-body); }
   .feature { padding-block: 6rem; }
   .feature-alt .feature-art { order: 2; }
 }
-.ready { min-height: 560px; }
+
+/* Welcome footer: two columns and the wordmark over a big mascot whose eyes follow the pointer.
+   Wide screens keep the composition in vw; narrower ones stack it with the mascot last. */
+.outro {
+  --outro-bg: light-dark(#e3eedf, #1a2417); --green: light-dark(#405c35, #5d8250);
+  position: relative; isolation: isolate; overflow: hidden; display: flex; flex-direction: column; gap: 36px;
+  padding: 40px 24px 0; background: var(--outro-bg); color: var(--color-text-primary);
+}
+.tag {
+  display: inline-flex; align-items: center; align-self: flex-start; height: 30px; padding: 6px 11px; border-radius: 100px;
+  background: var(--color-background-body); font-size: 14px; line-height: 1.2; white-space: nowrap;
+}
+.outro-line { display: block; margin: 19px 0 0; font-family: var(--font-family-heading); font-weight: 900; font-size: clamp(22px, 6.3vw, 30px); line-height: 1.25; letter-spacing: 0; }
+.outro-nav { display: grid; grid-template-columns: 1fr 1fr; gap: 0 24px; margin-top: 20px; font-size: 17px; line-height: 1.4; }
+.outro-nav > * { display: flex; align-items: center; min-height: 44px; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: start; text-decoration: none; cursor: pointer; }
+.outro-nav > :hover { text-decoration: underline; }
+.outro-nav > :focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
+.outro-mark { order: -1; font-family: var(--font-family-heading); font-weight: 900; font-size: min(4rem, 18vw); line-height: 1; letter-spacing: -.02em; color: var(--green); }
+.outro-start, .outro-end { display: flex; flex-direction: column; }
+.outro-buttons { max-width: 400px; margin-top: 20px; }
+.outro-note { max-width: 34ch; margin: 16px 0 0; font-size: 14px; line-height: 1.5; }
+.outro-apps { display: flex; gap: 18px; margin: 20px 0 0; padding: 0; list-style: none; }
+.outro-apps > li { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; }
+.outro-apps > li:first-child { margin-left: -10px; }
+.mascot-stage { order: 1; position: relative; flex: none; align-self: center; width: calc(100% + 48px); aspect-ratio: 4 / 3; margin-top: -16px; overflow: hidden; pointer-events: none; }
+.mascot { position: absolute; left: 50%; bottom: -25%; translate: -50% 0; width: 70%; aspect-ratio: 1; border-radius: 50%; background: var(--green); container-type: inline-size; }
+.mascot-eyes { position: absolute; inset-inline: 0; top: 28%; display: flex; justify-content: center; gap: 9cqi; }
+.mascot-eyes > span { width: 12cqi; aspect-ratio: 1; border-radius: 50%; background: #fff; }
+@media (max-width: 63.99rem) and (prefers-reduced-motion: no-preference) {
+  .mascot-eyes { animation: look-around 4s linear infinite; }
+}
+@keyframes look-around {
+  0%, 100% { translate: 6cqi 0; } 12.5% { translate: 4.24cqi 4.24cqi; } 25% { translate: 0 6cqi; } 37.5% { translate: -4.24cqi 4.24cqi; }
+  50% { translate: -6cqi 0; } 62.5% { translate: -4.24cqi -4.24cqi; } 75% { translate: 0 -6cqi; } 87.5% { translate: 4.24cqi -4.24cqi; }
+}
+@media (min-width: 64rem) {
+  .outro { display: block; min-height: calc(100dvh - 3.5rem); padding: 6.54vw 0 0; }
+  .tag { height: max(1.9vw, 26px); padding: .39vw max(.61vw, 9px); font-size: max(.88vw, 12px); }
+  .outro-line { margin-top: 1.45vw; font-size: max(1.66vw, 20px); line-height: 1.2; }
+  .outro-start { margin-left: 8.65vw; width: 25vw; }
+  .outro-nav { display: flex; flex-direction: column; align-items: flex-start; gap: .93vw; margin-top: 1.3vw; font-size: max(1.075vw, 15px); line-height: 1.35; }
+  .outro-nav > * { min-height: 0; }
+  .outro-mark { position: absolute; left: 50%; top: 7.7vw; translate: -50% 0; font-size: 5vw; }
+  .outro-end { position: absolute; inset-inline-end: 8.65vw; top: 6.54vw; width: max(20vw, 16rem); }
+  .outro-buttons { margin-top: 1.3vw; }
+  .outro-note { margin-top: 1.05vw; font-size: max(.733vw, 12px); line-height: 1.4; }
+  .outro-apps { gap: 1.43vw; margin-top: 1.61vw; }
+  .outro-apps > li { width: auto; height: auto; }
+  .outro-apps > li:first-child { margin-left: 0; }
+  .mascot-stage { position: absolute; inset: 0; z-index: -1; align-self: auto; width: auto; aspect-ratio: auto; margin: 0; }
+  .mascot { bottom: -14vw; width: 40vw; }
+}
+@media (min-width: 64rem) and (prefers-reduced-motion: no-preference) {
+  .mascot-eyes { transition: translate .3s cubic-bezier(.2, .8, .2, 1); }
+}

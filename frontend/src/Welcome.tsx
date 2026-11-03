@@ -7,7 +7,7 @@ import { Icon } from "@astryxdesign/core/Icon";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
-import { oauthStartUrl } from "./api";
+import { legal, oauthStartUrl } from "./api";
 import SourceIcon from "./SourceIcon";
 
 // The headline's second line. The first phrase is the main one; each of the others ends in the app it works in.
@@ -23,6 +23,7 @@ const phrases: [text: string, app?: string][] = [
 const hold = { main: 3250, other: 2500 }, exit = 150, enter = 200, enterDelay = 150, perWord = 30;
 const words = (i: number) => phrases[i % phrases.length][0].split(" ").length;
 const swap = (from: number) => Math.max(exit + (words(from) - 1) * perWord, enterDelay + enter + (words(from + 1) - 1) * perWord);
+const apps = [["instagram", "Instagram"], ["whatsapp", "WhatsApp"], ["messenger", "Messenger"], ["ads", "Meta Ads"]] as const;
 const still = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 const features: { title: string; text: string; art: ReactNode }[] = [
@@ -112,10 +113,27 @@ export default function Welcome({ instagram, onConnect, onPassed }: { instagram?
         </section>
       ))}
 
-      <VStack className="ready" gap={6} hAlign="center" vAlign="center" paddingInline={4}>
-        <Heading level={2} type="display-3" justify="center">Ready to try Stupid?</Heading>
-        <VStack gap={3} maxWidth={400} width="100%">{buttons}</VStack>
-      </VStack>
+      <footer className="outro" aria-label="Footer">
+        <Mascot />
+        <div className="outro-start">
+          <span className="tag">How it works</span>
+          <p className="outro-line">Agents prepare,<br />you decide</p>
+          <nav className="outro-nav" aria-label="Legal">
+            <button type="button" onClick={more}>See how it works</button>
+            {legal.map(([label, href]) => <a key={href} href={href}>{label}</a>)}
+          </nav>
+        </div>
+        <div className="outro-mark" aria-hidden>Stupid</div>
+        <div className="outro-end">
+          <span className="tag">Ready when you are</span>
+          <h2 className="outro-line">Ready to try Stupid?</h2>
+          <VStack gap={3} width="100%" className="outro-buttons">{buttons}</VStack>
+          <p className="outro-note">Built for Meta's platform. Not an official Meta product.</p>
+          <ul className="outro-apps" aria-label="Works with">
+            {apps.map(([app, name]) => <li key={app} aria-label={name}><SourceIcon source={app} size={24} /></li>)}
+          </ul>
+        </div>
+      </footer>
     </VStack>
   );
 }
@@ -177,4 +195,40 @@ function Avatar({ swapping }: { swapping?: number }) {
     addEventListener("pointercancel", release);
   };
   return <span className="rebus-avatar" ref={ref} data-pressed={pressed || undefined} onPointerDown={hold}><span /><span /><span /></span>;
+}
+
+/** The mascot at the foot of the page. On wide screens its eyes follow the pointer; on phones they look around. */
+function Mascot() {
+  const face = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    const eyes = face.current!, body = eyes.parentElement!;
+    const wide = matchMedia("(min-width: 64rem)");
+    let pointer: { x: number; y: number } | undefined, frame = 0;
+    const look = () => {
+      frame = 0;
+      if (!wide.matches) return void (eyes.style.translate = "");
+      if (!pointer) return;
+      // offsetLeft/Top ignore the current translate, so this is where the eyes rest.
+      const r = body.getBoundingClientRect();
+      const dx = pointer.x - (r.left + eyes.offsetLeft + eyes.offsetWidth / 2);
+      const dy = pointer.y - (r.top + eyes.offsetTop + eyes.offsetHeight / 2);
+      const reach = Math.min(Math.hypot(dx, dy) / 400, 1) * r.width * .09, angle = Math.atan2(dy, dx);
+      eyes.style.translate = `${Math.cos(angle) * reach}px ${Math.sin(angle) * reach}px`;
+    };
+    const schedule = () => { frame ||= requestAnimationFrame(look); };
+    const move = (e: PointerEvent) => { pointer = { x: e.clientX, y: e.clientY }; schedule(); };
+    addEventListener("pointermove", move, { passive: true });
+    // The page scrolls inside the shell, so listen in the capture phase.
+    addEventListener("scroll", schedule, { passive: true, capture: true });
+    addEventListener("resize", schedule);
+    wide.addEventListener("change", schedule);
+    return () => {
+      cancelAnimationFrame(frame);
+      removeEventListener("pointermove", move);
+      removeEventListener("scroll", schedule, { capture: true });
+      removeEventListener("resize", schedule);
+      wide.removeEventListener("change", schedule);
+    };
+  }, []);
+  return <div className="mascot-stage" aria-hidden><span className="mascot"><span className="mascot-eyes" ref={face}><span /><span /><span /></span></span></div>;
 }
