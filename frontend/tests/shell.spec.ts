@@ -66,3 +66,35 @@ test("Today asks to connect missing apps and reads the ones that are on", async 
   await expect(page.getByText(/Costing most:\s*No clicks, \$5\.00 spent, no clicks yet/)).toBeVisible();
   await expect(page.getByRole("link", { name: "Connect Instagram" })).toBeVisible();
 });
+
+const inbox = { items: [
+  { id: "w1", kind: "whatsapp", asset_id: "1", sender: "Ana", text: "Are you open?", created: 1, replied: false },
+  { id: "c1", kind: "instagram_comment", asset_id: "1", sender: "ben", text: "Nice post", created: 1, replied: true },
+  { id: "d1", kind: "instagram", asset_id: "1", sender: "Cy", text: "Old question", created: 1, replied: false },
+] };
+
+test("Inbox filters by app, sends a reply and shows the server's refusal", async ({ page }) => {
+  await page.route("**/api/me", route => route.fulfill(json(signedIn)));
+  await page.route("**/api/inbox", route => route.fulfill(json(inbox)));
+  let sent: unknown;
+  await page.route("**/api/inbox/w1/reply", route => { sent = route.request().postDataJSON(); route.fulfill(json({ sent: true })); });
+  await page.route("**/api/inbox/d1/reply", route => route.fulfill({ status: 409, ...json({ message: "Meta only allows replies within 24 hours of the last message." }) }));
+  await page.goto("/#inbox");
+
+  await page.getByRole("radio", { name: "WhatsApp" }).click();
+  await expect(page.getByText("Nice post")).toBeHidden();
+  await page.getByRole("radio", { name: "All" }).click();
+  await expect(page.getByText("Replied")).toBeVisible();
+
+  await page.getByText("Are you open?").click();
+  await page.getByLabel("Reply to Ana").fill("Yes, until 7.");
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByLabel("Reply to Ana")).toBeHidden();
+  await expect(page.getByText("Replied")).toHaveCount(2);
+  expect(sent).toEqual({ text: "Yes, until 7." });
+
+  await page.getByText("Old question").click();
+  await page.getByLabel("Reply to Cy").fill("Sorry for the wait");
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByText("Meta only allows replies within 24 hours of the last message.").first()).toBeVisible();
+});
