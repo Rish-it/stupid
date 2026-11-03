@@ -1,0 +1,205 @@
+//! Background agents on Muse Spark. Each run prepares work for the person; nothing is sent or changed.
+use crate::{lock, meta, now, user, ApiResult, AppError, AppState};
+use axum::{
+    extract::{Path, State},
+    http::HeaderMap,
+    Json,
+};
+use rusqlite::{params, OptionalExtension};
+use serde::Deserialize;
+use serde_json::{json, Value};
+
+const AGENTS: &[(&str, &str)] = &[
+    ("leads", "You find sales leads for a creator or small business. From the comments and messages given, list people who show buying intent or ask about price, availability, booking or collaboration. Return JSON {\"leads\":[{\"who\":string,\"channel\":string,\"said\":string,\"why\":string,\"next_step\":string}]}. Quote what they said exactly. Return an empty list if nobody qualifies. Never invent people."),
+    ("ideas", "You are a content strategist for a creator or small business. From their recent posts and how each performed, write three new post ideas in their voice. Return JSON {\"ideas\":[{\"hook\":string,\"caption\":string,\"format\":\"reel\"|\"carousel\"|\"photo\"|\"story\",\"why\":string}]}. Base \"why\" only on the numbers given."),
+    ("replies", "You draft replies to customer messages for a small business. Be warm, short and specific. Never promise prices, discounts or dates that are not in the conversation; ask instead. Return JSON {\"replies\":[{\"event_id\":number,\"to\":string,\"draft\":string}]}."),
+    ("ads", "You review Meta ad results for a small business owner who is not a marketer. Use plain words and only the numbers given. Return JSON {\"summary\":string,\"actions\":[{\"campaign\":string,\"do\":\"pause\"|\"keep\"|\"scale\"|\"fix\",\"why\":string}]}."),
+];
+// Baseten list price for Muse Spark Open, USD per million tokens (input, output).
+const PRICE: (f64, f64) = (1.25, 4.25);
+const MAX_TOKENS: u32 = 1200;
+const MAX_INPUT_CHARS: usize = 12_000;
+const RUNS_PER_DAY: i64 = 30;
+
+/// The person's own AI key, decrypted, if they saved one.
+fn own_key(s: &AppState, user_id: &str) -> ApiResult<Option<String>> {
+    let blob: Option<String> = lock(&s.db).query_row("SELECT ai_key_blob FROM users WHERE id=?1", [user_id], |r| r.get(0)).optional()?.flatten();
+    let (Some(blob), Some(f)) = (blob, s.fernet.as_ref()) else { return Ok(None) };
+    Ok(f.decrypt(&blob).ok().and_then(|k| String::from_utf8(k).ok()))
+}
+
+/// Whether the workspace key can still pay for a run.
+fn workspace_ready(s: &AppState) -> ApiResult<bool> {
+    let spent: f64 = lock(&s.db).query_row("SELECT COALESCE(SUM(usd),0) FROM spend WHERE own=0", [], |r| r.get(0))?;
+    Ok(!s.cfg.muse_key.is_empty() && s.cfg.muse_budget_usd > spent)
+}
+
+pub async fn settings(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Value>> {
+    let u = user(&s, &headers)?;
+    Ok(Json(json!({ "has_key": own_key(&s, &u.id)?.is_some(), "model": s.cfg.muse_model, "workspace_ai": workspace_ready(&s)? })))
+}
+
+#[derive(Deserialize)]
+pub struct KeyBody {
+    api_key: String,
+}
+
+/// Save the person's own AI key after one tiny test call, or remove it when empty. It never leaves the server.
+pub async fn save_key(State(s): State<AppState>, headers: HeaderMap, Json(body): Json<KeyBody>) -> ApiResult<Json<Value>> {
+    let u = user(&s, &headers)?;
+    let key = body.api_key.trim();
+    let blob = if key.is_empty() {
+        None
+    } else {
+        if !(16..=512).contains(&key.len()) || !key.bytes().all(|b| b.is_ascii_graphic()) {
+            return Err(AppError::new(400, "That does not look like an API key."));
+        }
+        let fernet = s.fernet.as_ref().ok_or_else(|| AppError::new(503, "Key storage is not configured."))?;
+        let test = json!({ "model": s.cfg.muse_model, "max_tokens": 1, "messages": [{ "role": "user", "content": "ok" }] });
+        let response = s.http.post(format!("{}/chat/completions", s.cfg.muse_base.trim_end_matches('/'))).bearer_auth(key).json(&test).send().await
+            .map_err(|_| AppError::new(502, "Could not check the key. Try again."))?;
+        match response.status().as_u16() {
+            200..=299 => {}
+            401 | 403 => return Err(AppError::new(400, "That key was refused.")),
+            404 => return Err(AppError::new(400, format!("That key cannot use {}.", s.cfg.muse_model))),
+            _ => return Err(AppError::new(502, "Could not check the key. Try again.")),
+        }
+        Some(fernet.encrypt(key.as_bytes()))
+    };
+    lock(&s.db).execute("UPDATE users SET ai_key_blob=?1 WHERE id=?2", params![blob, u.id])?;
+    Ok(Json(json!({ "has_key": blob.is_some(), "model": s.cfg.muse_model })))
+}
+
+pub async fn list(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Value>> {
+    let u = user(&s, &headers)?;
+    let db = lock(&s.db);
+    let mut stmt = db.prepare(
+        "SELECT agent,status,result_json,error,cost_usd,created,finished FROM agent_runs
+         WHERE id IN (SELECT MAX(id) FROM agent_runs WHERE user_id=?1 GROUP BY agent)",
+    )?;
+    let runs = stmt.query_map([&u.id], |r| {
+        let result: Option<String> = r.get(2)?;
+        Ok(json!({ "agent": r.get::<_, String>(0)?, "status": r.get::<_, String>(1)?,
+            "result": result.and_then(|v| serde_json::from_str::<Value>(&v).ok()), "error": r.get::<_, Option<String>>(3)?,
+            "cost_usd": r.get::<_, f64>(4)?, "created": r.get::<_, i64>(5)?, "finished": r.get::<_, Option<i64>>(6)? }))
+    })?.collect::<Result<Vec<_>, _>>()?;
+    drop(stmt);
+    drop(db);
+    let own = own_key(&s, &u.id)?.is_some();
+    Ok(Json(json!({ "runs": runs, "ai_ready": own || workspace_ready(&s)?, "own_key": own, "model": s.cfg.muse_model })))
+}
+
+pub async fn run(State(s): State<AppState>, headers: HeaderMap, Path(agent): Path<String>) -> ApiResult<Json<Value>> {
+    let u = user(&s, &headers)?;
+    let (name, system) = AGENTS.iter().find(|(n, _)| *n == agent).copied().ok_or_else(|| AppError::new(404, "Unknown agent."))?;
+    let own = own_key(&s, &u.id)?;
+    if own.is_none() && s.cfg.muse_key.is_empty() {
+        return Err(AppError::new(503, "Add an AI key in Settings to run agents."));
+    }
+    // Checked again below under the same lock as the insert; this only avoids Meta calls for a refused run.
+    busy(&lock(&s.db), &u.id, name)?;
+    let context = match name {
+        "leads" => json!({ "instagram_comments": meta::instagram_comments(&s, &u).await.unwrap_or_default(), "messages": meta::inbox_rows(&s, &u)? }),
+        "ideas" => {
+            let ig = meta::instagram_data(&s, &u).await?;
+            json!({ "accounts": ig["accounts"].as_array().into_iter().flatten().map(|a| json!({
+                "bio": a["profile"]["biography"], "followers": a["profile"]["followers_count"],
+                "posts": a["media"].as_array().into_iter().flatten().map(|m| json!({ "caption": m["caption"], "type": m["media_product_type"], "likes": m["like_count"], "comments": m["comments_count"], "when": m["timestamp"] })).collect::<Vec<_>>() })).collect::<Vec<_>>() })
+        }
+        "replies" => json!({ "messages": meta::inbox_rows(&s, &u)?.into_iter().filter(|m| m["kind"] != "instagram_comment").take(20).collect::<Vec<_>>() }),
+        _ => meta::ads_data(&s, &u).await?,
+    };
+    let empty = context.as_object().is_some_and(|o| o.values().all(|v| v.as_array().is_some_and(|a| a.is_empty())));
+    let id = {
+        let db = lock(&s.db);
+        busy(&db, &u.id, name)?;
+        if empty {
+            db.execute("INSERT INTO agent_runs (user_id,agent,status,result_json,created,finished) VALUES (?1,?2,'done','{\"empty\":true}',?3,?3)", params![u.id, name, now()])?;
+            return Ok(Json(json!({ "agent": name, "status": "done", "result": { "empty": true } })));
+        }
+        db.execute("INSERT INTO agent_runs (user_id,agent,status,created) VALUES (?1,?2,'running',?3)", params![u.id, name, now()])?;
+        db.last_insert_rowid()
+    };
+    let state = s.clone();
+    tokio::spawn(async move {
+        let outcome = muse(&state, system, &context, own.as_deref()).await;
+        let db = lock(&state.db);
+        let _ = match outcome {
+            Ok((result, cost)) => db.execute("UPDATE agent_runs SET status='done',result_json=?1,cost_usd=?2,finished=?3 WHERE id=?4", params![result.to_string(), cost, now(), id]),
+            Err(e) => db.execute("UPDATE agent_runs SET status='failed',error=?1,finished=?2 WHERE id=?3", params![e.1, now(), id]),
+        };
+    });
+    Ok(Json(json!({ "agent": name, "status": "running" })))
+}
+
+/// Refuse a second run of the same agent, and more than RUNS_PER_DAY runs per person.
+fn busy(db: &rusqlite::Connection, user_id: &str, agent: &str) -> ApiResult<()> {
+    let (running, today): (i64, i64) = db.query_row(
+        "SELECT COALESCE(SUM(agent=?2 AND status='running'),0), COUNT(*) FROM agent_runs WHERE user_id=?1 AND created>?3",
+        params![user_id, agent, now() - 86400], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    if running > 0 {
+        return Err(AppError::new(409, "This agent is already working."));
+    }
+    if today >= RUNS_PER_DAY {
+        return Err(AppError::new(429, "That is enough agent runs for today. Try again tomorrow."));
+    }
+    Ok(())
+}
+
+/// One Muse call, under the workspace spend cap unless the person brought their own key.
+/// Returns the parsed JSON answer and its cost in USD.
+async fn muse(s: &AppState, system: &str, context: &Value, own_key: Option<&str>) -> ApiResult<(Value, f64)> {
+    let mut input = context.to_string();
+    if input.len() > MAX_INPUT_CHARS {
+        input = input.chars().take(MAX_INPUT_CHARS).collect();
+    }
+    // Rough worst case: 3 characters per token, every output token used.
+    let estimate = ((input.len() + system.len()) as f64 / 3.0 * PRICE.0 + MAX_TOKENS as f64 * PRICE.1) / 1e6;
+    if own_key.is_none() {
+        let db = lock(&s.db);
+        let spent: f64 = db.query_row("SELECT COALESCE(SUM(usd),0) FROM spend WHERE own=0", [], |r| r.get(0))?;
+        // ponytail: check-then-record, so parallel runs can pass the cap by one call (about $0.01).
+        if spent + estimate > s.cfg.muse_budget_usd {
+            return Err(AppError::new(402, "The AI budget for this workspace is used up."));
+        }
+    }
+    let body = json!({ "model": s.cfg.muse_model, "max_tokens": MAX_TOKENS, "temperature": 0.4, "messages": [
+        { "role": "system", "content": format!("{system} Reply with the JSON object only.") },
+        { "role": "user", "content": input },
+    ]});
+    let response = s.http.post(format!("{}/chat/completions", s.cfg.muse_base.trim_end_matches('/'))).bearer_auth(own_key.unwrap_or(&s.cfg.muse_key)).timeout(std::time::Duration::from_secs(120)).json(&body).send().await
+        .map_err(|_| AppError::new(502, "Muse could not be reached."))?;
+    let status = response.status();
+    let data: Value = response.json().await.map_err(|_| AppError::new(502, "Muse sent an unreadable answer."))?;
+    if !status.is_success() {
+        tracing::warn!("Muse error {status}");
+        return Err(AppError::new(502, "Muse refused the request."));
+    }
+    let usage = &data["usage"];
+    // Without a usage report, charge the worst-case estimate rather than nothing.
+    let cost = match (usage["prompt_tokens"].as_f64(), usage["completion_tokens"].as_f64()) {
+        (Some(i), Some(o)) => (i * PRICE.0 + o * PRICE.1) / 1e6,
+        _ => estimate,
+    };
+    lock(&s.db).execute("INSERT INTO spend (usd,created,own) VALUES (?1,?2,?3)", params![cost, now(), own_key.is_some()])?;
+    let text = data["choices"][0]["message"]["content"].as_str().unwrap_or_default();
+    Ok((extract_json(text).ok_or_else(|| AppError::new(502, "Muse answered without the expected format."))?, cost))
+}
+
+fn extract_json(text: &str) -> Option<Value> {
+    let text = text.rsplit_once("</think>").map(|(_, t)| t).unwrap_or(text);
+    let (start, end) = (text.find('{')?, text.rfind('}')?);
+    serde_json::from_str(text.get(start..=end)?).ok().filter(Value::is_object)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn json_from_model_text() {
+        assert_eq!(extract_json("<think>{no}</think>\n```json\n{\"a\":1}\n```").unwrap()["a"], 1);
+        assert!(extract_json("no json here").is_none());
+        assert!(extract_json("[1,2]").is_none());
+    }
+}

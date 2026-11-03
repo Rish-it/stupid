@@ -19,3 +19,6 @@ out/
 
 playwright-report/
 test-results/
+
+# Rust server build output
+server/target/
