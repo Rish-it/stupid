@@ -483,6 +483,7 @@ pub struct Event {
     pub kind: String,
     pub asset_id: String,
     pub sender: String,
+    pub sender_name: String,
     pub text: String,
     pub dedupe: String,
 }
@@ -498,15 +499,18 @@ pub fn parse_webhook(payload: &Value) -> Vec<Event> {
             let v = &change["value"];
             if object == "whatsapp_business_account" {
                 let phone = clip(&v["metadata"]["phone_number_id"]);
+                let contacts = v["contacts"].as_array().map(Vec::as_slice).unwrap_or_default();
                 for m in v["messages"].as_array().into_iter().flatten() {
                     let text = clip(&m["text"]["body"]);
                     if !text.is_empty() {
-                        out.push(Event { kind: "whatsapp".into(), asset_id: phone.clone(), sender: clip(&m["from"]), text, dedupe: format!("wa:{}", clip(&m["id"])) });
+                        let sender = clip(&m["from"]);
+                        let sender_name = contacts.iter().find(|c| clip(&c["wa_id"]) == sender).map(|c| clip(&c["profile"]["name"])).unwrap_or_default();
+                        out.push(Event { kind: "whatsapp".into(), asset_id: phone.clone(), sender, sender_name, text, dedupe: format!("wa:{}", clip(&m["id"])) });
                     }
                 }
             } else if object == "instagram" && change["field"] == "comments" {
                 let sender = Some(clip(&v["from"]["username"])).filter(|s| !s.is_empty()).unwrap_or_else(|| clip(&v["from"]["id"]));
-                out.push(Event { kind: "instagram_comment".into(), asset_id: entry_id.clone(), sender, text: clip(&v["text"]), dedupe: format!("igc:{}", clip(&v["id"])) });
+                out.push(Event { kind: "instagram_comment".into(), asset_id: entry_id.clone(), sender_name: clip(&v["from"]["username"]), sender, text: clip(&v["text"]), dedupe: format!("igc:{}", clip(&v["id"])) });
             }
         }
         for m in entry["messaging"].as_array().into_iter().flatten() {
@@ -516,7 +520,7 @@ pub fn parse_webhook(payload: &Value) -> Vec<Event> {
                 continue;
             }
             let kind = if object == "instagram" { "instagram" } else { "messenger" };
-            out.push(Event { kind: kind.into(), asset_id: entry_id.clone(), sender: clip(&m["sender"]["id"]), text, dedupe: format!("{kind}:{}", clip(&message["mid"])) });
+            out.push(Event { kind: kind.into(), asset_id: entry_id.clone(), sender: clip(&m["sender"]["id"]), sender_name: String::new(), text, dedupe: format!("{kind}:{}", clip(&message["mid"])) });
         }
     }
     out
@@ -528,9 +532,9 @@ mod tests {
 
     #[test]
     fn webhook_shapes() {
-        let wa = json!({"object":"whatsapp_business_account","entry":[{"id":"1","changes":[{"field":"messages","value":{"metadata":{"phone_number_id":"55"},"messages":[{"id":"m1","from":"91","text":{"body":"price?"}}]}}]}]});
+        let wa = json!({"object":"whatsapp_business_account","entry":[{"id":"1","changes":[{"field":"messages","value":{"metadata":{"phone_number_id":"55"},"contacts":[{"wa_id":"91","profile":{"name":"Asha"}}],"messages":[{"id":"m1","from":"91","text":{"body":"price?"}}]}}]}]});
         let e = parse_webhook(&wa);
-        assert_eq!((e[0].kind.as_str(), e[0].asset_id.as_str(), e[0].text.as_str()), ("whatsapp", "55", "price?"));
+        assert_eq!((e[0].kind.as_str(), e[0].asset_id.as_str(), e[0].text.as_str(), e[0].sender_name.as_str()), ("whatsapp", "55", "price?", "Asha"));
         let ig = json!({"object":"instagram","entry":[{"id":"77","messaging":[{"sender":{"id":"9"},"message":{"mid":"x","text":"hi"}},{"sender":{"id":"77"},"message":{"mid":"y","text":"echo","is_echo":true}}]}]});
         let e = parse_webhook(&ig);
         assert_eq!(e.len(), 1);
