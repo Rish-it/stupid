@@ -7,7 +7,7 @@ test.beforeEach(({ page }) => page.route("**/api/stream", route => route.fulfill
 test("shows a clear offline state when the server is down", async ({ page }) => {
   await page.route("**/api/**", route => route.abort());
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Secnd is offline" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Stupid is offline" })).toBeVisible();
   await expect(page.getByText("Not an official Meta product.")).toBeVisible();
 });
 
@@ -15,7 +15,7 @@ test("asks a signed-out visitor to continue with Facebook", async ({ page }) => 
   await page.route("**/api/me", route => route.fulfill(json({ signed_in: false })));
   await page.goto("/");
   await expect(page.getByRole("link", { name: "Continue with Facebook" })).toHaveAttribute("href", "/api/v1/meta/oauth/start");
-  await expect(page.getByText("Secnd only reads what you allow.")).toBeVisible();
+  await expect(page.getByText("Stupid only reads what you allow.")).toBeVisible();
   for (const [name, href] of [["Privacy", "/privacy.html"], ["Terms", "/terms.html"], ["Data deletion", "/deletion.html"]])
     await expect(page.getByRole("link", { name })).toHaveAttribute("href", href);
 });
@@ -23,7 +23,7 @@ test("asks a signed-out visitor to continue with Facebook", async ({ page }) => 
 test("a signed-in person moves between destinations", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json({ signed_in: true, name: "Test", assets: [], selected: [] })));
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Set up Secnd" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Set up Stupid" })).toBeVisible();
   await page.getByRole("link", { name: "Inbox" }).click();
   await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Inbox" })).toHaveAttribute("aria-current", "page");
@@ -61,7 +61,7 @@ test("a refused Meta sign-in shows Meta's reason and offers to try again", async
   await expect(page.getByRole("link", { name: "Continue with Instagram" })).toHaveCount(0);
 
   await page.goto("/?meta_error=1");
-  await expect(page.getByText("Nothing was shared with Secnd.")).toBeVisible();
+  await expect(page.getByText("Nothing was shared with Stupid.")).toBeVisible();
 });
 
 test("continuing with Facebook shows a full-screen loader on the way out and back", async ({ page }) => {
@@ -210,7 +210,7 @@ test("the keyboard reaches the skip link first and can open a reply", async ({ p
   await page.route("**/api/me", route => route.fulfill(json(signedIn)));
   await page.route("**/api/inbox", route => route.fulfill(json(inbox)));
   await page.goto("/#inbox");
-  await expect(page).toHaveTitle("Inbox · Secnd");
+  await expect(page).toHaveTitle("Inbox · Stupid");
   await page.keyboard.press("Tab");
   await expect(page.getByText("Skip to content")).toBeFocused();
   await page.getByText("Are you open?").waitFor();

@@ -148,7 +148,7 @@ function Result({ result }: { result: NonNullable<AgentRun["result"]> }) {
           </VStack>
         ))}
       </VStack>
-      <Text as="p" type="supporting">Change your ads in Meta Ads Manager. Secnd doesn't edit them.</Text>
+      <Text as="p" type="supporting">Change your ads in Meta Ads Manager. Stupid doesn't edit them.</Text>
     </VStack>
   );
 }

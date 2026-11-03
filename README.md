@@ -1,4 +1,4 @@
-# Secnd
+# Stupid
 
 A workspace for creators and small businesses on Meta. Sign in with Facebook, connect
 Instagram, WhatsApp, your Facebook Page and Meta Ads, and work from one place:
@@ -11,7 +11,7 @@ Instagram, WhatsApp, your Facebook Page and Meta Ads, and work from one place:
 - **Setup without the maze.** Each connected account says what Meta still needs (a payment
   method, a time zone, a linked Page) in plain words, with a link to the exact Meta screen.
 
-Secnd is built for Meta's platform. It is not an official Meta product.
+Stupid is built for Meta's platform. It is not an official Meta product.
 
 ## How it works
 
@@ -21,10 +21,10 @@ Secnd is built for Meta's platform. It is not an official Meta product.
 - `frontend/`: Vite, React 19 and Astryx.
 
 Security: Meta tokens are encrypted at rest (Fernet) and never reach the browser. Over HTTPS the
-session cookie is `__Host-` and writes are accepted only from Secnd's own origin. Webhooks are
+session cookie is `__Host-` and writes are accepted only from Stupid's own origin. Webhooks are
 checked against `X-Hub-Signature-256` before anything is stored. Messages are kept 30 days. Meta's
 data-deletion callback removes a person's data in one transaction. AI spend stops at
-`SECND_MUSE_BUDGET_USD`, and people can bring their own key.
+`STUPID_MUSE_BUDGET_USD`, and people can bring their own key.
 
 ## Run it
 
@@ -39,7 +39,7 @@ npm run dev:api         # server on http://127.0.0.1:8000
 
 `npm run dev` runs the server and the Vite dev server together (http://localhost:3000).
 
-Or one container (the database lives in the `secnd-data` volume):
+Or one container (the database lives in the `stupid-data` volume):
 
 ```bash
 docker compose up --build
@@ -50,13 +50,13 @@ docker compose up --build
 In your app at developers.facebook.com:
 
 1. **Facebook Login for Business**: create a configuration (user access token) with the
-   permissions Secnd uses, and add `SECND_META_REDIRECT_URI` to Valid OAuth Redirect URIs.
-2. **Webhooks**: callback `<public url>/webhooks/meta`, verify token `SECND_META_VERIFY_TOKEN`.
+   permissions Stupid uses, and add `STUPID_META_REDIRECT_URI` to Valid OAuth Redirect URIs.
+2. **Webhooks**: callback `<public url>/webhooks/meta`, verify token `STUPID_META_VERIFY_TOKEN`.
    Subscribe to `messages` for WhatsApp Business Account, Page and Instagram, plus `comments`
    for Instagram.
 3. **App settings → Basic**: data deletion callback `<public url>/api/v1/meta/deletion`.
 
-Until the app is published, Meta sends webhooks only from the dashboard's Test button. Secnd still
+Until the app is published, Meta sends webhooks only from the dashboard's Test button. Stupid still
 reads Messenger and Instagram conversations directly while a screen is open.
 
 ## Checks
@@ -68,7 +68,7 @@ npm run test:inbox      # browser tests
 
 ## Earlier work
 
-Before this workspace, Secnd built Ren, an open decision model for Meta business decisions.
+Before this workspace, Secnd AI built Ren, an open decision model for Meta business decisions.
 Its weights, model card and training record are at
 [huggingface.co/Secnd-AI/ren](https://huggingface.co/Secnd-AI/ren) and
 [github.com/Secnd-AI/ren](https://github.com/Secnd-AI/ren).
