@@ -66,7 +66,10 @@ test("returning from Meta opens Setup and saves account switches", async ({ page
   });
   await page.goto("/?connected=1");
   await expect(page).toHaveURL(/\/#setup$/);
-  await expect(page.getByRole("link", { name: "Connect WhatsApp" })).toHaveAttribute("href", "/api/v1/meta/oauth/start");
+  await page.getByRole("button", { name: "Connect WhatsApp" }).click();
+  await expect(page.getByRole("link", { name: "Continue with Facebook" })).toHaveAttribute("href", "/api/v1/meta/oauth/start");
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await page.getByRole("button", { name: "Manage Instagram" }).click();
   const instagram = page.getByRole("switch", { name: "Test Instagram" });
   await expect(instagram).not.toBeChecked();
   await instagram.click();
