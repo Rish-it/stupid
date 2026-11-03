@@ -1,5 +1,5 @@
 //! Meta Graph API: sign-in, account inventory, Ads and Instagram reads, webhook parsing.
-use crate::{hmac_sha256, now, random_token, tokens, user, ApiResult, AppError, AppState, User};
+use crate::{hmac_sha256, lock, now, random_token, tokens, user, ApiResult, AppError, AppState, User};
 use axum::{extract::State, http::HeaderMap, Json};
 use rusqlite::{params, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -132,7 +132,7 @@ pub async fn sign_in(state: &AppState, code: &str) -> ApiResult<String> {
     let fernet = state.fernet.as_ref().ok_or_else(|| AppError::new(503, "Token encryption is not configured."))?;
     let blob = fernet.encrypt(&serde_json::to_vec(&Tokens { user: token, assets: page_tokens }).expect("serializable"));
 
-    let db = state.db.lock().expect("db lock");
+    let db = lock(&state.db);
     let existing: Option<(String, String, String)> = db
         .query_row("SELECT id,assets_json,selected_json FROM users WHERE meta_user_id=?1", [&meta_user], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
         .optional()?;
@@ -156,13 +156,13 @@ where
     F: FnOnce() -> Fut,
     Fut: Future<Output = ApiResult<Value>>,
 {
-    if let Some((at, v)) = state.cache.lock().expect("cache lock").get(&key) {
+    if let Some((at, v)) = lock(&state.cache).get(&key) {
         if at.elapsed() < ttl {
             return Ok(v.clone());
         }
     }
     let value = fetch().await?;
-    let mut cache = state.cache.lock().expect("cache lock");
+    let mut cache = lock(&state.cache);
     if cache.len() > 5000 {
         cache.retain(|_, (at, _)| at.elapsed() < ttl);
     }
@@ -170,7 +170,7 @@ where
     Ok(value)
 }
 
-const TTL: Duration = Duration::from_secs(300);
+pub const TTL: Duration = Duration::from_secs(300);
 
 pub async fn ads_data(state: &AppState, u: &User) -> ApiResult<Value> {
     let t = tokens(state, u)?;
@@ -249,7 +249,7 @@ pub fn inbox_rows(state: &AppState, u: &User) -> ApiResult<Vec<Value>> {
         return Ok(Vec::new());
     }
     let marks = vec!["?"; ids.len()].join(",");
-    let db = state.db.lock().expect("db lock");
+    let db = lock(&state.db);
     let mut stmt = db.prepare(&format!("SELECT id,kind,asset_id,sender,text,created FROM events WHERE asset_id IN ({marks}) ORDER BY id DESC LIMIT 100"))?;
     let rows = stmt.query_map(rusqlite::params_from_iter(ids.iter()), |r| {
         Ok(json!({ "id": r.get::<_, i64>(0)?, "kind": r.get::<_, String>(1)?, "asset_id": r.get::<_, String>(2)?, "sender": r.get::<_, String>(3)?, "text": r.get::<_, String>(4)?, "created": r.get::<_, i64>(5)? }))

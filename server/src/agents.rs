@@ -1,5 +1,5 @@
 //! Background agents on Muse Spark. Each run prepares work for the person; nothing is sent or changed.
-use crate::{meta, now, user, ApiResult, AppError, AppState};
+use crate::{lock, meta, now, user, ApiResult, AppError, AppState};
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
@@ -21,7 +21,7 @@ const MAX_INPUT_CHARS: usize = 12_000;
 
 pub async fn list(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Value>> {
     let u = user(&s, &headers)?;
-    let db = s.db.lock().expect("db lock");
+    let db = lock(&s.db);
     let mut stmt = db.prepare(
         "SELECT agent,status,result_json,error,cost_usd,created,finished FROM agent_runs
          WHERE id IN (SELECT MAX(id) FROM agent_runs WHERE user_id=?1 GROUP BY agent)",
@@ -55,7 +55,7 @@ pub async fn run(State(s): State<AppState>, headers: HeaderMap, Path(agent): Pat
     };
     let empty = context.as_object().is_some_and(|o| o.values().all(|v| v.as_array().is_some_and(|a| a.is_empty())));
     let id = {
-        let db = s.db.lock().expect("db lock");
+        let db = lock(&s.db);
         let busy: i64 = db.query_row(
             "SELECT COUNT(*) FROM agent_runs WHERE user_id=?1 AND agent=?2 AND status='running' AND created>?3",
             params![u.id, name, now() - 300], |r| r.get(0))?;
@@ -72,7 +72,7 @@ pub async fn run(State(s): State<AppState>, headers: HeaderMap, Path(agent): Pat
     let state = s.clone();
     tokio::spawn(async move {
         let outcome = muse(&state, system, &context).await;
-        let db = state.db.lock().expect("db lock");
+        let db = lock(&state.db);
         let _ = match outcome {
             Ok((result, cost)) => db.execute("UPDATE agent_runs SET status='done',result_json=?1,cost_usd=?2,finished=?3 WHERE id=?4", params![result.to_string(), cost, now(), id]),
             Err(e) => db.execute("UPDATE agent_runs SET status='failed',error=?1,finished=?2 WHERE id=?3", params![e.1, now(), id]),
@@ -90,7 +90,7 @@ async fn muse(s: &AppState, system: &str, context: &Value) -> ApiResult<(Value, 
     // Rough worst case: 3 characters per token, every output token used.
     let estimate = ((input.len() + system.len()) as f64 / 3.0 * PRICE.0 + MAX_TOKENS as f64 * PRICE.1) / 1e6;
     {
-        let db = s.db.lock().expect("db lock");
+        let db = lock(&s.db);
         let spent: f64 = db.query_row("SELECT COALESCE(SUM(usd),0) FROM spend", [], |r| r.get(0))?;
         // ponytail: check-then-record, so parallel runs can pass the cap by one call (about $0.01).
         if spent + estimate > s.cfg.muse_budget_usd {
@@ -111,7 +111,7 @@ async fn muse(s: &AppState, system: &str, context: &Value) -> ApiResult<(Value, 
     }
     let usage = &data["usage"];
     let cost = (usage["prompt_tokens"].as_f64().unwrap_or(0.0) * PRICE.0 + usage["completion_tokens"].as_f64().unwrap_or(MAX_TOKENS as f64) * PRICE.1) / 1e6;
-    s.db.lock().expect("db lock").execute("INSERT INTO spend (usd,created) VALUES (?1,?2)", params![cost, now()])?;
+    lock(&s.db).execute("INSERT INTO spend (usd,created) VALUES (?1,?2)", params![cost, now()])?;
     let text = data["choices"][0]["message"]["content"].as_str().unwrap_or_default();
     Ok((extract_json(text).ok_or_else(|| AppError::new(502, "Muse answered without the expected format."))?, cost))
 }
