@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 export type AssetKind = "ads" | "instagram" | "whatsapp" | "messenger";
 export type Asset = { key: string; kind: AssetKind; id: string; name: string };
 export type Health = { status: "ok" | "degraded"; meta_configured: boolean; ai_configured: boolean };
-export type Me = { signed_in: false } | { signed_in: true; name: string; assets: Asset[]; selected: string[] };
+export type Me = { signed_in: false } | { signed_in: true; name: string; assets: Asset[]; selected: string[]; permissions: string[] };
 export type Connections = { assets: Asset[]; selected: string[] };
 
 export const apps: { kind: AssetKind; name: string; does: string }[] = [
@@ -35,7 +35,7 @@ export type Instagram = {
 };
 
 export type InboxKind = "whatsapp" | "messenger" | "instagram" | "instagram_comment";
-export type InboxItem = { id: string; kind: InboxKind; asset_id: string; sender: string; text: string; created: number };
+export type InboxItem = { id: string; kind: InboxKind; asset_id: string; sender: string; text: string; created: number; replied: boolean };
 
 export type AgentId = "leads" | "ideas" | "replies" | "ads";
 export type AgentResult =
@@ -48,10 +48,10 @@ export type AgentRun = {
   agent: AgentId; status: "running" | "done" | "failed"; result: AgentResult | null; error: string | null;
   cost_usd: number | null; created: number; finished: number | null;
 };
-export type Agents = { runs: AgentRun[]; ai_ready: boolean; model: string };
-export type AiSettings = { has_key: boolean; model: string };
+export type Agents = { runs: AgentRun[]; ai_ready: boolean; own_key: boolean; model: string };
+export type AiSettings = { has_key: boolean; model: string; workspace_ai: boolean };
 
-/** status 0 = server unreachable; 404 = endpoint not available yet; 401 = signed out. */
+/** status 0 = server unreachable; 401 = signed out; any other 4xx carries a message written for the person. */
 export class ApiError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -98,7 +98,7 @@ export const api = {
   agents: () => call<Agents>("GET", "/api/agents"),
   run: (agent: AgentId) => call<{ agent: AgentId; status: string }>("POST", `/api/agents/${agent}/run`),
   aiSettings: () => call<AiSettings>("GET", "/api/settings/ai"),
-  setAiKey: (api_key: string) => call<AiSettings>("PUT", "/api/settings/ai", { api_key }),
+  setAiKey: (api_key: string) => call<Omit<AiSettings, "workspace_ai">>("PUT", "/api/settings/ai", { api_key }),
 };
 
 // In-memory only: a screen shows what it last saw at once, then refreshes in the background.
