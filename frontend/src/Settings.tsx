@@ -1,27 +1,41 @@
 import { useState } from "react";
+import type { ReactNode } from "react";
+import { AlertDialog } from "@astryxdesign/core/AlertDialog";
 import { Button } from "@astryxdesign/core/Button";
 import { Heading } from "@astryxdesign/core/Heading";
-import { Link } from "@astryxdesign/core/Link";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
-import PageHeader from "./PageHeader";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { api, useLoad } from "./api";
 import { Load } from "./Load";
+import { Page } from "./Surface";
 
 const message = (cause: unknown) => cause instanceof Error ? cause.message : String(cause);
 
+/** One settings row: what it is on the left, its controls on the right (stacked on phones). */
+function Row({ id, title, description, children }: { id: string; title: string; description?: string; children: ReactNode }) {
+  return (
+    <section aria-labelledby={id} className="settings-row">
+      <VStack gap={1}>
+        <Heading level={2} id={id}>{title}</Heading>
+        {description && <Text as="p" type="supporting" size="sm">{description}</Text>}
+      </VStack>
+      <VStack gap={3}>{children}</VStack>
+    </section>
+  );
+}
+
 export default function Settings({ name, onSignedOut }: { name: string; onSignedOut: () => void }) {
   return (
-    <VStack gap={10} maxWidth={640}>
-      <PageHeader title="Settings" />
-      <VStack gap={2} as="section" aria-labelledby="setup-heading">
-        <Heading level={2} id="setup-heading">Setup</Heading>
-        <Text as="p" type="supporting">Which accounts Stupid reads, and anything Meta still needs. <Link hasUnderline href="#setup">Open setup</Link></Text>
+    <Page title="Settings">
+      <VStack gap={4} maxWidth={960}>
+        <Row id="setup-heading" title="Connections" description="Which accounts Stupid reads, and anything Meta still needs.">
+          <HStack><Button label="Open setup" href="#setup" /></HStack>
+        </Row>
+        <AiAccess />
+        <Account name={name} onSignedOut={onSignedOut} />
       </VStack>
-      <AiAccess />
-      <Account name={name} onSignedOut={onSignedOut} />
-    </VStack>
+    </Page>
   );
 }
 
@@ -40,11 +54,10 @@ function AiAccess() {
     }
   };
   return (
-    <VStack gap={4} as="section" aria-labelledby="ai-heading">
-      <Heading level={2} id="ai-heading">AI access</Heading>
+    <Row id="ai-heading" title="AI access" description="What runs your agents.">
       <Load state={ai}>{s => (
         <VStack gap={4}>
-          <Text as="p" type="supporting">
+          <Text as="p">
             {s.has_key ? `Agents run on ${s.model} with your own key.`
               : s.workspace_ai ? `Agents run on ${s.model} using Stupid's shared allowance. Add your own key to run them on your account instead.`
               : "Add your Muse API key from Meta so agents can run."}
@@ -58,12 +71,13 @@ function AiAccess() {
           </HStack>
         </VStack>
       )}</Load>
-    </VStack>
+    </Row>
   );
 }
 
 function Account({ name, onSignedOut }: { name: string; onSignedOut: () => void }) {
   const [confirming, setConfirming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
   const act = (call: () => Promise<unknown>) => async () => {
     try {
@@ -73,25 +87,23 @@ function Account({ name, onSignedOut }: { name: string; onSignedOut: () => void 
       setError(message(cause));
     }
   };
+  const remove = async () => {
+    setDeleting(true);
+    await act(api.disconnect)();
+    setDeleting(false);
+    setConfirming(false);
+  };
   return (
-    <VStack gap={4} as="section" aria-labelledby="account-heading">
-      <Heading level={2} id="account-heading">Your account</Heading>
-      <Text as="p" type="supporting">Signed in with Facebook as {name}.</Text>
-      <HStack gap={2}><Button label="Sign out" clickAction={act(api.signOut)} /></HStack>
-      <VStack gap={3}>
-        <Heading level={3}>Disconnect and delete</Heading>
-        <Text as="p" type="supporting">Removes Stupid's access to your Meta apps and deletes your messages, numbers and agent results from Stupid.</Text>
-        {confirming ? (
-          <VStack gap={3} role="group" aria-label="Confirm deletion">
-            <Text as="p" weight="semibold">This can't be undone. Delete everything now?</Text>
-            <HStack gap={2} wrap="wrap">
-              <Button variant="destructive" label="Yes, delete everything" clickAction={act(api.disconnect)} />
-              <Button variant="ghost" label="Cancel" onClick={() => setConfirming(false)} />
-            </HStack>
-          </VStack>
-        ) : <HStack gap={2}><Button variant="destructive" label="Disconnect and delete my data" onClick={() => setConfirming(true)} /></HStack>}
-      </VStack>
+    <Row id="account-heading" title="Your account" description={`Signed in with Facebook as ${name}.`}>
+      <HStack gap={2} wrap="wrap">
+        <Button label="Sign out" clickAction={act(api.signOut)} />
+        <Button variant="destructive" label="Disconnect and delete my data" onClick={() => setConfirming(true)} />
+      </HStack>
+      <Text as="p" type="supporting" size="sm">Deleting removes Stupid's access to your Meta apps and deletes your messages, numbers and agent results from Stupid.</Text>
       <div aria-live="polite">{error && <Text as="p">{error}</Text>}</div>
-    </VStack>
+      <AlertDialog isOpen={confirming} onOpenChange={setConfirming} title="Delete everything?"
+        description="This can't be undone. Stupid loses access to your Meta apps and deletes your messages, numbers and agent results."
+        actionLabel="Yes, delete everything" onAction={() => void remove()} isActionLoading={deleting} />
+    </Row>
   );
 }
