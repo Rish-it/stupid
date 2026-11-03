@@ -13,6 +13,9 @@ test("asks a signed-out visitor to continue with Facebook", async ({ page }) => 
   await page.route("**/api/me", route => route.fulfill(json({ signed_in: false })));
   await page.goto("/");
   await expect(page.getByRole("link", { name: "Continue with Facebook" })).toHaveAttribute("href", "/api/v1/meta/oauth/start");
+  await expect(page.getByText("Secnd only reads what you allow.")).toBeVisible();
+  for (const [name, href] of [["Privacy", "/privacy.html"], ["Terms", "/terms.html"], ["Data deletion", "/deletion.html"]])
+    await expect(page.getByRole("link", { name })).toHaveAttribute("href", href);
 });
 
 test("a signed-in person moves between destinations", async ({ page }) => {
