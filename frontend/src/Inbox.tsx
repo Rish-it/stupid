@@ -7,12 +7,13 @@ import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
+import { Token } from "@astryxdesign/core/Token";
 import { api, drafts, senderName, useLoad } from "./api";
 import type { InboxItem } from "./api";
 import { Load } from "./Load";
 import SourceIcon from "./SourceIcon";
 
-const filters = { all: "All", whatsapp: "WhatsApp", messenger: "Messenger", instagram: "Instagram" } as const;
+const filters = { all: "All", messenger: "Messenger", instagram: "Instagram", whatsapp: "WhatsApp" } as const;
 const where = { whatsapp: "WhatsApp", messenger: "Messenger", instagram: "Instagram DM", instagram_comment: "Instagram comment" } as const;
 
 export default function Inbox() {
@@ -38,10 +39,10 @@ export default function Inbox() {
             {shown.map(item => (
               <Fragment key={item.id}>
                 <ListItem align="start" isSelected={open === item.id} onClick={item.replied ? undefined : () => setOpen(open === item.id ? undefined : item.id)}
-                  startContent={<SourceIcon source={item.kind === "instagram_comment" ? "instagram" : item.kind} />}
+                  startContent={<SourceIcon source={item.kind} />}
                   label={<HStack gap={2} wrap="wrap"><Text weight="semibold">{senderName(item)}</Text><Text type="supporting">{where[item.kind]}</Text></HStack>}
                   description={item.text}
-                  endContent={<VStack gap={1} hAlign="end"><Timestamp value={item.created} format="relative_short" />{item.replied && <Text type="supporting">Replied</Text>}</VStack>} />
+                  endContent={<VStack gap={1} hAlign="end"><Timestamp value={item.created} format="relative" type="supporting" />{item.replied && <Token size="sm" label="Replied" />}</VStack>} />
                 {open === item.id && !item.replied && <Reply item={item} onSent={() => {
                   inbox.setData({ items: items.map(i => i.id === item.id ? { ...i, replied: true } : i) });
                   setOpen(undefined);
