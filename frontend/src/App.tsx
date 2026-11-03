@@ -14,6 +14,7 @@ const pages = { today: "Today", inbox: "Inbox", agents: "Agents", connections: "
 type Page = keyof typeof pages;
 const nav: Page[] = ["today", "inbox", "agents", "connections"];
 const Connections = lazy(() => import("./Connections"));
+const Today = lazy(() => import("./Today"));
 
 // Meta sends people back to /?connected=1 or /?meta_error=1. Read it once, then drop it from the address.
 const query = new URLSearchParams(location.search);
@@ -44,6 +45,7 @@ export default function App() {
 
   let body;
   if (user && page === "connections") body = <Suspense fallback={loading}><Connections state={user} onChange={next => me.setData({ ...user, ...next })} /></Suspense>;
+  else if (user && page === "today") body = <Suspense fallback={loading}><Today state={user} /></Suspense>;
   else if (user) body = <EmptyState headingLevel={1} title={pages[page]} description="This screen is on its way." />;
   else if (me.data || me.error?.status === 401) body = (
     <EmptyState headingLevel={1} title="Run your Meta business in plain words"
