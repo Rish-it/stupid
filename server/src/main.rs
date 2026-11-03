@@ -448,6 +448,9 @@ async fn webhook(State(s): State<AppState>, headers: HeaderMap, body: Bytes) -> 
         return Err(AppError::new(403, "Invalid signature."));
     }
     let payload: Value = serde_json::from_slice(&body).map_err(|_| AppError::new(400, "Invalid JSON."))?;
+    for failure in meta::failed_sends(&payload) {
+        tracing::warn!("WhatsApp send failed {failure}");
+    }
     let events = meta::parse_webhook(&payload);
     let db = lock(&s.db);
     for e in events {
