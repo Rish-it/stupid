@@ -1,7 +1,6 @@
 import { Fragment, useState } from "react";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
-import { Heading } from "@astryxdesign/core/Heading";
 import { List, ListItem } from "@astryxdesign/core/List";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
@@ -12,6 +11,7 @@ import { Token } from "@astryxdesign/core/Token";
 import { api, drafts, senderName, useLoad } from "./api";
 import type { InboxItem } from "./api";
 import { Load } from "./Load";
+import PageHeader from "./PageHeader";
 import SourceIcon from "./SourceIcon";
 
 const filters = { all: "All", messenger: "Messenger", instagram: "Instagram", whatsapp: "WhatsApp" } as const;
@@ -26,10 +26,7 @@ export default function Inbox() {
   const [marks, setMarks] = useState<Record<string, { label: "Sending…" | "Sent"; items: InboxItem[] }>>({});
   return (
     <VStack gap={6}>
-      <VStack gap={2}>
-        <Heading level={1}>Inbox</Heading>
-        <Text as="p" type="supporting">Every new message and comment in one place, newest first.</Text>
-      </VStack>
+      <PageHeader title="Inbox" description="Every new message and comment in one place, newest first." />
       <SegmentedControl label="Show messages from" value={filter} onChange={v => setFilter(v as keyof typeof filters)} layout="fill">
         {Object.entries(filters).map(([value, label]) => value === "all"
           ? <SegmentedControlItem key={value} value={value} label={label} />

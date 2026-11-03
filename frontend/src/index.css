@@ -1,1 +1,20 @@
 body { background: var(--color-background-body); }
+
+/* Page titles stick to the very top (above the 24px content padding), shrink to 24px and drop their description over the first 64px of scroll. */
+.page-title { position: sticky; top: -1.5rem; z-index: 1; margin: -.5rem -1.5rem; padding: .5rem 1.5rem; background: var(--color-background-body); }
+.page-description { margin-block-start: -1rem; }
+@supports (animation-timeline: scroll()) {
+  .page-title, .page-title > *, .page-description { animation-timing-function: linear; animation-fill-mode: both; animation-timeline: scroll(); animation-range: 0 64px; }
+  .page-title { animation-name: page-bar; }
+  .page-title > * { animation-name: title-shrink; transform-origin: 0 50%; }
+  .page-description { animation-name: fade-out; }
+}
+@keyframes page-bar { from { background: transparent; box-shadow: 0 1px 0 transparent; } to { box-shadow: 0 1px 0 var(--color-border); } }
+@keyframes title-shrink { to { scale: .70588; } }
+
+/* Loading words: a light sweeps across, then rests. */
+@media (prefers-reduced-motion: no-preference) {
+  .shimmer { mask-image: linear-gradient(90deg, #000 40%, #0006 50%, #000 60%); mask-size: 200% 100%; animation: shimmer 2s linear infinite; }
+}
+@keyframes shimmer { 0% { mask-position: 200% 0; } 55%, 100% { mask-position: -200% 0; } }
+@keyframes fade-out { to { opacity: 0; } }

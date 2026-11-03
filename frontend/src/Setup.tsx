@@ -11,6 +11,7 @@ import { Text } from "@astryxdesign/core/Text";
 import { Token } from "@astryxdesign/core/Token";
 import { api, apps, appStatus, oauthStartUrl, setupDone } from "./api";
 import type { Account, Issue } from "./api";
+import PageHeader from "./PageHeader";
 import SourceIcon from "./SourceIcon";
 
 const labels = { ready: ["Ready", "green"], step: ["Needs one step", "yellow"], off: ["Not connected", "default"] } as const;
@@ -48,15 +49,12 @@ export default function Setup({ state, onChange, onConnect }: { state: Account; 
 
   return (
     <VStack gap={6}>
-      <VStack gap={3}>
-        <Heading level={1}>{done ? "You're set" : "Set up Stupid"}</Heading>
-        <Text as="p" type="supporting">{done ? "New messages arrive in your inbox as they come in." : "One step at a time. Each card says what to do next."}</Text>
-        {done && <HStack><Button variant="primary" label="Go to Inbox" href="#inbox" /></HStack>}
-        <div aria-live="polite">
-          {error && <Banner status="warning" title="That didn't go through" description={`${error} Try again in a moment.`} />}
-          {checked && !error && !done && <Text as="p" type="supporting">Checked just now. Meta can take a minute to catch up.</Text>}
-        </div>
-      </VStack>
+      <PageHeader title={done ? "You're set" : "Set up Stupid"} description={done ? "New messages arrive in your inbox as they come in." : "One step at a time. Each card says what to do next."} />
+      {done && <HStack><Button variant="primary" label="Go to Inbox" href="#inbox" /></HStack>}
+      <div aria-live="polite">
+        {error && <Banner status="warning" title="That didn't go through" description={`${error} Try again in a moment.`} />}
+        {checked && !error && !done && <Text as="p" type="supporting">Checked just now. Meta can take a minute to catch up.</Text>}
+      </div>
       {state.problems?.map(problem => (
         <Card key={problem} variant="muted">
           <VStack gap={3} hAlign="start">

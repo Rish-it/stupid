@@ -11,6 +11,7 @@ import { Token } from "@astryxdesign/core/Token";
 import { api, apps, senderName, useLoad } from "./api";
 import type { AssetKind, Campaign, Connections } from "./api";
 import { Load } from "./Load";
+import PageHeader from "./PageHeader";
 import SourceIcon from "./SourceIcon";
 
 const count = (n: number) => n.toLocaleString();
@@ -21,10 +22,7 @@ export default function Today({ state }: { state: Connections }) {
   const messaging = on("whatsapp") || on("messenger") || on("instagram");
   return (
     <VStack gap={6}>
-      <VStack gap={2}>
-        <Heading level={1}>Today</Heading>
-        <Text as="p" type="supporting">How your business did over the last 7 days.</Text>
-      </VStack>
+      <PageHeader title="Today" description="How your business did over the last 7 days." />
       <Grid columns={{ minWidth: 300 }} gap={4}>
         <Tile icon="ads" title="Ads">{on("ads") ? <Ads /> : <Connect kind="ads" />}</Tile>
         <Tile icon="instagram" title="Instagram">{on("instagram") ? <Instagram /> : <Connect kind="instagram" />}</Tile>
