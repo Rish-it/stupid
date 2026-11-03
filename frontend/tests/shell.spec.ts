@@ -218,3 +218,14 @@ test("the keyboard reaches the skip link first and can open a reply", async ({ p
   await page.keyboard.press("Enter");
   await expect(page.getByLabel("Reply to Ana")).toBeFocused();
 });
+
+test("legal pages are plain HTML that works without JavaScript", async ({ request }) => {
+  for (const [path, words] of [["/privacy.html", "Baseten"], ["/terms.html", "You stay in charge"], ["/deletion.html", "Disconnect and delete my data"]]) {
+    const res = await request.get(path);
+    expect(res.headers()["content-type"]).toContain("text/html");
+    const html = await res.text();
+    expect(html).toContain(words);
+    expect(html).toContain("rishit@secndai.com");
+    expect(html).not.toContain("<script");
+  }
+});
