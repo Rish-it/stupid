@@ -18,6 +18,7 @@ const AGENTS: &[(&str, &str)] = &[
 const PRICE: (f64, f64) = (1.25, 4.25);
 const MAX_TOKENS: u32 = 1200;
 const MAX_INPUT_CHARS: usize = 12_000;
+const RUNS_PER_DAY: i64 = 30;
 
 pub async fn list(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Value>> {
     let u = user(&s, &headers)?;
@@ -42,6 +43,8 @@ pub async fn run(State(s): State<AppState>, headers: HeaderMap, Path(agent): Pat
     if s.cfg.muse_key.is_empty() {
         return Err(AppError::new(503, "Add an AI key in Settings to run agents."));
     }
+    // Checked again below under the same lock as the insert; this only avoids Meta calls for a refused run.
+    busy(&lock(&s.db), &u.id, name)?;
     let context = match name {
         "leads" => json!({ "instagram_comments": meta::instagram_comments(&s, &u).await.unwrap_or_default(), "messages": meta::inbox_rows(&s, &u)? }),
         "ideas" => {
@@ -56,12 +59,7 @@ pub async fn run(State(s): State<AppState>, headers: HeaderMap, Path(agent): Pat
     let empty = context.as_object().is_some_and(|o| o.values().all(|v| v.as_array().is_some_and(|a| a.is_empty())));
     let id = {
         let db = lock(&s.db);
-        let busy: i64 = db.query_row(
-            "SELECT COUNT(*) FROM agent_runs WHERE user_id=?1 AND agent=?2 AND status='running' AND created>?3",
-            params![u.id, name, now() - 300], |r| r.get(0))?;
-        if busy > 0 {
-            return Err(AppError::new(409, "This agent is already working."));
-        }
+        busy(&db, &u.id, name)?;
         if empty {
             db.execute("INSERT INTO agent_runs (user_id,agent,status,result_json,created,finished) VALUES (?1,?2,'done','{\"empty\":true}',?3,?3)", params![u.id, name, now()])?;
             return Ok(Json(json!({ "agent": name, "status": "done", "result": { "empty": true } })));
@@ -79,6 +77,20 @@ pub async fn run(State(s): State<AppState>, headers: HeaderMap, Path(agent): Pat
         };
     });
     Ok(Json(json!({ "agent": name, "status": "running" })))
+}
+
+/// Refuse a second run of the same agent, and more than RUNS_PER_DAY runs per person.
+fn busy(db: &rusqlite::Connection, user_id: &str, agent: &str) -> ApiResult<()> {
+    let (running, today): (i64, i64) = db.query_row(
+        "SELECT COALESCE(SUM(agent=?2 AND status='running'),0), COUNT(*) FROM agent_runs WHERE user_id=?1 AND created>?3",
+        params![user_id, agent, now() - 86400], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    if running > 0 {
+        return Err(AppError::new(409, "This agent is already working."));
+    }
+    if today >= RUNS_PER_DAY {
+        return Err(AppError::new(429, "That is enough agent runs for today. Try again tomorrow."));
+    }
+    Ok(())
 }
 
 /// One Muse call under the spend cap. Returns the parsed JSON answer and its cost in USD.
@@ -101,7 +113,7 @@ async fn muse(s: &AppState, system: &str, context: &Value) -> ApiResult<(Value, 
         { "role": "system", "content": format!("{system} Reply with the JSON object only.") },
         { "role": "user", "content": input },
     ]});
-    let response = s.http.post(format!("{}/chat/completions", s.cfg.muse_base.trim_end_matches('/'))).bearer_auth(&s.cfg.muse_key).json(&body).send().await
+    let response = s.http.post(format!("{}/chat/completions", s.cfg.muse_base.trim_end_matches('/'))).bearer_auth(&s.cfg.muse_key).timeout(std::time::Duration::from_secs(120)).json(&body).send().await
         .map_err(|_| AppError::new(502, "Muse could not be reached."))?;
     let status = response.status();
     let data: Value = response.json().await.map_err(|_| AppError::new(502, "Muse sent an unreadable answer."))?;
@@ -110,7 +122,11 @@ async fn muse(s: &AppState, system: &str, context: &Value) -> ApiResult<(Value, 
         return Err(AppError::new(502, "Muse refused the request."));
     }
     let usage = &data["usage"];
-    let cost = (usage["prompt_tokens"].as_f64().unwrap_or(0.0) * PRICE.0 + usage["completion_tokens"].as_f64().unwrap_or(MAX_TOKENS as f64) * PRICE.1) / 1e6;
+    // Without a usage report, charge the worst-case estimate rather than nothing.
+    let cost = match (usage["prompt_tokens"].as_f64(), usage["completion_tokens"].as_f64()) {
+        (Some(i), Some(o)) => (i * PRICE.0 + o * PRICE.1) / 1e6,
+        _ => estimate,
+    };
     lock(&s.db).execute("INSERT INTO spend (usd,created) VALUES (?1,?2)", params![cost, now()])?;
     let text = data["choices"][0]["message"]["content"].as_str().unwrap_or_default();
     Ok((extract_json(text).ok_or_else(|| AppError::new(502, "Muse answered without the expected format."))?, cost))
