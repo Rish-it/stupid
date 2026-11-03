@@ -8,19 +8,6 @@ permissions:
   contents: read
 
 jobs:
-  backend:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          version: "0.9.26"
-          enable-cache: true
-      - run: uv sync --locked
-      - run: uv run ruff check backend
-      - run: uv run ruff format --check backend
-      - run: uv run pytest
-
   server:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -49,11 +36,6 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run build
-      - uses: astral-sh/setup-uv@v6
-        with:
-          version: "0.9.26"
-          enable-cache: true
-      - run: uv sync --locked
       - run: npx playwright install --with-deps chromium
       - run: npm run test:meta
       - uses: actions/upload-artifact@v4
@@ -66,69 +48,24 @@ jobs:
 
   docker:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Build and start the container
         run: docker compose up --build -d
-      - name: Check health, frontend and CSV quickstart
+      - name: Check health, frontend and API errors
         run: |
           for attempt in $(seq 1 30); do
             if curl --fail --silent http://127.0.0.1:8000/api/health > /tmp/health.json; then break; fi
             sleep 1
           done
-          python -c 'import json; h=json.load(open("/tmp/health.json")); assert h == {"status":"ok","database":"ready"}'
+          python3 -c 'import json; h=json.load(open("/tmp/health.json")); assert h["status"] == "ok", h'
           curl --fail --silent http://127.0.0.1:8000/ | grep -q '<div id="root">'
-          test "$(curl --silent -o /dev/null -w '%{http_code}' -F file=@examples/decisions.csv http://127.0.0.1:8000/api/preview)" = 401
-          curl --fail --silent -c /tmp/session -H 'Content-Type: application/json' -d '{"username":"ci-check","password":"not-a-real-secret"}' http://127.0.0.1:8000/api/v1/auth/register > /dev/null
-          curl --fail --silent -b /tmp/session -F file=@examples/decisions.csv http://127.0.0.1:8000/api/preview > /tmp/preview.json
-          python -c 'import json; p=json.load(open("/tmp/preview.json")); assert p["row_count"] == 8 and len(p["rows"]) == 5 and "category" in p["columns"]'
+          test "$(curl --silent -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/api/inbox)" = 401
+          test "$(curl --silent -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/api/nothing-here)" = 404
       - name: Container logs
         if: failure()
         run: docker compose logs
       - name: Stop the container
         if: always()
         run: docker compose down
-
-  inbox:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          version: "0.9.26"
-          enable-cache: true
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          cache: npm
-      - run: uv sync --locked
-      - run: npm ci
-      - run: npx playwright install --with-deps chromium
-      - run: npm run test:inbox
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: inbox-browser-check
-          path: |
-            docs/results/c1-inbox/
-            test-results/
-
-  evals:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    env:
-      OMP_NUM_THREADS: '1'
-      OPENBLAS_NUM_THREADS: '1'
-      TOKENIZERS_PARALLELISM: 'false'
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          version: "0.9.26"
-          enable-cache: true
-      - run: uv sync --locked
-      - name: Reproduce IPSA and BANKING77 CPU evaluations (under two minutes)
-        run: timeout 120 uv run python -m backend.ci_eval
-

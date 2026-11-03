@@ -5,7 +5,7 @@ COPY package.json package-lock.json ./
 COPY frontend/package.json frontend/package.json
 RUN npm ci
 COPY frontend frontend
-RUN npm run build
+RUN npm run build && mkdir -p /data
 
 FROM rust:1.95-bookworm AS server
 WORKDIR /build
@@ -16,6 +16,8 @@ RUN cargo build --release --locked
 FROM gcr.io/distroless/cc-debian12:nonroot
 COPY --from=server /build/target/release/secnd-server /secnd-server
 COPY --from=web /build/frontend/dist /app/dist
+# An empty data folder owned by the nonroot user, so a fresh volume is writable.
+COPY --from=web --chown=nonroot:nonroot /data /home/nonroot/data
 # Settings come from the host's environment (SECND_*); mount a volume at /home/nonroot/data to keep the database.
 ENV SECND_STATIC_DIR=/app/dist \
     SECND_DATA_DIR=/home/nonroot/data \

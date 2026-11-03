@@ -9,7 +9,6 @@ background agents prepare leads, post ideas, replies and ad advice for one-tap r
   from `server/` must pass. It serves `frontend/dist` and reads settings from `.env` (`SECND_*`).
 - Frontend: Vite + React 19 + Astryx (`@astryxdesign/core`, neutral theme) in `frontend/`.
   `npm run lint` and `npm run build` must pass. Use Astryx components before custom CSS.
-- The Python backend in `backend/` is legacy and is removed once the Rust server matches it live.
 - Use `npm ci` and keep `package-lock.json` and `server/Cargo.lock` updated when dependencies change.
 - Keep secrets, tokens, uploaded data, databases and caches out of Git. Never print or `source` `.env`.
   Meta tokens never reach the browser.
