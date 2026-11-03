@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="m" gradientUnits="userSpaceOnUse" x1="10" y1="10" x2="90" y2="92">
+      <stop offset="0" stop-color="#4DB2FF"/>
+      <stop offset=".5" stop-color="#0082FB"/>
+      <stop offset="1" stop-color="#0058D6"/>
+    </linearGradient>
+    <clipPath id="l"><rect x="0" y="0" width="47.5" height="100"/></clipPath>
+    <clipPath id="r"><rect x="52.5" y="0" width="47.5" height="100"/></clipPath>
+    <g id="lobes">
+      <circle cx="37" cy="24" r="14"/><circle cx="22" cy="38" r="15"/><circle cx="17" cy="56" r="14"/>
+      <circle cx="25" cy="72" r="14"/><circle cx="38" cy="80" r="12"/><rect x="30" y="20" width="20" height="66" rx="6"/>
+    </g>
+    <clipPath id="brain">
+      <circle cx="37" cy="24" r="14"/><circle cx="22" cy="38" r="15"/><circle cx="17" cy="56" r="14"/><circle cx="25" cy="72" r="14"/><circle cx="38" cy="80" r="12"/><rect x="30" y="20" width="20" height="66" rx="6"/><circle cx="63" cy="24" r="14"/><circle cx="78" cy="38" r="15"/><circle cx="83" cy="56" r="14"/><circle cx="75" cy="72" r="14"/><circle cx="62" cy="80" r="12"/><rect x="50" y="20" width="20" height="66" rx="6"/>
+    </clipPath>
+  </defs>
+  <g fill="url(#m)">
+    <g clip-path="url(#l)"><use href="#lobes"/></g>
+    <g clip-path="url(#r)"><use href="#lobes" transform="matrix(-1 0 0 1 100 0)"/></g>
+  </g>
+  <path clip-path="url(#brain)" fill="none" stroke="#fff" stroke-width="4.6" stroke-linecap="round" stroke-linejoin="round"
+    d="M0 44C9 54 22 57 32 52C40 48 41 39 35 37C28 35 23 44 25 53C27 63 36 67 44 64C51 61 53 54 55 48C58 41 63 38 69 40C76 42 78 50 74 56C70 62 62 63 58 58C55 54 57 49 62 49C71 50 86 58 100 72"/>
+</svg>

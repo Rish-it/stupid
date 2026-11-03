@@ -66,7 +66,10 @@ test("returning from Meta opens Setup and saves account switches", async ({ page
   });
   await page.goto("/?connected=1");
   await expect(page).toHaveURL(/\/#setup$/);
-  await expect(page.getByRole("link", { name: "Connect WhatsApp" })).toHaveAttribute("href", "/api/v1/meta/oauth/start");
+  await page.getByRole("button", { name: "Connect WhatsApp" }).click();
+  await expect(page.getByRole("link", { name: "Continue with Facebook" })).toHaveAttribute("href", "/api/v1/meta/oauth/start");
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await page.getByRole("button", { name: "Manage Instagram" }).click();
   const instagram = page.getByRole("switch", { name: "Test Instagram" });
   await expect(instagram).not.toBeChecked();
   await instagram.click();
@@ -74,17 +77,19 @@ test("returning from Meta opens Setup and saves account switches", async ({ page
   expect(saved).toEqual({ selected: ["ads:act_1", "instagram:1"] });
 });
 
-test("a refused Meta sign-in shows Meta's reason and offers to try again", async ({ page }) => {
+test("a refused Meta sign-in says so in fixed words and offers to try again", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json({ signed_in: false })));
-  await page.goto("/?error=You+cancelled+the+Facebook+dialog.");
+  await page.goto("/?meta_error=1");
   await expect(page.getByText("Facebook didn't connect")).toBeVisible();
-  await expect(page.getByText("You cancelled the Facebook dialog.")).toBeVisible();
+  await expect(page.getByText("Nothing was shared with Stupid.")).toBeVisible();
   await expect(page.getByRole("link", { name: "Try again" })).toHaveAttribute("href", "/api/v1/meta/oauth/start");
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByRole("link", { name: "Continue with Instagram" })).toHaveCount(0);
 
-  await page.goto("/?meta_error=1");
-  await expect(page.getByText("Nothing was shared with Stupid.")).toBeVisible();
+  // Text in the address is never shown: anyone can write a link.
+  await page.goto("/?error=Your+account+is+locked.+Call+us.");
+  await expect(page.getByText("Your account is locked.")).toBeHidden();
+  await expect(page.getByText("Facebook didn't connect")).toBeHidden();
 });
 
 test("continuing with Facebook shows a full-screen loader on the way out and back", async ({ page }) => {

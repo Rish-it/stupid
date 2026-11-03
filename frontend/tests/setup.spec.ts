@@ -14,11 +14,13 @@ test("Setup says which features Meta didn't allow and offers to connect again", 
     signed_in: true, name: "Test", selected: ["ads:act_1", "instagram:1"], permissions: ["ads_read", "instagram_basic", "instagram_manage_comments"], assets: [ads, instagram],
   })));
   await page.goto("/#setup");
-  await expect(page.getByText("Meta wasn't allowed to share reach and insights, DMs. Connect again and allow them.")).toBeVisible();
-  await expect(page.getByText(/your ad results/)).toBeHidden();
   await expect(page.getByText("Ready")).toHaveCount(1);
   await expect(page.getByText("Needs one step")).toHaveCount(1);
   await expect(page.getByText("Not connected")).toHaveCount(2);
+  await page.getByRole("button", { name: "Manage Instagram" }).click();
+  await expect(page.getByText("Meta wasn't allowed to share reach and insights, DMs.")).toBeVisible();
+  await expect(page.getByText("Connect again and allow them.")).toBeVisible();
+  await expect(page.getByText(/your ad results/)).toBeHidden();
 });
 
 test("Setup walks through Meta's fixes, checks again and finishes", async ({ page }) => {
@@ -35,12 +37,18 @@ test("Setup walks through Meta's fixes, checks again and finishes", async ({ pag
   await expect(page.getByRole("heading", { name: "Set up Stupid" })).toBeVisible();
   await expect(page.getByText("Messages from Shop Page: the Page wasn't shared.")).toBeVisible();
   await expect(page.getByRole("link", { name: "Connect again" })).toHaveAttribute("href", "/api/v1/meta/oauth/start");
+
+  await page.getByRole("button", { name: "Connect Instagram" }).click();
+  await expect(page.getByText(/Instagram must be a Professional account linked to your Facebook Page/)).toBeVisible();
+  await expect(page.getByRole("link", { name: "How to switch" })).toHaveAttribute("href", "https://help.instagram.com/502981923235522");
+  await expect(page.getByRole("link", { name: "Continue with Facebook" })).toHaveAttribute("href", "/api/v1/meta/oauth/start");
+  await page.getByRole("button", { name: "Cancel" }).click();
+
+  await page.getByRole("button", { name: "Manage WhatsApp" }).click();
   await expect(page.getByText("Add a payment method in WhatsApp Manager.")).toBeVisible();
   const open = page.getByRole("link", { name: "Open in Meta" });
   await expect(open).toHaveAttribute("href", unpaid.link);
   await expect(open).toHaveAttribute("target", "_blank");
-  await expect(page.getByText(/Instagram must be a Professional account linked to your Facebook Page/)).toBeVisible();
-  await expect(page.getByRole("link", { name: "How to switch" })).toHaveAttribute("href", "https://help.instagram.com/502981923235522");
 
   await page.getByRole("button", { name: "Check again" }).click();
   await expect(page.getByRole("heading", { name: "You're set" })).toBeVisible();

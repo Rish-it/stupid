@@ -8,22 +8,25 @@ import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Spinner } from "@astryxdesign/core/Spinner";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
-import { TopNav, TopNavHeading, TopNavItem } from "@astryxdesign/core/TopNav";
+import { Avatar } from "@astryxdesign/core/Avatar";
+import { TopNav, TopNavHeading } from "@astryxdesign/core/TopNav";
 import { api, legal, oauthStartUrl, sample, setupDone, useLoad, useStream } from "./api";
+import { Logo } from "./Icons";
 import Welcome from "./Welcome";
 
 const pages = { today: "Today", inbox: "Inbox", agents: "Agents", setup: "Setup", settings: "Settings" } as const;
 type Page = keyof typeof pages;
-const nav: Page[] = ["today", "inbox", "agents"];
 const Setup = lazy(() => import("./Setup"));
 const Today = lazy(() => import("./Today"));
 const Inbox = lazy(() => import("./Inbox"));
 const Agents = lazy(() => import("./Agents"));
 const Settings = lazy(() => import("./Settings"));
+const SideBar = lazy(() => import("./SideBar"));
 
-// Meta sends people back to /?connected=1, /?error=<message> or /?meta_error=1. Read it once, then drop it from the address.
+// Meta sends people back to /?connected=1 or /?meta_error=1. Read it once, then drop it from the address.
+// Only fixed wording is shown: text from the address could be anyone's.
 const query = new URLSearchParams(location.search);
-const failure = query.get("error")?.slice(0, 300) || (query.has("meta_error") ? "Nothing was shared with Stupid. You can try again whenever you like." : null);
+const failure = query.has("meta_error") ? "Nothing was shared with Stupid. You can try again whenever you like." : null;
 const returned = failure ? "error" : query.has("connected") ? "connected" : null;
 if (returned) {
   for (const key of ["error", "meta_error", "connected"]) query.delete(key);
@@ -89,26 +92,26 @@ export default function App() {
   else body = loading;
 
   return (
-    <AppShell className="shell" variant="wash" contentPadding={welcome ? 0 : 6}
+    <AppShell className={user ? "shell workspace" : "shell"} variant="wash" contentPadding={welcome ? 0 : 3}
       banner={sample && <Banner status="warning" container="section" title="Sample data" description="Nothing on this page is real. Remove ?fixtures=1 to use your own accounts." />}
       topNav={
       <TopNav label="Main navigation"
-        heading={<TopNavHeading heading="Stupid" headingHref="#today" />}
-        startContent={user && [...nav, ...ready ? [] : ["setup" as const]].map(id => <TopNavItem key={id} label={pages[id]} href={`#${id}`} isSelected={page === id} />)}
+        heading={<TopNavHeading logo={<Logo />} heading="Stupid" headingHref={user ? "#today" : "/"} />}
         endContent={user ? (
           <HStack gap={3} align="center">
             {reconnecting && <Text className="shimmer" type="supporting" size="sm" role="status">Reconnecting…</Text>}
-            <TopNavItem label="Settings" href="#settings" isSelected={page === "settings"} />
+            <Avatar name={user.name} size="sm" href="#settings" tooltip={false} alt={`${user.name}, settings`} />
           </HStack>
         ) : welcome && <span className="sticky-mark" data-passed={passed || undefined}><Button variant="primary" size="lg" label="Continue with Facebook" href={oauthStartUrl} onClick={connect} /></span>} />
-    }>
-      <VStack gap={10}>
+    }
+      sideNav={user && <Suspense fallback={null}><SideBar page={page} setup={!ready} /></Suspense>}>
+      <VStack gap={6}>
         {failed && <VStack paddingInline={welcome ? 4 : 0} paddingBlockStart={welcome ? 4 : 0}>
           <Banner status="warning" isDismissable onDismiss={() => setFailed(null)} title="Facebook didn't connect" description={failed}
             endContent={<Button size="sm" label="Try again" href={oauthStartUrl} onClick={connect} />} />
         </VStack>}
         {body}
-        {!welcome && <VStack as="footer" gap={2} hAlign="center">
+        {!welcome && !user && <VStack as="footer" gap={2} hAlign="center">
           <HStack as="nav" aria-label="Legal" gap={4} wrap="wrap" hAlign="center">
             {legal.map(([label, href]) => <Link key={href} href={href} type="supporting">{label}</Link>)}
           </HStack>

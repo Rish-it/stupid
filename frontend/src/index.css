@@ -5,6 +5,8 @@ body { background: var(--color-background-body); }
   --color-background-body: light-dark(#FCFCFC, #111112);
   --color-accent: light-dark(#0064E0, #2694FE); --color-on-accent: #fff; --color-accent-muted: light-dark(#0082FB33, #0082FB3F);
   --color-text-accent: light-dark(#0064E0, #3E9EFB); --color-icon-accent: light-dark(#0064E0, #2694FE);
+  /* Tiles sit one step off the page surface in both themes. */
+  --color-background-muted: light-dark(#F3F3F4, #242426);
 }
 
 /* Motion follows muse.ai: the same curves and timings, with Stupid's content. Everything moving here
@@ -29,17 +31,30 @@ body { background: var(--color-background-body); }
   .sticky-mark { animation: fade-in .2s ease-out both; }
 }
 
-/* Page titles stick to the very top (above the 24px content padding), shrink to 24px and drop their description over the first 64px of scroll. */
-.page-title { position: sticky; top: -1.5rem; z-index: 1; margin: -.5rem -1.5rem; padding: .5rem 1.5rem; background: var(--color-background-body); }
-.page-description { margin-block-start: -1rem; }
-@supports (animation-timeline: scroll()) {
-  .page-title, .page-title > *, .page-description { animation-timing-function: linear; animation-fill-mode: both; animation-timeline: scroll(); animation-range: 0 64px; }
-  .page-title { animation-name: page-bar; }
-  .page-title > * { animation-name: title-shrink; transform-origin: 0 50%; }
-  .page-description { animation-name: fade-out; }
+/* Signed-in screens: one surface per screen, centred, with tiles or rows inside. */
+/* The signed-in workspace reads at the larger (touch) type scale on every screen. */
+.workspace {
+  --font-size-2xs: .625rem; --font-size-xs: .75rem; --font-size-sm: .875rem; --font-size-base: 1rem; --font-size-lg: 1.1875rem;
+  --font-size-xl: 1.375rem; --font-size-2xl: 1.625rem; --font-size-3xl: 1.875rem; --font-size-4xl: 2.25rem; --text-body-leading: 1.5;
+  /* Re-declared here so they resolve against the sizes above, not the root's. */
+  --text-body-size: var(--font-size-base); --text-label-size: var(--font-size-base); --text-large-size: var(--font-size-lg);
+  --text-supporting-size: var(--font-size-sm); --text-display-2-size: var(--font-size-4xl); --text-display-3-size: var(--font-size-3xl);
+  --text-heading-1-size: var(--font-size-3xl); --text-heading-2-size: var(--font-size-xl); --text-heading-3-size: var(--font-size-lg);
+  --text-heading-4-size: var(--font-size-base); --text-heading-5-size: var(--font-size-sm); --text-heading-6-size: var(--font-size-xs);
 }
-@keyframes page-bar { from { background: transparent; box-shadow: 0 1px 0 transparent; } to { box-shadow: 0 1px 0 var(--color-border); } }
-@keyframes title-shrink { to { scale: .70588; } }
+/* Every screen sits in the same panel: full width, at least the height of the window. */
+.page { box-sizing: border-box; min-height: calc(100dvh - 3.5rem - 1.5rem); padding: 1.5rem; border-radius: 20px; background: var(--color-background-card); }
+@media (min-width: 48rem) { .page { padding: 2.5rem 3rem; } }
+.page-meta { font-size: .875rem; color: var(--color-text-secondary); }
+.logo { display: block; flex: none; }
+.bento { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: 1rem; }
+/* Today: the inbox runs tall on the left, results stack on the right. */
+@media (min-width: 64rem) { .bento-lead { grid-template-columns: 1fr 1fr; } .bento-lead > :first-child { grid-row: span 2; } }
+.inset-list { margin-inline: -.75rem; }
+.bubble { align-self: flex-start; max-width: 100%; padding: .75rem 1rem; border-radius: 1rem 1rem 1rem .25rem; background: var(--color-background-muted, var(--color-background-surface)); overflow-wrap: anywhere; }
+.steps { display: grid; gap: .5rem; margin: 0; padding-inline-start: 1.25rem; list-style: decimal; }
+.settings-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; padding: 1.25rem; border-radius: 12px; background: var(--color-background-muted); }
+@media (min-width: 48rem) { .settings-row { grid-template-columns: minmax(0, 18rem) minmax(0, 1fr); gap: 2.5rem; } }
 
 /* Loading words: a light sweeps across, then rests. */
 @media (prefers-reduced-motion: no-preference) {
