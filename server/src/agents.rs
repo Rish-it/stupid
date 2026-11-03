@@ -99,14 +99,14 @@ pub async fn run(State(s): State<AppState>, headers: HeaderMap, Path(agent): Pat
     // Checked again below under the same lock as the insert; this only avoids Meta calls for a refused run.
     busy(&lock(&s.db), &u.id, name)?;
     let context = match name {
-        "leads" => json!({ "instagram_comments": meta::instagram_comments(&s, &u).await.unwrap_or_default(), "messages": meta::inbox_rows(&s, &u)? }),
+        "leads" => json!({ "instagram_comments": meta::instagram_comments(&s, &u).await.unwrap_or_default(), "messages": meta::fresh_inbox(&s, &u).await? }),
         "ideas" => {
             let ig = meta::instagram_data(&s, &u).await?;
             json!({ "accounts": ig["accounts"].as_array().into_iter().flatten().map(|a| json!({
                 "bio": a["profile"]["biography"], "followers": a["profile"]["followers_count"],
                 "posts": a["media"].as_array().into_iter().flatten().map(|m| json!({ "caption": m["caption"], "type": m["media_product_type"], "likes": m["like_count"], "comments": m["comments_count"], "when": m["timestamp"] })).collect::<Vec<_>>() })).collect::<Vec<_>>() })
         }
-        "replies" => json!({ "messages": meta::inbox_rows(&s, &u)?.into_iter().filter(|m| m["kind"] != "instagram_comment").take(20).collect::<Vec<_>>() }),
+        "replies" => json!({ "messages": meta::fresh_inbox(&s, &u).await?.into_iter().filter(|m| m["kind"] != "instagram_comment").take(20).collect::<Vec<_>>() }),
         _ => meta::ads_data(&s, &u).await?,
     };
     let empty = context.as_object().is_some_and(|o| o.values().all(|v| v.as_array().is_some_and(|a| a.is_empty())));

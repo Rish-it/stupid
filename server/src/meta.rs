@@ -319,6 +319,82 @@ pub async fn instagram_comments(state: &AppState, u: &User) -> ApiResult<Vec<Val
     Ok(comments)
 }
 
+/// Unix seconds from Graph's "2026-11-03T07:00:00+0000". Graph sends UTC, so the offset is not read.
+fn graph_time(t: &str) -> Option<i64> {
+    let n = |r: std::ops::Range<usize>| t.get(r).and_then(|v| v.parse::<i64>().ok());
+    let (y, m, d) = (n(0..4)?, n(5..7)?, n(8..10)?);
+    let (hh, mm, ss) = (n(11..13)?, n(14..16)?, n(17..19)?);
+    // Days since 1970-01-01 from a civil date (Howard Hinnant's algorithm).
+    let y = if m <= 2 { y - 1 } else { y };
+    let (era, mp) = (y.div_euclid(400), (m + 9) % 12);
+    let yoe = y - era * 400;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + (153 * mp + 2) / 5 + d - 1;
+    Some((era * 146_097 + doe - 719_468) * 86400 + hh * 3600 + mm * 60 + ss)
+}
+
+/// Unpublished Meta apps get no real webhooks, so the inbox also reads recent Messenger and
+/// Instagram conversations and Instagram comments directly, at most once a minute per account.
+/// Rows share the webhook de-duplication keys, so a message never appears twice.
+async fn pull(state: &AppState, u: &User) -> ApiResult<()> {
+    let t = tokens(state, u)?;
+    let oldest = now() - 30 * 86400;
+    for a in u.assets.iter().filter(|a| u.selected.contains(&a.key) && (a.kind == "messenger" || a.kind == "instagram")) {
+        let token = t.for_asset(&a.key).to_string();
+        let fetched = cached(state, format!("{}:pull:{}", u.id, a.key), Duration::from_secs(60), || async {
+            let mut rows: Vec<(String, String, String, String, i64, String)> = Vec::new();
+            let fields = "messages.limit(10){id,message,from,created_time}".to_string();
+            let conversations = get(state, "me/conversations", &[("platform", a.kind.clone()), ("fields", fields), ("limit", "20".into())], &token).await?;
+            for conv in conversations["data"].as_array().into_iter().flatten() {
+                for m in conv["messages"]["data"].as_array().into_iter().flatten() {
+                    let from = &m["from"];
+                    let (id, handle) = (from["id"].as_str().unwrap_or_default(), from["username"].as_str().or(from["name"].as_str()).unwrap_or_default());
+                    let text = m["message"].as_str().unwrap_or_default();
+                    // Skip the account's own messages and anything the 30-day sweep would remove.
+                    let created = m["created_time"].as_str().and_then(graph_time).unwrap_or_else(now);
+                    if text.is_empty() || id.is_empty() || id == a.id || handle == a.name || created < oldest {
+                        continue;
+                    }
+                    rows.push((a.kind.clone(), id.into(), handle.into(), text.chars().take(4000).collect(), created, format!("{}:{}", a.kind, m["id"].as_str().unwrap_or_default())));
+                }
+            }
+            if a.kind == "instagram" {
+                let fields = ("fields", "comments.limit(20){id,text,username,timestamp}".to_string());
+                let media = get(state, &format!("{}/media", a.id), &[fields, ("limit", "6".into())], &token).await?;
+                for post in media["data"].as_array().into_iter().flatten() {
+                    for c in post["comments"]["data"].as_array().into_iter().flatten() {
+                        let (who, text) = (c["username"].as_str().unwrap_or_default(), c["text"].as_str().unwrap_or_default());
+                        let created = c["timestamp"].as_str().and_then(graph_time).unwrap_or_else(now);
+                        if text.is_empty() || who.is_empty() || who == a.name || created < oldest {
+                            continue;
+                        }
+                        rows.push(("instagram_comment".into(), who.into(), who.into(), text.chars().take(4000).collect(), created, format!("igc:{}", c["id"].as_str().unwrap_or_default())));
+                    }
+                }
+            }
+            let db = lock(&state.db);
+            for (kind, sender, name, text, created, dedupe) in &rows {
+                db.execute(
+                    "INSERT OR IGNORE INTO events (kind,asset_id,sender,sender_name,text,created,dedupe) VALUES (?1,?2,?3,?4,?5,?6,?7)",
+                    params![kind, a.id, sender, name, text, created, dedupe],
+                )?;
+            }
+            Ok(json!(rows.len()))
+        }).await;
+        if let Err(e) = fetched {
+            tracing::warn!("inbox pull for {} {}: {}", a.kind, a.id, e.1);
+        }
+    }
+    Ok(())
+}
+
+/// The inbox after pulling anything new; a failed pull still returns what is stored.
+pub async fn fresh_inbox(state: &AppState, u: &User) -> ApiResult<Vec<Value>> {
+    if let Err(e) = pull(state, u).await {
+        tracing::warn!("inbox pull: {}", e.1);
+    }
+    inbox_rows(state, u)
+}
+
 pub fn inbox_rows(state: &AppState, u: &User) -> ApiResult<Vec<Value>> {
     let ids: Vec<String> = u.assets.iter().filter(|a| u.selected.contains(&a.key)).map(|a| a.id.clone()).collect();
     if ids.is_empty() {
@@ -326,10 +402,10 @@ pub fn inbox_rows(state: &AppState, u: &User) -> ApiResult<Vec<Value>> {
     }
     let marks = vec!["?"; ids.len()].join(",");
     let db = lock(&state.db);
-    let mut stmt = db.prepare(&format!("SELECT id,kind,asset_id,sender,text,created,EXISTS(SELECT 1 FROM replies r WHERE r.event_id=events.id)
-          FROM events WHERE asset_id IN ({marks}) ORDER BY id DESC LIMIT 100"))?;
+    let mut stmt = db.prepare(&format!("SELECT id,kind,asset_id,sender,text,created,EXISTS(SELECT 1 FROM replies r WHERE r.event_id=events.id),sender_name
+          FROM events WHERE asset_id IN ({marks}) ORDER BY created DESC, id DESC LIMIT 100"))?;
     let rows = stmt.query_map(rusqlite::params_from_iter(ids.iter()), |r| {
-        Ok(json!({ "id": r.get::<_, i64>(0)?, "kind": r.get::<_, String>(1)?, "asset_id": r.get::<_, String>(2)?, "sender": r.get::<_, String>(3)?, "text": r.get::<_, String>(4)?, "created": r.get::<_, i64>(5)?, "replied": r.get::<_, bool>(6)? }))
+        Ok(json!({ "id": r.get::<_, i64>(0)?, "kind": r.get::<_, String>(1)?, "asset_id": r.get::<_, String>(2)?, "sender": r.get::<_, String>(3)?, "text": r.get::<_, String>(4)?, "created": r.get::<_, i64>(5)?, "replied": r.get::<_, bool>(6)?, "sender_name": r.get::<_, Option<String>>(7)? }))
     })?;
     Ok(rows.collect::<Result<_, _>>()?)
 }
@@ -344,7 +420,7 @@ pub async fn instagram(State(s): State<AppState>, headers: HeaderMap) -> ApiResu
 }
 pub async fn inbox(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Value>> {
     let u = user(&s, &headers)?;
-    Ok(Json(json!({ "items": inbox_rows(&s, &u)? })))
+    Ok(Json(json!({ "items": fresh_inbox(&s, &u).await? })))
 }
 
 #[derive(Deserialize)]
@@ -469,5 +545,13 @@ mod tests {
         let (path, body) = reply_request("messenger", "5", "9", "messenger:x", "yo").unwrap();
         assert_eq!((path.as_str(), body["recipient"]["id"].as_str()), ("me/messages", Some("9")));
         assert!(reply_request("other", "5", "9", "", "yo").is_none());
+    }
+
+    #[test]
+    fn graph_times() {
+        assert_eq!(graph_time("1970-01-01T00:00:00+0000"), Some(0));
+        assert_eq!(graph_time("2026-11-03T07:00:00+0000"), Some(1_793_689_200));
+        assert_eq!(graph_time("2024-02-29T12:30:15+0000"), Some(1_709_209_815));
+        assert_eq!(graph_time("garbage"), None);
     }
 }

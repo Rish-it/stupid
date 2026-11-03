@@ -167,6 +167,7 @@ CREATE TABLE IF NOT EXISTS deletions (code TEXT PRIMARY KEY, created INTEGER NOT
     "CREATE TABLE replies (event_id INTEGER PRIMARY KEY, user_id TEXT NOT NULL, text TEXT NOT NULL, created INTEGER NOT NULL);",
     "ALTER TABLE users ADD COLUMN ai_key_blob TEXT; ALTER TABLE spend ADD COLUMN own INTEGER NOT NULL DEFAULT 0;",
     "ALTER TABLE users ADD COLUMN problems_json TEXT NOT NULL DEFAULT '[]';",
+    "ALTER TABLE events ADD COLUMN sender_name TEXT;",
 ];
 
 fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
