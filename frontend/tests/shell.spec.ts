@@ -68,9 +68,9 @@ test("Today asks to connect missing apps and reads the ones that are on", async 
 });
 
 const inbox = { items: [
-  { id: "w1", kind: "whatsapp", asset_id: "1", sender: "Ana", text: "Are you open?", created: 1, replied: false },
-  { id: "c1", kind: "instagram_comment", asset_id: "1", sender: "ben", text: "Nice post", created: 1, replied: true },
-  { id: "d1", kind: "instagram", asset_id: "1", sender: "Cy", text: "Old question", created: 1, replied: false },
+  { id: "w1", kind: "whatsapp", asset_id: "1", sender: "15550001", sender_name: "Ana", text: "Are you open?", created: 1, replied: false },
+  { id: "c1", kind: "instagram_comment", asset_id: "1", sender: "ben", sender_name: null, text: "Nice post", created: 1, replied: true },
+  { id: "d1", kind: "instagram", asset_id: "1", sender: "Cy", sender_name: null, text: "Old question", created: 1, replied: false },
 ] };
 
 test("Inbox filters by app, sends a reply and shows the server's refusal", async ({ page }) => {
@@ -85,6 +85,9 @@ test("Inbox filters by app, sends a reply and shows the server's refusal", async
   await expect(page.getByText("Nice post")).toBeHidden();
   await page.getByRole("radio", { name: "All" }).click();
   await expect(page.getByText("Replied")).toBeVisible();
+  await expect(page.getByText("Ana", { exact: true })).toBeVisible();
+  await expect(page.getByText("15550001")).toBeHidden();
+  await expect(page.getByText("ben", { exact: true })).toBeVisible();
 
   await page.getByText("Are you open?").click();
   await page.getByLabel("Reply to Ana").fill("Yes, until 7.");

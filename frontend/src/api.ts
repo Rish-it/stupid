@@ -35,7 +35,9 @@ export type Instagram = {
 };
 
 export type InboxKind = "whatsapp" | "messenger" | "instagram" | "instagram_comment";
-export type InboxItem = { id: string; kind: InboxKind; asset_id: string; sender: string; text: string; created: number; replied: boolean };
+export type InboxItem = { id: string; kind: InboxKind; asset_id: string; sender: string; sender_name: string | null; text: string; created: number; replied: boolean };
+/** The name to show for a message; `sender` stays the id replies go to. */
+export const senderName = (item: InboxItem) => item.sender_name || item.sender;
 
 export type AgentId = "leads" | "ideas" | "replies" | "ads";
 export type AgentResult =

@@ -6,7 +6,7 @@ import { Heading } from "@astryxdesign/core/Heading";
 import { Link } from "@astryxdesign/core/Link";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
-import { api, apps, useLoad } from "./api";
+import { api, apps, senderName, useLoad } from "./api";
 import type { AssetKind, Campaign, Connections } from "./api";
 import { Load } from "./Load";
 import SourceIcon from "./SourceIcon";
@@ -123,7 +123,7 @@ function Messages() {
     return (
       <VStack gap={4}>
         <Stat label="New in the last day" value={count(day.length)} />
-        {items.slice(0, 3).map(i => <Text key={i.id} as="p" maxLines={1}><strong>{i.sender}</strong>: {i.text}</Text>)}
+        {items.slice(0, 3).map(i => <Text key={i.id} as="p" maxLines={1}><strong>{senderName(i)}</strong>: {i.text}</Text>)}
         {items.length ? <Link hasUnderline href="#inbox">Open your inbox</Link> : <Text as="p" type="supporting">No messages yet.</Text>}
       </VStack>
     );
