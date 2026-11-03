@@ -36,8 +36,10 @@ export type Instagram = {
 
 export type InboxKind = "whatsapp" | "messenger" | "instagram" | "instagram_comment";
 export type InboxItem = { id: string; kind: InboxKind; asset_id: string; sender: string; sender_name: string | null; text: string; created: number; replied: boolean };
-/** The name to show for a message; `sender` stays the id replies go to. */
-export const senderName = (item: InboxItem) => item.sender_name || item.sender;
+// ponytail: only India's +91 is grouped; other numbers show as +<digits>. Add a library if numbers from more countries arrive.
+const phone = (digits: string) => digits.length === 12 && digits.startsWith("91") ? `+91 ${digits.slice(2, 7)} ${digits.slice(7)}` : `+${digits}`;
+/** The name to show for a message; `sender` stays the id replies go to. A WhatsApp sender is a phone number. */
+export const senderName = (item: InboxItem) => item.sender_name || (item.kind === "whatsapp" ? phone(item.sender) : item.sender);
 
 export type AgentId = "leads" | "ideas" | "replies" | "ads";
 export type AgentResult =
