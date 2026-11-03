@@ -5,9 +5,8 @@ export default defineConfig({
   workers: 1,
   use: { baseURL: "http://127.0.0.1:8031", browserName: "chromium" },
   webServer: {
-    command: "uv run python -m backend.tests.inbox_demo --port 8031",
-    url: "http://127.0.0.1:8031/api/health",
-    timeout: 120000,
+    command: "npm run preview --workspace @secnd/frontend -- --port 8031 --strictPort",
+    url: "http://127.0.0.1:8031",
     reuseExistingServer: false,
   },
 });
