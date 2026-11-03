@@ -1,4 +1,4 @@
-//! Secnd server: Meta sign-in, connections, Meta data, webhooks and background agents.
+//! Stupid server: Meta sign-in, connections, Meta data, webhooks and background agents.
 mod agents;
 mod meta;
 
@@ -61,7 +61,7 @@ pub struct Config {
 
 impl Config {
     fn load() -> Self {
-        let v = |k: &str| env::var(format!("SECND_{k}")).unwrap_or_default();
+        let v = |k: &str| env::var(format!("STUPID_{k}")).unwrap_or_default();
         let or = |k: &str, d: &str| Some(v(k)).filter(|s| !s.is_empty()).unwrap_or_else(|| d.into());
         Config {
             app_id: v("META_APP_ID"),
@@ -216,7 +216,7 @@ impl User {
 }
 
 pub fn user(state: &AppState, headers: &HeaderMap) -> ApiResult<User> {
-    let session = cookie(headers, &state.cfg.cookie_name("secnd_session")).ok_or_else(|| AppError::new(401, "Sign in with Facebook first."))?;
+    let session = cookie(headers, &state.cfg.cookie_name("stupid_session")).ok_or_else(|| AppError::new(401, "Sign in with Facebook first."))?;
     let db = lock(&state.db);
     let row = db
         .query_row(
@@ -308,7 +308,7 @@ async fn oauth_start(State(s): State<AppState>) -> ApiResult<Response> {
         .append_pair("response_type", "code")
         .append_pair("state", &state);
     let mut response = Redirect::to(url.as_str()).into_response();
-    response.headers_mut().append(header::SET_COOKIE, set_cookie(c, &c.cookie_name("secnd_oauth"), &state, 600));
+    response.headers_mut().append(header::SET_COOKIE, set_cookie(c, &c.cookie_name("stupid_oauth"), &state, 600));
     Ok(response)
 }
 
@@ -323,7 +323,7 @@ struct Callback {
 }
 
 async fn oauth_callback(State(s): State<AppState>, headers: HeaderMap, Query(q): Query<Callback>) -> Response {
-    let (oauth, session_name) = (s.cfg.cookie_name("secnd_oauth"), s.cfg.cookie_name("secnd_session"));
+    let (oauth, session_name) = (s.cfg.cookie_name("stupid_oauth"), s.cfg.cookie_name("stupid_session"));
     let fail = |why: &str| {
         tracing::warn!("Meta sign-in refused: {why}");
         let mut r = Redirect::to("/?meta_error=1").into_response();
@@ -364,12 +364,12 @@ async fn oauth_callback(State(s): State<AppState>, headers: HeaderMap, Query(q):
 
 fn signed_out(cfg: &Config) -> Response {
     let mut r = Json(json!({ "signed_in": false })).into_response();
-    r.headers_mut().append(header::SET_COOKIE, set_cookie(cfg, &cfg.cookie_name("secnd_session"), "", 0));
+    r.headers_mut().append(header::SET_COOKIE, set_cookie(cfg, &cfg.cookie_name("stupid_session"), "", 0));
     r
 }
 
 async fn sign_out(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Response> {
-    if let Some(session) = cookie(&headers, &s.cfg.cookie_name("secnd_session")) {
+    if let Some(session) = cookie(&headers, &s.cfg.cookie_name("stupid_session")) {
         lock(&s.db).execute("DELETE FROM sessions WHERE hash=?1", [digest(&session)])?;
     }
     Ok(signed_out(&s.cfg))
@@ -565,11 +565,11 @@ async fn main() {
     tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into())).init();
     let cfg = Config::load();
     std::fs::create_dir_all(&cfg.data_dir).expect("create data dir");
-    let mut conn = Connection::open(cfg.data_dir.join("secnd.sqlite3")).expect("open database");
+    let mut conn = Connection::open(cfg.data_dir.join("stupid.sqlite3")).expect("open database");
     migrate(&mut conn).expect("migrate database");
-    let fernet = fernet::Fernet::new(&env::var("SECND_META_TOKEN_KEY").unwrap_or_default()).map(Arc::new);
+    let fernet = fernet::Fernet::new(&env::var("STUPID_META_TOKEN_KEY").unwrap_or_default()).map(Arc::new);
     if fernet.is_none() {
-        tracing::warn!("SECND_META_TOKEN_KEY is missing or invalid; Meta sign-in is disabled");
+        tracing::warn!("STUPID_META_TOKEN_KEY is missing or invalid; Meta sign-in is disabled");
     }
     let http = reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(5))
@@ -636,8 +636,8 @@ mod tests {
         assert!(!hmac_ok("secret", b"other", &sig));
         assert!(!hmac_ok("", b"body", &hmac_sha256("", b"body")));
         let mut h = HeaderMap::new();
-        h.insert(header::COOKIE, HeaderValue::from_static("a=1; secnd_session=xyz"));
-        assert_eq!(cookie(&h, "secnd_session").as_deref(), Some("xyz"));
+        h.insert(header::COOKIE, HeaderValue::from_static("a=1; stupid_session=xyz"));
+        assert_eq!(cookie(&h, "stupid_session").as_deref(), Some("xyz"));
         assert_eq!(cookie(&h, "missing"), None);
     }
 
@@ -660,10 +660,10 @@ mod tests {
         assert!(public.origin_allowed("https://app.example.com"));
         assert!(!public.origin_allowed("https://evil.example.com"));
         assert!(!public.origin_allowed("http://localhost:5173"));
-        assert_eq!(public.cookie_name("secnd_session"), "__Host-secnd_session");
+        assert_eq!(public.cookie_name("stupid_session"), "__Host-stupid_session");
         let local = Config { public_url: String::new(), ..Config::load() };
         assert!(local.origin_allowed("http://localhost:5173") && local.origin_allowed("http://127.0.0.1:8000"));
         assert!(!local.origin_allowed("http://localhost.evil.com"));
-        assert_eq!(local.cookie_name("secnd_session"), "secnd_session");
+        assert_eq!(local.cookie_name("stupid_session"), "stupid_session");
     }
 }

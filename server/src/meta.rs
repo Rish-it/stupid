@@ -41,7 +41,7 @@ fn whatsapp_issues(health: &Value, business: &str, waba: &str) -> Vec<Issue> {
         let blocking = entity["can_send_message"] == "BLOCKED";
         for e in entity["errors"].as_array().into_iter().flatten() {
             let code = e["error_code"].as_i64().unwrap_or_default();
-            // Calling over SIP is not something Secnd uses.
+            // Calling over SIP is not something Stupid uses.
             if matches!(code, 138024 | 138025) || seen.contains(&code) {
                 continue;
             }

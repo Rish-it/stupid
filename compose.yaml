@@ -1,5 +1,5 @@
 services:
-  secnd:
+  stupid:
     build:
       context: .
       dockerfile: server/Dockerfile
@@ -8,13 +8,13 @@ services:
         required: false
     # The image's own paths and bind address win over a local .env.
     environment:
-      SECND_BIND: 0.0.0.0:8000
-      SECND_DATA_DIR: /home/nonroot/data
-      SECND_STATIC_DIR: /app/dist
+      STUPID_BIND: 0.0.0.0:8000
+      STUPID_DATA_DIR: /home/nonroot/data
+      STUPID_STATIC_DIR: /app/dist
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
-      - secnd-data:/home/nonroot/data
+      - stupid-data:/home/nonroot/data
 
 volumes:
-  secnd-data:
+  stupid-data:
