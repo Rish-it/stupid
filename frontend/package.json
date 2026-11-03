@@ -8,8 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
-    "demo": "node scripts/demo.mjs",
-    "test:evidence": "node --experimental-strip-types --test unit/evidence.test.ts"
+    "demo": "node scripts/demo.mjs"
   },
   "dependencies": {
     "@astryxdesign/core": "0.7.6",

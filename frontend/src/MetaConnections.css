@@ -1,5 +1,0 @@
-.connection-list { display: grid; margin: 32px 0; }
-.connection-list > div { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; padding: 20px 0; border-bottom: 1px solid var(--line); }
-.connection-list strong { font-size: 15px; }
-.connection-list span { margin-left: auto; color: var(--muted); font-size: 13px; }
-@media (max-width:700px) { .connection-list span { flex-basis: 100%; margin-left: 40px; } }
