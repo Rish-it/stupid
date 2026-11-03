@@ -8,7 +8,7 @@ const assets = [
   { key: "instagram:1", kind: "instagram", id: "1", name: "@sample.studio" },
   { key: "whatsapp:1", kind: "whatsapp", id: "1", name: "Sample WhatsApp number" },
 ] as const;
-let me: Me = { signed_in: true, name: "Sample creator", assets: [...assets], selected: ["ads:act_1", "instagram:1", "whatsapp:1"] };
+let me: Me = { signed_in: true, name: "Sample creator", assets: [...assets], selected: ["ads:act_1", "instagram:1", "whatsapp:1"], permissions: ["ads_read", "instagram_basic", "instagram_manage_insights", "whatsapp_business_messaging"] };
 let hasKey = false;
 
 const campaign = (name: string, spend: string, clicks: string, ctr: string, cpc: string) => ({
@@ -27,7 +27,7 @@ const runs = new Map<AgentId, AgentRun>();
 export async function answer(method: string, path: string, body: unknown): Promise<unknown> {
   await new Promise(done => setTimeout(done, 300));
   const route = `${method} ${path}`;
-  if (route === "GET /api/health") return { status: "ok", meta_configured: true, ai_configured: hasKey };
+  if (route === "GET /api/health") return { status: "ok", meta_configured: true, ai_configured: true };
   if (route === "GET /api/me") return me;
   if (route === "POST /api/sign-out") return (me = { signed_in: false });
   if (route === "PUT /api/connections" && me.signed_in) {
@@ -45,14 +45,14 @@ export async function answer(method: string, path: string, body: unknown): Promi
     insights: [{ name: "reach", value: 6400 }, { name: "views", value: 9100 }, { name: "accounts_engaged", value: 380 }, { name: "total_interactions", value: 512 }],
     insights_error: null }] };
   if (route === "GET /api/inbox") return { items: [
-    { id: "m1", kind: "whatsapp", asset_id: "1", sender: "Sample customer", text: "Hi, are you open today?", created: now() - 600 },
-    { id: "m2", kind: "instagram_comment", asset_id: "1", sender: "sample_fan", text: "Love this colour!", created: now() - 3600 },
-    { id: "m3", kind: "instagram", asset_id: "1", sender: "Sample buyer", text: "Do you ship the blue one?", created: now() - 7200 },
+    { id: "m1", kind: "whatsapp", asset_id: "1", sender: "Sample customer", text: "Hi, are you open today?", created: now() - 600, replied: false },
+    { id: "m2", kind: "instagram_comment", asset_id: "1", sender: "sample_fan", text: "Love this colour!", created: now() - 3600, replied: true },
+    { id: "m3", kind: "instagram", asset_id: "1", sender: "Sample buyer", text: "Do you ship the blue one?", created: now() - 7200, replied: false },
   ] };
   if (/^POST \/api\/inbox\/[^/]+\/reply$/.test(route)) return { sent: true };
   if (route === "GET /api/agents") {
     for (const [id, run] of runs) if (run.status === "running" && now() - run.created >= 4) runs.set(id, { ...run, status: "done", result: results[id], cost_usd: 0.004, finished: now() });
-    return { runs: [...runs.values()], ai_ready: hasKey, model: "sample-model" };
+    return { runs: [...runs.values()], ai_ready: true, own_key: hasKey, model: "sample-model" };
   }
   const run = route.match(/^POST \/api\/agents\/(leads|ideas|replies|ads)\/run$/);
   if (run) {
@@ -61,7 +61,7 @@ export async function answer(method: string, path: string, body: unknown): Promi
     runs.set(agent, { agent, status: "running", result: null, error: null, cost_usd: null, created: now(), finished: null });
     return { agent, status: "running" };
   }
-  if (route === "GET /api/settings/ai") return { has_key: hasKey, model: "sample-model" };
+  if (route === "GET /api/settings/ai") return { has_key: hasKey, model: "sample-model", workspace_ai: true };
   if (route === "PUT /api/settings/ai") { hasKey = Boolean((body as { api_key: string }).api_key); return { has_key: hasKey, model: "sample-model" }; }
-  throw new ApiError(404, "This isn't available yet.");
+  throw new ApiError(404, "Sample data has no answer for this.");
 }
