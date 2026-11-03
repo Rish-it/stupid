@@ -70,7 +70,7 @@ function Reply({ item, onSent }: { item: InboxItem; onSent: () => void }) {
   return (
     <VStack as="li" gap={2} paddingInlineStart={10} paddingBlockEnd={4}>
       <TextArea label={`Reply to ${item.sender}`} value={text} onChange={v => { setText(v); setError(""); }}
-        rows={3} maxLength={1000} status={error ? { type: "error", message: error } : undefined} />
+        rows={3} maxLength={1000} hasAutoFocus status={error ? { type: "error", message: error } : undefined} />
       <HStack gap={2}>
         <Button variant="primary" label="Send" isDisabled={!text.trim()} clickAction={send} />
       </HStack>

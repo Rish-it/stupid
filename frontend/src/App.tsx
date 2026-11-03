@@ -3,6 +3,8 @@ import { AppShell } from "@astryxdesign/core/AppShell";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { Center } from "@astryxdesign/core/Center";
+import { Grid } from "@astryxdesign/core/Grid";
+import { Heading } from "@astryxdesign/core/Heading";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Spinner } from "@astryxdesign/core/Spinner";
 import { VStack } from "@astryxdesign/core/Stack";
@@ -13,6 +15,11 @@ import { api, oauthStartUrl, sample, useLoad } from "./api";
 const pages = { today: "Today", inbox: "Inbox", agents: "Agents", connections: "Connections", settings: "Settings" } as const;
 type Page = keyof typeof pages;
 const nav: Page[] = ["today", "inbox", "agents", "connections"];
+const welcome = [
+  ["Your numbers, plainly", "Ad spend, reach and new messages from the last 7 days, without the jargon."],
+  ["Work done for you", "Agents find leads, draft posts and write replies while you get on with your day."],
+  ["You stay in charge", "Nothing is sent or changed until you tap. Switch any account off at any time."],
+] as const;
 const Connections = lazy(() => import("./Connections"));
 const Today = lazy(() => import("./Today"));
 const Inbox = lazy(() => import("./Inbox"));
@@ -45,6 +52,8 @@ export default function App() {
   const user = me.data?.signed_in ? me.data : undefined;
   const [notice, setNotice] = useState(returned);
   const loading = <Center minHeight={240}><Spinner size="lg" aria-label="Loading" /></Center>;
+  const signedIn = Boolean(user);
+  useEffect(() => { document.title = signedIn ? `${pages[page]} · Secnd` : "Secnd"; }, [signedIn, page]);
 
   let body;
   if (user && page === "connections") body = <Suspense fallback={loading}><Connections state={user} onChange={next => me.setData({ ...user, ...next })} /></Suspense>;
@@ -53,9 +62,18 @@ export default function App() {
   else if (user && page === "agents") body = <Suspense fallback={loading}><Agents state={user} /></Suspense>;
   else if (user) body = <Suspense fallback={loading}><Settings name={user.name} onSignedOut={() => { me.setData({ signed_in: false }); location.hash = ""; }} /></Suspense>;
   else if (me.data || me.error?.status === 401) body = (
-    <EmptyState headingLevel={1} title="Run your Meta business in plain words"
-      description="Sign in with Facebook, then connect Ads, Instagram and WhatsApp one at a time. You choose what Secnd can see."
-      actions={<Button variant="primary" label="Continue with Facebook" href={oauthStartUrl} />} />
+    <VStack gap={10} paddingBlockStart={8} hAlign="center">
+      <VStack gap={4} hAlign="center" maxWidth={560}>
+        <Heading level={1} type="display-2" justify="center" textWrap="balance">Run your Meta business in plain words</Heading>
+        <Text as="p" justify="center">Sign in with Facebook, then connect Ads, Instagram and WhatsApp one at a time. You choose what Secnd can see.</Text>
+        <Button variant="primary" size="lg" label="Continue with Facebook" href={oauthStartUrl} />
+      </VStack>
+      <Grid columns={{ minWidth: 220 }} gap={6} maxWidth={880} width="100%">
+        {welcome.map(([title, text]) => (
+          <VStack key={title} gap={1}><Heading level={2}>{title}</Heading><Text as="p" type="supporting">{text}</Text></VStack>
+        ))}
+      </Grid>
+    </VStack>
   );
   else if (me.error) body = (
     <EmptyState headingLevel={1} title={me.error.status === 0 ? "Secnd is offline" : "Something went wrong"}

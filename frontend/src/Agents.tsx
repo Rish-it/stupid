@@ -83,7 +83,7 @@ function Agent({ agent, run, ready, connected, onStarted }: { agent: (typeof age
         {run?.status === "done" && run.result && <Result result={run.result} />}
         {run?.finished && (
           <Text as="p" type="supporting" size="xsm">
-            Finished <Timestamp value={run.finished} format="relative" />{run.cost_usd != null && ` · cost $${run.cost_usd.toFixed(3)}`}
+            Finished <Timestamp value={run.finished} format="relative" size="xsm" />{run.cost_usd != null && ` · cost $${run.cost_usd.toFixed(3)}`}
           </Text>
         )}
       </VStack>
@@ -101,7 +101,7 @@ function Result({ result }: { result: NonNullable<AgentRun["result"]> }) {
           <Text as="p">“{l.said}”</Text>
           <Text as="p" type="supporting">{l.why}</Text>
           <Text as="p"><strong>Next:</strong> {l.next_step}</Text>
-          <Link href="#inbox">Open their messages</Link>
+          <Link hasUnderline href="#inbox">Open their messages</Link>
         </VStack>
       ))}
     </VStack>

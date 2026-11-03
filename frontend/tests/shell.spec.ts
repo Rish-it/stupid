@@ -159,3 +159,16 @@ test("Settings saves an AI key, confirms before deleting and signs out", async (
   await expect(page.getByRole("link", { name: "Continue with Facebook" })).toBeVisible();
   expect(deleted).toBe(true);
 });
+
+test("the keyboard reaches the skip link first and can open a reply", async ({ page }) => {
+  await page.route("**/api/me", route => route.fulfill(json(signedIn)));
+  await page.route("**/api/inbox", route => route.fulfill(json(inbox)));
+  await page.goto("/#inbox");
+  await expect(page).toHaveTitle("Inbox · Secnd");
+  await page.keyboard.press("Tab");
+  await expect(page.getByText("Skip to content")).toBeFocused();
+  await page.getByText("Are you open?").waitFor();
+  for (let i = 0; i < 30 && !(await page.evaluate(() => document.activeElement?.textContent?.includes("Are you open?"))); i++) await page.keyboard.press("Tab");
+  await page.keyboard.press("Enter");
+  await expect(page.getByLabel("Reply to Ana")).toBeFocused();
+});
