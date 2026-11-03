@@ -1,5 +1,5 @@
 {
-  "name": "secnd",
+  "name": "stupid",
   "version": "0.1.0",
   "private": true,
   "workspaces": [
@@ -11,9 +11,9 @@
   "scripts": {
     "dev": "concurrently --kill-others --names api,web --prefix-colors cyan,green \"npm run dev:api\" \"npm run dev:web\"",
     "dev:api": "cargo run --manifest-path server/Cargo.toml",
-    "dev:web": "npm run dev --workspace @secnd/frontend",
-    "build": "npm run build --workspace @secnd/frontend",
-    "lint": "npm run lint --workspace @secnd/frontend",
+    "dev:web": "npm run dev --workspace @stupid/frontend",
+    "build": "npm run build --workspace @stupid/frontend",
+    "lint": "npm run lint --workspace @stupid/frontend",
     "check": "cd server && cargo clippy --locked -- -D warnings && cargo test --locked && cd .. && npm run lint && npm run build",
     "test:inbox": "npm run build && playwright test"
   },
