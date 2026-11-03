@@ -301,14 +301,16 @@ pub async fn ads_data(state: &AppState, u: &User) -> ApiResult<Value> {
         let token = t.for_asset(&a.key).to_string();
         let account = cached(state, format!("{}:ads:{}", u.id, a.id), TTL, || async {
             let (info, campaigns) = tokio::try_join!(
-        async { get(state, &a.id, &[("fields", "name,currency,account_status".into())], &token).await },
-        async { get(state, &format!("{}/insights", a.id), &[
-                    ("level", "campaign".into()),
-                    ("date_preset", "last_7d".into()),
-                    ("fields", "campaign_id,campaign_name,spend,impressions,reach,clicks,ctr,cpc,actions".into()),
-                    ("limit", "50".into()),
-                ], &token).await },
-    )?;
+                async { get(state, &a.id, &[("fields", "name,currency,account_status".into())], &token).await },
+                async {
+                    get(state, &format!("{}/insights", a.id), &[
+                        ("level", "campaign".into()),
+                        ("date_preset", "last_7d".into()),
+                        ("fields", "campaign_id,campaign_name,spend,impressions,reach,clicks,ctr,cpc,actions".into()),
+                        ("limit", "50".into()),
+                    ], &token).await
+                },
+            )?;
             Ok(json!({ "id": a.id, "name": info["name"], "currency": info["currency"], "status": info["account_status"], "campaigns": campaigns["data"] }))
         }).await?;
         accounts.push(account);
@@ -324,20 +326,24 @@ pub async fn instagram_data(state: &AppState, u: &User) -> ApiResult<Value> {
         let account = cached(state, format!("{}:ig:{}", u.id, a.id), TTL, || async {
             let until = now();
             let (profile, media, insights) = tokio::join!(
-        async { get(state, &a.id, &[("fields", "username,name,followers_count,follows_count,media_count,profile_picture_url,biography".into())], &token).await },
-        async { get(state, &format!("{}/media", a.id), &[
-                    ("fields", "id,caption,media_type,media_product_type,timestamp,like_count,comments_count,permalink,thumbnail_url,media_url".into()),
-                    ("limit", "12".into()),
-                ], &token).await },
-        async { // Insights need their own permission; the rest of the screen still works without it.
-                get(state, &format!("{}/insights", a.id), &[
-                    ("metric", "reach,views,accounts_engaged,total_interactions".into()),
-                    ("period", "day".into()),
-                    ("metric_type", "total_value".into()),
-                    ("since", (until - 7 * 86400).to_string()),
-                    ("until", until.to_string()),
-                ], &token).await },
-    );
+                async { get(state, &a.id, &[("fields", "username,name,followers_count,follows_count,media_count,profile_picture_url,biography".into())], &token).await },
+                async {
+                    get(state, &format!("{}/media", a.id), &[
+                        ("fields", "id,caption,media_type,media_product_type,timestamp,like_count,comments_count,permalink,thumbnail_url,media_url".into()),
+                        ("limit", "12".into()),
+                    ], &token).await
+                },
+                // Insights need their own permission; the rest of the screen still works without it.
+                async {
+                    get(state, &format!("{}/insights", a.id), &[
+                        ("metric", "reach,views,accounts_engaged,total_interactions".into()),
+                        ("period", "day".into()),
+                        ("metric_type", "total_value".into()),
+                        ("since", (until - 7 * 86400).to_string()),
+                        ("until", until.to_string()),
+                    ], &token).await
+                },
+            );
             let (profile, media) = (profile?, media?);
             let (insights, insights_error) = match insights {
                 Ok(v) => (v["data"].as_array().cloned().unwrap_or_default().into_iter()
@@ -349,23 +355,6 @@ pub async fn instagram_data(state: &AppState, u: &User) -> ApiResult<Value> {
         out.push(account);
     }
     Ok(json!({ "accounts": out }))
-}
-
-/// Recent comments on the six newest posts, for agents: one Graph call per account.
-pub async fn instagram_comments(state: &AppState, u: &User) -> ApiResult<Vec<Value>> {
-    let t = tokens(state, u)?;
-    let mut comments = Vec::new();
-    for a in u.selected_assets("instagram") {
-        let fields = ("fields", "caption,comments.limit(50){text,username,timestamp}".to_string());
-        let Ok(page) = get(state, &format!("{}/media", a.id), &[fields, ("limit", "6".into())], t.for_asset(&a.key)).await else { continue };
-        for post in page["data"].as_array().into_iter().flatten() {
-            let caption: String = post["caption"].as_str().unwrap_or("").chars().take(120).collect();
-            for c in post["comments"]["data"].as_array().into_iter().flatten() {
-                comments.push(json!({ "username": c["username"], "text": c["text"], "post": caption }));
-            }
-        }
-    }
-    Ok(comments)
 }
 
 /// Unix seconds from Graph's "2026-11-03T07:00:00+0000". Graph sends UTC, so the offset is not read.
@@ -382,7 +371,7 @@ fn graph_time(t: &str) -> Option<i64> {
 }
 
 /// Unpublished Meta apps get no real webhooks, so the inbox also reads recent Messenger and
-/// Instagram conversations and Instagram comments directly, at most once a minute per account.
+/// Instagram conversations and Instagram comments directly, at most every 15 seconds per account.
 /// Rows share the webhook de-duplication keys, so a message never appears twice.
 pub async fn pull(state: &AppState, u: &User) -> ApiResult<()> {
     let t = tokens(state, u)?;
