@@ -78,14 +78,14 @@ export default function Welcome({ instagram, onConnect, onPassed }: { instagram?
 
   return (
     <VStack>
-      <VStack className="hero" hAlign="center" gap={8} paddingInline={4}>
+      <VStack className="hero" hAlign="center" gap={10} paddingInline={5}>
         <Headline />
-        <VStack ref={signIn} gap={3} hAlign="center" maxWidth={400} width="100%">
-          <Text as="p" type="supporting" justify="center">Sign in with the Facebook account that runs your business.</Text>
+        <VStack ref={signIn} gap={2} hAlign="center" maxWidth={408} width="100%" paddingBlockStart={2}>
+          <p className="hero-ask">Sign in with the Facebook account that runs your business.</p>
           {buttons}
           <Text as="p" type="supporting" size="sm" justify="center">Meta will ask which Page, Instagram account and WhatsApp number to share. Pick the ones you use for your business.</Text>
         </VStack>
-        <div className="hero-more"><Button label="See how it works" variant="secondary" endContent={<Icon icon="arrowDown" size="sm" />} onClick={more} /></div>
+        <div className="hero-more"><Button label="Learn more" variant="secondary" size="lg" elevation="low" endContent={<Icon icon="arrowDown" size="sm" />} onClick={more} /></div>
       </VStack>
 
       <section ref={tour} tabIndex={-1} aria-labelledby="intro-title" className="intro">
@@ -116,7 +116,7 @@ export default function Welcome({ instagram, onConnect, onPassed }: { instagram?
       ))}
 
       <footer className="outro" aria-label="Footer">
-        <div className="mascot-stage" aria-hidden><Suspense><Mascot excited={excited} /></Suspense></div>
+        <div className="mascot-stage" aria-hidden><Suspense><Mascot busy={excited} size="var(--mascot-size)" /></Suspense></div>
         <div className="outro-start">
           <span className="tag">How it works</span>
           <p className="outro-line">Agents prepare,<br />you decide</p>
@@ -178,23 +178,29 @@ function Headline() {
   );
 }
 
-/** The agent, in the headline: it pulses each time the phrase changes and works while hovered, or held for 0.4s on touch. */
+/** The mascot, in the headline: it pulses each time the phrase changes and gets to work while hovered, or held for 0.4s on touch. */
 function Avatar({ swapping }: { swapping?: number }) {
   const ref = useRef<HTMLSpanElement>(null);
-  const [pressed, setPressed] = useState(false);
+  const [busy, setBusy] = useState(false);
   useEffect(() => {
     if (swapping !== undefined && !still()) ref.current?.animate([{ scale: 1 }, { scale: 1.06 }, { scale: 1 }], { duration: 600, easing: "ease-in-out" });
   }, [swapping]);
-  const hold = () => {
-    const timer = setTimeout(() => setPressed(true), 400);
+  const hold = (e: PointerEvent) => {
+    if (e.pointerType === "mouse") return;
+    const timer = setTimeout(() => setBusy(true), 400);
     const release = () => {
       clearTimeout(timer);
-      setPressed(false);
+      setBusy(false);
       removeEventListener("pointerup", release);
       removeEventListener("pointercancel", release);
     };
     addEventListener("pointerup", release);
     addEventListener("pointercancel", release);
   };
-  return <span className="rebus-avatar" ref={ref} data-pressed={pressed || undefined} onPointerDown={hold}><span /><span /><span /></span>;
+  return (
+    <span className="rebus-avatar" ref={ref} onPointerDown={e => hold(e.nativeEvent)}
+      onPointerEnter={e => e.pointerType === "mouse" && setBusy(true)} onPointerLeave={() => setBusy(false)}>
+      <Suspense fallback={<span className="rebus-avatar-wait" />}><Mascot busy={busy} size="100%" /></Suspense>
+    </span>
+  );
 }

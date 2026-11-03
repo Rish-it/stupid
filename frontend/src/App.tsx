@@ -100,7 +100,7 @@ export default function App() {
             {reconnecting && <Text className="shimmer" type="supporting" size="sm" role="status">Reconnecting…</Text>}
             <TopNavItem label="Settings" href="#settings" isSelected={page === "settings"} />
           </HStack>
-        ) : welcome && passed && <span className="sticky-mark"><Button variant="primary" size="sm" label="Continue with Facebook" href={oauthStartUrl} onClick={connect} /></span>} />
+        ) : welcome && <span className="sticky-mark" data-passed={passed || undefined}><Button variant="primary" size="lg" label="Continue with Facebook" href={oauthStartUrl} onClick={connect} /></span>} />
     }>
       <VStack gap={10}>
         {failed && <VStack paddingInline={welcome ? 4 : 0} paddingBlockStart={welcome ? 4 : 0}>
