@@ -7,7 +7,10 @@ use axum::{
     extract::{Form, Path, Query, Request, State},
     http::{header, HeaderMap, HeaderValue, Method, StatusCode},
     middleware::{self, Next},
-    response::{IntoResponse, Redirect, Response},
+    response::{
+        sse::{Event as SseEvent, KeepAlive, Sse},
+        IntoResponse, Redirect, Response,
+    },
     routing::{any, get, post, put},
     Json, Router,
 };
@@ -242,6 +245,32 @@ pub fn tokens(state: &AppState, user: &User) -> ApiResult<meta::Tokens> {
 }
 
 // ---------- routes ----------
+
+/// Live updates for a signed-in screen. Every 2 s it compares version marks for the inbox, replies,
+/// agent runs and connections and sends `update` when one changed; every 16 s it also pulls new
+/// Messenger and Instagram messages, since unpublished apps get no webhooks. Signing out ends it.
+async fn stream(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Sse<impl futures_util::Stream<Item = Result<SseEvent, std::convert::Infallible>>>> {
+    user(&s, &headers)?;
+    let start = (s, headers, Value::Null, 0u32);
+    let updates = futures_util::stream::unfold(start, |(s, headers, last, mut tick)| async move {
+        loop {
+            let u = user(&s, &headers).ok()?;
+            if tick % 8 == 0 {
+                if let Err(e) = meta::pull(&s, &u).await {
+                    tracing::warn!("live pull: {}", e.1);
+                }
+            }
+            tick = tick.wrapping_add(1);
+            let marks = meta::marks(&s, &u).ok()?;
+            if marks != last {
+                let event = SseEvent::default().event("update").data(marks.to_string());
+                return Some((Ok(event), (s, headers, marks, tick)));
+            }
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
+    });
+    Ok(Sse::new(updates).keep_alive(KeepAlive::default()))
+}
 
 async fn health(State(s): State<AppState>) -> Json<Value> {
     let db = lock(&s.db).query_row("SELECT 1", [], |r| r.get::<_, i64>(0)).is_ok();
@@ -576,6 +605,7 @@ async fn main() {
         .route("/api/ads", get(meta::ads))
         .route("/api/instagram", get(meta::instagram))
         .route("/api/inbox", get(meta::inbox))
+        .route("/api/stream", get(stream))
         .route("/api/inbox/{id}/reply", post(meta::reply))
         .route("/api/settings/ai", get(agents::settings).put(agents::save_key))
         .route("/api/agents", get(agents::list))
