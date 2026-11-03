@@ -21,6 +21,23 @@ jobs:
       - run: uv run ruff format --check backend
       - run: uv run pytest
 
+  server:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server
+      - run: cargo clippy --locked -- -D warnings
+      - run: cargo test --locked
+
   frontend:
     runs-on: ubuntu-latest
     steps:
