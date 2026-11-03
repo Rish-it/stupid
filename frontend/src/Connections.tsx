@@ -42,7 +42,7 @@ export default function Connections({ state, onChange }: { state: State & { perm
           // An empty list means the server doesn't know yet, so only a non-empty one can say a feature is off.
           const off = accounts.length && state.permissions?.length ? features[app.kind].filter(([p]) => !state.permissions!.includes(p)).map(([, f]) => f) : [];
           return (
-            <Card key={app.kind} variant="muted">
+            <Card key={app.kind} variant="muted" height="100%">
               <VStack gap={4}>
                 <HStack gap={3} align="center">
                   <SourceIcon source={app.kind} />

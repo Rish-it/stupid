@@ -7,6 +7,7 @@ const assets = [
   { key: "ads:act_1", kind: "ads", id: "act_1", name: "Sample ad account" },
   { key: "instagram:1", kind: "instagram", id: "1", name: "@sample.studio" },
   { key: "whatsapp:1", kind: "whatsapp", id: "1", name: "Sample WhatsApp number" },
+  { key: "whatsapp:2", kind: "whatsapp", id: "2", name: "Sample second number" },
 ] as const;
 let me: Me = { signed_in: true, name: "Sample creator", assets: [...assets], selected: ["ads:act_1", "instagram:1", "whatsapp:1"], permissions: ["ads_read", "instagram_basic", "instagram_manage_insights", "whatsapp_business_messaging"] };
 let hasKey = false;
@@ -48,6 +49,7 @@ export async function answer(method: string, path: string, body: unknown): Promi
     { id: "m1", kind: "whatsapp", asset_id: "1", sender: "15550000001", sender_name: "Sample customer", text: "Hi, are you open today?", created: now() - 600, replied: false },
     { id: "m2", kind: "instagram_comment", asset_id: "1", sender: "17841400000000001", sender_name: null, text: "Love this colour!", created: now() - 3600, replied: true },
     { id: "m3", kind: "instagram", asset_id: "1", sender: "17841400000000002", sender_name: "Sample buyer", text: "Do you ship the blue one?", created: now() - 7200, replied: false },
+    { id: "m4", kind: "messenger", asset_id: "1", sender: "24000000000000001", sender_name: "", text: "Sample: can I book for Saturday?", created: now() - 86400, replied: false },
   ] };
   if (/^POST \/api\/inbox\/[^/]+\/reply$/.test(route)) return { sent: true };
   if (route === "GET /api/agents") {
