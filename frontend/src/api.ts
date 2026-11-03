@@ -113,6 +113,8 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 }
 
 export const oauthStartUrl = "/api/v1/meta/oauth/start";
+// Static pages the server serves next to the app.
+export const legal = [["Privacy", "/privacy.html"], ["Terms", "/terms.html"], ["Data deletion", "/deletion.html"]] as const;
 
 export const api = {
   me: () => call<Me>("GET", "/api/me"),

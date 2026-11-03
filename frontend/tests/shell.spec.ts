@@ -33,6 +33,16 @@ test("the welcome headline cycles, and holds still for reduced motion", async ({
   await expect(shown).toHaveText("does your Meta busywork");
 });
 
+test("the footer mascot loads on its own and gets busy over the sign-in buttons", async ({ page }) => {
+  await page.route("**/api/me", route => route.fulfill(json({ signed_in: false })));
+  await page.goto("/");
+  const footer = page.locator("footer.outro");
+  await footer.scrollIntoViewIfNeeded();
+  await expect(footer.locator(".mascot-stage canvas")).toBeVisible();
+  await footer.getByRole("link", { name: "Continue with Facebook" }).hover();
+  await expect(footer.locator(".mascot-stage canvas")).toHaveAttribute("aria-label", /working/i);
+});
+
 test("a signed-in person moves between destinations", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json({ signed_in: true, name: "Test", assets: [], selected: [] })));
   await page.goto("/");

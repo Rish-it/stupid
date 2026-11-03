@@ -9,13 +9,12 @@ import { Spinner } from "@astryxdesign/core/Spinner";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TopNav, TopNavHeading, TopNavItem } from "@astryxdesign/core/TopNav";
-import { api, oauthStartUrl, sample, setupDone, useLoad, useStream } from "./api";
+import { api, legal, oauthStartUrl, sample, setupDone, useLoad, useStream } from "./api";
 import Welcome from "./Welcome";
 
 const pages = { today: "Today", inbox: "Inbox", agents: "Agents", setup: "Setup", settings: "Settings" } as const;
 type Page = keyof typeof pages;
 const nav: Page[] = ["today", "inbox", "agents"];
-const legal = [["Privacy", "/privacy.html"], ["Terms", "/terms.html"], ["Data deletion", "/deletion.html"]] as const;
 const Setup = lazy(() => import("./Setup"));
 const Today = lazy(() => import("./Today"));
 const Inbox = lazy(() => import("./Inbox"));
@@ -101,7 +100,7 @@ export default function App() {
             {reconnecting && <Text className="shimmer" type="supporting" size="sm" role="status">Reconnecting…</Text>}
             <TopNavItem label="Settings" href="#settings" isSelected={page === "settings"} />
           </HStack>
-        ) : welcome && passed && <span className="sticky-mark"><Button variant="primary" size="sm" label="Continue with Facebook" href={oauthStartUrl} onClick={connect} /></span>} />
+        ) : welcome && <span className="sticky-mark" data-passed={passed || undefined}><Button variant="primary" size="lg" label="Continue with Facebook" href={oauthStartUrl} onClick={connect} /></span>} />
     }>
       <VStack gap={10}>
         {failed && <VStack paddingInline={welcome ? 4 : 0} paddingBlockStart={welcome ? 4 : 0}>
@@ -109,12 +108,12 @@ export default function App() {
             endContent={<Button size="sm" label="Try again" href={oauthStartUrl} onClick={connect} />} />
         </VStack>}
         {body}
-        <VStack as="footer" gap={2} hAlign="center" paddingBlockEnd={welcome ? 8 : 0}>
+        {!welcome && <VStack as="footer" gap={2} hAlign="center">
           <HStack as="nav" aria-label="Legal" gap={4} wrap="wrap" hAlign="center">
             {legal.map(([label, href]) => <Link key={href} href={href} type="supporting">{label}</Link>)}
           </HStack>
           <Text as="p" type="supporting" justify="center">Built for Meta's platform. Not an official Meta product.</Text>
-        </VStack>
+        </VStack>}
       </VStack>
     </AppShell>
   );

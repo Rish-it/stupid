@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { Button } from "@astryxdesign/core/Button";
 import { Grid } from "@astryxdesign/core/Grid";
@@ -7,7 +7,7 @@ import { Icon } from "@astryxdesign/core/Icon";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
-import { oauthStartUrl } from "./api";
+import { legal, oauthStartUrl } from "./api";
 import SourceIcon from "./SourceIcon";
 
 // The headline's second line. The first phrase is the main one; each of the others ends in the app it works in.
@@ -23,6 +23,8 @@ const phrases: [text: string, app?: string][] = [
 const hold = { main: 3250, other: 2500 }, exit = 150, enter = 200, enterDelay = 150, perWord = 30;
 const words = (i: number) => phrases[i % phrases.length][0].split(" ").length;
 const swap = (from: number) => Math.max(exit + (words(from) - 1) * perWord, enterDelay + enter + (words(from + 1) - 1) * perWord);
+const apps = [["instagram", "Instagram"], ["whatsapp", "WhatsApp"], ["messenger", "Messenger"], ["ads", "Meta Ads"]] as const;
+const Mascot = lazy(() => import("./Mascot"));
 const still = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 const features: { title: string; text: string; art: ReactNode }[] = [
@@ -57,6 +59,7 @@ const features: { title: string; text: string; art: ReactNode }[] = [
 export default function Welcome({ instagram, onConnect, onPassed }: { instagram?: string; onConnect: () => void; onPassed: (passed: boolean) => void }) {
   const signIn = useRef<HTMLDivElement>(null);
   const tour = useRef<HTMLElement>(null);
+  const [excited, setExcited] = useState(false);
   useEffect(() => {
     const seen = new IntersectionObserver(([entry]) => onPassed(!entry.isIntersecting && entry.boundingClientRect.top < 0));
     seen.observe(signIn.current!);
@@ -75,14 +78,14 @@ export default function Welcome({ instagram, onConnect, onPassed }: { instagram?
 
   return (
     <VStack>
-      <VStack className="hero" hAlign="center" gap={8} paddingInline={4}>
+      <VStack className="hero" hAlign="center" gap={10} paddingInline={5}>
         <Headline />
-        <VStack ref={signIn} gap={3} hAlign="center" maxWidth={400} width="100%">
-          <Text as="p" type="supporting" justify="center">Sign in with the Facebook account that runs your business.</Text>
+        <VStack ref={signIn} gap={2} hAlign="center" maxWidth={408} width="100%" paddingBlockStart={2}>
+          <p className="hero-ask">Sign in with the Facebook account that runs your business.</p>
           {buttons}
           <Text as="p" type="supporting" size="sm" justify="center">Meta will ask which Page, Instagram account and WhatsApp number to share. Pick the ones you use for your business.</Text>
         </VStack>
-        <div className="hero-more"><Button label="See how it works" variant="secondary" endContent={<Icon icon="arrowDown" size="sm" />} onClick={more} /></div>
+        <div className="hero-more"><Button label="Learn more" variant="secondary" size="lg" elevation="low" endContent={<Icon icon="arrowDown" size="sm" />} onClick={more} /></div>
       </VStack>
 
       <section ref={tour} tabIndex={-1} aria-labelledby="intro-title" className="intro">
@@ -112,10 +115,27 @@ export default function Welcome({ instagram, onConnect, onPassed }: { instagram?
         </section>
       ))}
 
-      <VStack className="ready" gap={6} hAlign="center" vAlign="center" paddingInline={4}>
-        <Heading level={2} type="display-3" justify="center">Ready to try Stupid?</Heading>
-        <VStack gap={3} maxWidth={400} width="100%">{buttons}</VStack>
-      </VStack>
+      <footer className="outro" aria-label="Footer">
+        <div className="mascot-stage" aria-hidden><Suspense><Mascot busy={excited} size="var(--mascot-size)" /></Suspense></div>
+        <div className="outro-start">
+          <span className="tag">How it works</span>
+          <p className="outro-line">Agents prepare,<br />you decide</p>
+          <nav className="outro-nav" aria-label="Legal">
+            <button type="button" onClick={more}>See how it works</button>
+            {legal.map(([label, href]) => <a key={href} href={href}>{label}</a>)}
+          </nav>
+        </div>
+        <div className="outro-mark" aria-hidden>Stupid</div>
+        <div className="outro-end">
+          <span className="tag">Ready when you are</span>
+          <h2 className="outro-line">Ready to try Stupid?</h2>
+          <VStack gap={3} width="100%" className="outro-buttons" onPointerEnter={() => setExcited(true)} onPointerLeave={() => setExcited(false)}>{buttons}</VStack>
+          <p className="outro-note">Built for Meta's platform. Not an official Meta product.</p>
+          <ul className="outro-apps" aria-label="Works with">
+            {apps.map(([app, name]) => <li key={app} aria-label={name}><SourceIcon source={app} size={24} /></li>)}
+          </ul>
+        </div>
+      </footer>
     </VStack>
   );
 }
@@ -158,23 +178,29 @@ function Headline() {
   );
 }
 
-/** The agent, in the headline: it pulses each time the phrase changes and works while hovered, or held for 0.4s on touch. */
+/** The mascot, in the headline: it pulses each time the phrase changes and gets to work while hovered, or held for 0.4s on touch. */
 function Avatar({ swapping }: { swapping?: number }) {
   const ref = useRef<HTMLSpanElement>(null);
-  const [pressed, setPressed] = useState(false);
+  const [busy, setBusy] = useState(false);
   useEffect(() => {
     if (swapping !== undefined && !still()) ref.current?.animate([{ scale: 1 }, { scale: 1.06 }, { scale: 1 }], { duration: 600, easing: "ease-in-out" });
   }, [swapping]);
-  const hold = () => {
-    const timer = setTimeout(() => setPressed(true), 400);
+  const hold = (e: PointerEvent) => {
+    if (e.pointerType === "mouse") return;
+    const timer = setTimeout(() => setBusy(true), 400);
     const release = () => {
       clearTimeout(timer);
-      setPressed(false);
+      setBusy(false);
       removeEventListener("pointerup", release);
       removeEventListener("pointercancel", release);
     };
     addEventListener("pointerup", release);
     addEventListener("pointercancel", release);
   };
-  return <span className="rebus-avatar" ref={ref} data-pressed={pressed || undefined} onPointerDown={hold}><span /><span /><span /></span>;
+  return (
+    <span className="rebus-avatar" ref={ref} onPointerDown={e => hold(e.nativeEvent)}
+      onPointerEnter={e => e.pointerType === "mouse" && setBusy(true)} onPointerLeave={() => setBusy(false)}>
+      <Suspense fallback={<span className="rebus-avatar-wait" />}><Mascot busy={busy} size="100%" /></Suspense>
+    </span>
+  );
 }
