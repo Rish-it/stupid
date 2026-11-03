@@ -24,7 +24,9 @@ test("a live update refetches the inbox and shows that a reply didn't arrive", a
   await expect(page.getByText("Sending…")).toBeVisible();
   release();
   await expect(page.getByText("Sent", { exact: true })).toBeVisible();
-  await expect(page.getByText("Your reply didn't arrive")).toBeVisible({ timeout: 5000 });
+  await expect(page.getByText("Not delivered")).toBeVisible({ timeout: 5000 });
+  await page.getByText("Are you open?").click();
+  await expect(page.getByText("Your reply didn't arrive")).toBeVisible();
   await expect(page.getByText(/the number has no WhatsApp\. You can try again below\./)).toBeVisible();
   await expect(page.getByLabel("Reply to Ana")).toBeVisible();
 });
