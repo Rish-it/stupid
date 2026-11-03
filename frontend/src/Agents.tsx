@@ -13,6 +13,7 @@ import { Token } from "@astryxdesign/core/Token";
 import { api, drafts, useLoad } from "./api";
 import type { AgentId, AgentRun, AssetKind, Connections } from "./api";
 import { Load } from "./Load";
+import PageHeader from "./PageHeader";
 import SourceIcon from "./SourceIcon";
 
 const agents: { id: AgentId; name: string; does: string; needs: AssetKind[] }[] = [
@@ -37,10 +38,7 @@ export default function Agents({ state }: { state: Connections }) {
   const on = (kinds: AssetKind[]) => state.assets.some(a => kinds.includes(a.kind) && state.selected.includes(a.key));
   return (
     <VStack gap={6}>
-      <VStack gap={2}>
-        <Heading level={1}>Agents</Heading>
-        <Text as="p" type="supporting">They prepare the work in the background. Nothing is sent or changed until you tap.</Text>
-      </VStack>
+      <PageHeader title="Agents" description="They prepare the work in the background. Nothing is sent or changed until you tap." />
       <Load state={list}>{data => (
         <VStack gap={4}>
           {!data.ai_ready && <Banner status="info" title="Agents need AI access" description="Add an AI key in Settings to start running agents." endContent={<Button size="sm" label="Open Settings" href="#settings" />} />}
@@ -81,7 +79,7 @@ function Agent({ agent, run, ready, connected, onStarted }: { agent: (typeof age
           {error && <Text as="p" color="secondary">{error}</Text>}
           {running && (
             <VStack gap={2}>
-              <Text as="p" type="supporting">Working on it. This usually takes under a minute.</Text>
+              <Text as="p" type="supporting" className="shimmer">Working on it. This usually takes under a minute.</Text>
               <Skeleton height={12} width="100%" index={0} />
               <Skeleton height={12} width="70%" index={1} />
             </VStack>

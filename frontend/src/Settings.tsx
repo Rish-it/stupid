@@ -4,6 +4,7 @@ import { Heading } from "@astryxdesign/core/Heading";
 import { Link } from "@astryxdesign/core/Link";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
+import PageHeader from "./PageHeader";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { api, useLoad } from "./api";
 import { Load } from "./Load";
@@ -13,7 +14,7 @@ const message = (cause: unknown) => cause instanceof Error ? cause.message : Str
 export default function Settings({ name, onSignedOut }: { name: string; onSignedOut: () => void }) {
   return (
     <VStack gap={10} maxWidth={640}>
-      <Heading level={1}>Settings</Heading>
+      <PageHeader title="Settings" />
       <VStack gap={2} as="section" aria-labelledby="setup-heading">
         <Heading level={2} id="setup-heading">Setup</Heading>
         <Text as="p" type="supporting">Which accounts Stupid reads, and anything Meta still needs. <Link hasUnderline href="#setup">Open setup</Link></Text>

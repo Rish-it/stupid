@@ -33,7 +33,7 @@ test("a signed-out stream goes back to the landing page", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json(me)));
   await page.route("**/api/stream", route => route.fulfill({ status: 401, ...json({ message: "Your session ended. Sign in again." }) }));
   await page.goto("/#setup");
-  await expect(page.getByRole("link", { name: "Continue with Facebook" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Continue with Facebook" }).first()).toBeVisible();
 });
 
 test("a stream that stays down says Reconnecting after 10 seconds", async ({ page }) => {

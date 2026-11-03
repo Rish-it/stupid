@@ -14,10 +14,23 @@ test("shows a clear offline state when the server is down", async ({ page }) => 
 test("asks a signed-out visitor to continue with Facebook", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json({ signed_in: false })));
   await page.goto("/");
-  await expect(page.getByRole("link", { name: "Continue with Facebook" })).toHaveAttribute("href", "/api/v1/meta/oauth/start");
+  await expect(page.getByRole("link", { name: "Continue with Facebook" }).first()).toHaveAttribute("href", "/api/v1/meta/oauth/start");
   await expect(page.getByText("Stupid only reads what you allow.")).toBeVisible();
   for (const [name, href] of [["Privacy", "/privacy.html"], ["Terms", "/terms.html"], ["Data deletion", "/deletion.html"]])
     await expect(page.getByRole("link", { name })).toHaveAttribute("href", href);
+});
+
+test("the welcome headline cycles, and holds still for reduced motion", async ({ page }) => {
+  await page.route("**/api/me", route => route.fulfill(json({ signed_in: false })));
+  await page.goto("/");
+  await expect(page.getByRole("heading", { level: 1, name: "Stupid, AI that does your Meta busywork", exact: true })).toBeVisible();
+  const shown = page.locator(".rebus-phrase:not([hidden])");
+  await expect(shown).toHaveText("does your Meta busywork");
+  await expect(shown.last()).toHaveText("drafts your replies", { timeout: 5000 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.reload();
+  await page.waitForTimeout(4000);
+  await expect(shown).toHaveText("does your Meta busywork");
 });
 
 test("a signed-in person moves between destinations", async ({ page }) => {
@@ -70,9 +83,9 @@ test("continuing with Facebook shows a full-screen loader on the way out and bac
   await page.goto("/?connected=1");
   await expect(page.getByText("Connecting to Meta…")).toBeVisible();
   answer();
-  await expect(page.getByRole("link", { name: "Continue with Instagram" })).toHaveAttribute("href", "/api/v1/instagram/oauth/start");
+  await expect(page.getByRole("link", { name: "Continue with Instagram" }).first()).toHaveAttribute("href", "/api/v1/instagram/oauth/start");
   await page.route("**/api/v1/meta/oauth/start", route => route.fulfill({ status: 204 })); // 204 keeps the page where it is
-  await page.getByRole("link", { name: "Continue with Facebook" }).click({ noWaitAfter: true });
+  await page.getByRole("link", { name: "Continue with Facebook" }).first().click({ noWaitAfter: true });
   // Locators wait on the pending navigation, so read the page directly.
   await expect.poll(() => page.evaluate(() => document.body.innerText)).toContain("Connecting to Meta…");
 });
@@ -202,7 +215,7 @@ test("Settings saves an AI key, confirms before deleting and signs out", async (
   expect(deleted).toBe(false);
   await page.getByRole("button", { name: "Disconnect and delete my data" }).click();
   await page.getByRole("button", { name: "Yes, delete everything" }).click();
-  await expect(page.getByRole("link", { name: "Continue with Facebook" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Continue with Facebook" }).first()).toBeVisible();
   expect(deleted).toBe(true);
 });
 

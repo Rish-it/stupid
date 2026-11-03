@@ -1,1 +1,113 @@
 body { background: var(--color-background-body); }
+
+/* Motion follows muse.ai: the same curves and timings, with Stupid's content. Everything moving here
+   stops for people who ask for reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  body, .astryx-app-shell, .astryx-app-shell-header { transition: background-color .5s ease-in-out, color .5s ease-in-out; }
+}
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes fade-out { to { opacity: 0; } }
+
+/* Top bar: blends into the page, then shows its edge over the first 64px of scroll. */
+.shell { timeline-scope: --page; }
+.shell .astryx-layout-content { scroll-timeline: --page block; }
+@supports (animation-timeline: scroll()) {
+  .shell .astryx-app-shell-header { animation: edge-in linear both; animation-timeline: --page; animation-range: 0 64px; }
+}
+@keyframes edge-in { from { box-shadow: 0 1px 0 transparent; } to { box-shadow: 0 1px 0 var(--color-border); } }
+@media (prefers-reduced-motion: no-preference) {
+  .sticky-mark { animation: fade-in .2s ease-out both; }
+}
+
+/* Page titles stick to the very top (above the 24px content padding), shrink to 24px and drop their description over the first 64px of scroll. */
+.page-title { position: sticky; top: -1.5rem; z-index: 1; margin: -.5rem -1.5rem; padding: .5rem 1.5rem; background: var(--color-background-body); }
+.page-description { margin-block-start: -1rem; }
+@supports (animation-timeline: scroll()) {
+  .page-title, .page-title > *, .page-description { animation-timing-function: linear; animation-fill-mode: both; animation-timeline: scroll(); animation-range: 0 64px; }
+  .page-title { animation-name: page-bar; }
+  .page-title > * { animation-name: title-shrink; transform-origin: 0 50%; }
+  .page-description { animation-name: fade-out; }
+}
+@keyframes page-bar { from { background: transparent; box-shadow: 0 1px 0 transparent; } to { box-shadow: 0 1px 0 var(--color-border); } }
+@keyframes title-shrink { to { scale: .70588; } }
+
+/* Loading words: a light sweeps across, then rests. */
+@media (prefers-reduced-motion: no-preference) {
+  .shimmer { mask-image: linear-gradient(90deg, #000 40%, #0006 50%, #000 60%); mask-size: 200% 100%; animation: shimmer 2s linear infinite; }
+}
+@keyframes shimmer { 0% { mask-position: 200% 0; } 55%, 100% { mask-position: -200% 0; } }
+
+/* Welcome: the headline's second line swaps word by word. */
+.hero { position: relative; min-height: calc(100dvh - 3.5rem); padding-block: clamp(2rem, 14vh - 1rem, 9rem) 6rem; }
+.hero-more { position: absolute; inset-block-end: 1.5rem; inset-inline-start: 50%; translate: -50% 0; }
+.rebus { display: block; font-size: clamp(2.25rem, 1rem + 4vw, 3.9rem); line-height: 1.1; letter-spacing: -.01em; }
+.rebus > span { display: block; }
+.rebus > .rebus-slot { display: grid; justify-items: center; }
+.rebus-slot > * { grid-area: 1 / 1; }
+.rebus-measure { visibility: hidden; }
+.rebus-phrase { --travel: .3em; }
+.rebus-phrase[hidden] { display: none; }
+.rebus-phrase > span { display: inline-block; }
+.rebus-icon { display: inline-flex; box-sizing: content-box; width: 1em; height: 1em; padding-inline: .14em; vertical-align: -.13em; }
+@media (prefers-reduced-motion: no-preference) {
+  .rebus-phrase[data-role="outgoing"] > span { animation: word-out .15s cubic-bezier(.75, 0, 1, 1) calc(var(--i) * 30ms) both; }
+  .rebus-phrase[data-role="incoming"] > span { animation: word-in .2s cubic-bezier(0, 0, .25, 1) calc(150ms + var(--i) * 30ms) both; }
+}
+@keyframes word-out { to { opacity: 0; translate: 0 calc(-1 * var(--travel)); } }
+@keyframes word-in { from { opacity: 0; translate: 0 var(--travel); } }
+
+/* The agent in the headline: three dots that work while hovered or held. */
+.rebus-avatar {
+  display: inline-flex; gap: .1em; align-items: center; justify-content: center; vertical-align: middle;
+  width: 1.073em; height: 1.073em; margin-inline: .192em .032em; translate: 0 -.05em;
+  border-radius: 50%; background: #405c35; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+}
+.rebus-avatar > span { width: .13em; height: .13em; border-radius: 50%; background: #fff; }
+@media (prefers-reduced-motion: no-preference) {
+  .rebus-avatar:hover > span, .rebus-avatar[data-pressed] > span { animation: dot-pulse 1s ease-in-out infinite; }
+  .rebus-avatar > span:nth-child(2) { animation-delay: .15s; }
+  .rebus-avatar > span:nth-child(3) { animation-delay: .3s; }
+  .rebus-avatar[data-pressed] { animation: pop .5s ease-out; }
+}
+@keyframes dot-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+@keyframes pop { 0% { scale: 1; } 30% { scale: 1.35; } 50% { scale: .92; } 70% { scale: 1.08; } 100% { scale: 1; } }
+
+/* Welcome: the intro card rises and the section fills in as it scrolls into view (wider screens). */
+.intro { position: relative; isolation: isolate; padding-block: 3.5rem 6rem; outline: none; timeline-scope: --stage; }
+.intro-fill { position: absolute; inset: 0; z-index: -1; background: var(--color-background-surface); }
+.intro-stage { width: min(100% - 2.5rem, 116.6vh); margin: 2.5rem auto 0; view-timeline: --stage block; }
+.intro-card {
+  display: flex; flex-direction: column; gap: 1.5rem; align-items: center; justify-content: center;
+  aspect-ratio: 4 / 5; max-height: 65.6vh; margin-inline: auto; border-radius: 24px; overflow: hidden;
+  background: linear-gradient(160deg, #fff 35%, #cfe3c8); color: #0a1317; font-size: clamp(2.25rem, 7vw, 4rem); line-height: 1.1;
+}
+.intro-card > span, .intro-card > strong { font-weight: 500; letter-spacing: -.01em; }
+.intro-card > strong { margin-block-start: -1.5rem; color: #405c35; }
+@media (min-width: 48rem) {
+  .intro-stage { width: min(82%, 116.6vh); }
+  .intro-card { aspect-ratio: 16 / 9; }
+}
+@media (min-width: 48rem) and (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .intro-card, .intro-fill { animation-timing-function: linear; animation-fill-mode: both; animation-timeline: --stage; animation-range: entry 10vh entry calc(50% + 35vh); }
+    .intro-card { animation-name: rise; }
+    .intro-fill { animation-name: fade-in; }
+  }
+}
+@keyframes rise { from { scale: .9; translate: 0 40px; } }
+
+/* Welcome: feature rows alternate their background and, on wider screens, their side. */
+.feature { display: flex; justify-content: center; padding: 3.5rem 1.25rem; }
+.feature-alt { background: var(--color-background-surface); }
+.feature-art {
+  display: flex; gap: 1.5rem; align-items: center; justify-content: center; aspect-ratio: 4 / 3;
+  border-radius: 24px; background: var(--color-background-surface);
+}
+.feature-alt .feature-art { background: var(--color-background-body); }
+.feature-glyph { display: inline-flex; scale: 2.5; }
+.intro-copy { margin-inline: auto; }
+@media (min-width: 48rem) {
+  .feature { padding-block: 6rem; }
+  .feature-alt .feature-art { order: 2; }
+}
+.ready { min-height: 560px; }
