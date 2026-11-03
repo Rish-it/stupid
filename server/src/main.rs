@@ -168,6 +168,7 @@ CREATE TABLE IF NOT EXISTS deletions (code TEXT PRIMARY KEY, created INTEGER NOT
     "ALTER TABLE users ADD COLUMN ai_key_blob TEXT; ALTER TABLE spend ADD COLUMN own INTEGER NOT NULL DEFAULT 0;",
     "ALTER TABLE users ADD COLUMN problems_json TEXT NOT NULL DEFAULT '[]';",
     "ALTER TABLE events ADD COLUMN sender_name TEXT;",
+    "ALTER TABLE replies ADD COLUMN message_id TEXT; ALTER TABLE replies ADD COLUMN error TEXT; CREATE INDEX replies_message ON replies(message_id);",
 ];
 
 fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
@@ -448,11 +449,12 @@ async fn webhook(State(s): State<AppState>, headers: HeaderMap, body: Bytes) -> 
         return Err(AppError::new(403, "Invalid signature."));
     }
     let payload: Value = serde_json::from_slice(&body).map_err(|_| AppError::new(400, "Invalid JSON."))?;
-    for failure in meta::failed_sends(&payload) {
-        tracing::warn!("WhatsApp send failed {failure}");
-    }
     let events = meta::parse_webhook(&payload);
     let db = lock(&s.db);
+    for (message_id, reason) in meta::failed_sends(&payload) {
+        tracing::warn!("WhatsApp send {message_id} failed: {reason}");
+        db.execute("UPDATE replies SET error=?2 WHERE message_id=?1", params![message_id, format!("WhatsApp didn't deliver this reply: {reason}")])?;
+    }
     for e in events {
         db.execute(
             "INSERT OR IGNORE INTO events (kind,asset_id,sender,sender_name,text,created,dedupe) VALUES (?1,?2,?3,?4,?5,?6,?7)",
