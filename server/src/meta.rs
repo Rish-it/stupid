@@ -121,6 +121,9 @@ async fn discover(state: &AppState, token: &str) -> Grant {
     for waba in &wabas {
         let Some(w) = waba["id"].as_str().filter(|w| numeric(w)) else { continue };
         numbers.extend(take("WhatsApp numbers", rows(state, &format!("{w}/phone_numbers"), "id,verified_name,display_phone_number", token).await));
+        // Meta forwards a WhatsApp account's messages only once the app is subscribed to it.
+        let what = format!("Messages from {}", waba["name"].as_str().unwrap_or("a WhatsApp account"));
+        take(&what, post(state, &format!("{w}/subscribed_apps"), &json!({}), token).await.map(|_| Vec::new()));
     }
     // Meta forwards a Page's messages only once the app is subscribed to that Page.
     let mut subscribed = 0;
