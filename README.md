@@ -69,5 +69,6 @@ npm run test:inbox      # browser tests
 ## Earlier work
 
 Before this workspace, Secnd built Ren, an open decision model for Meta business decisions.
-Its weights and model card are at [huggingface.co/Secnd-AI/ren](https://huggingface.co/Secnd-AI/ren),
-and the training record is in [docs/model.md](docs/model.md) and `docs/results/`.
+Its weights, model card and training record are at
+[huggingface.co/Secnd-AI/ren](https://huggingface.co/Secnd-AI/ren) and
+[github.com/Secnd-AI/ren](https://github.com/Secnd-AI/ren).
