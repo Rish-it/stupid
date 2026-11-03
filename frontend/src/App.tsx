@@ -30,7 +30,7 @@ const Settings = lazy(() => import("./Settings"));
 
 // Meta sends people back to /?connected=1, /?error=<message> or /?meta_error=1. Read it once, then drop it from the address.
 const query = new URLSearchParams(location.search);
-const failure = query.get("error")?.slice(0, 300) || (query.has("meta_error") ? "Nothing was shared with Secnd. You can try again whenever you like." : null);
+const failure = query.get("error")?.slice(0, 300) || (query.has("meta_error") ? "Nothing was shared with Stupid. You can try again whenever you like." : null);
 const returned = failure ? "error" : query.has("connected") ? "connected" : null;
 if (returned) {
   for (const key of ["error", "meta_error", "connected"]) query.delete(key);
@@ -70,7 +70,7 @@ export default function App() {
   const { setData: setMe } = me;
   const signOut = useCallback(() => { setMe({ signed_in: false }); location.hash = ""; }, [setMe]);
   const reconnecting = useStream(signedIn, signOut);
-  useEffect(() => { document.title = signedIn ? `${pages[page]} · Secnd` : "Secnd"; }, [signedIn, page]);
+  useEffect(() => { document.title = signedIn ? `${pages[page]} · Stupid` : "Stupid"; }, [signedIn, page]);
 
   const connect = () => setConnecting(true);
   if (connecting || (returned && !me.data && !me.error)) return (
@@ -99,12 +99,12 @@ export default function App() {
           <VStack key={title} gap={1}><Heading level={2}>{title}</Heading><Text as="p" type="supporting">{text}</Text></VStack>
         ))}
       </Grid>
-      <Text as="p" type="supporting" justify="center">Secnd only reads what you allow. Tokens are encrypted. Disconnect any time.</Text>
+      <Text as="p" type="supporting" justify="center">Stupid only reads what you allow. Tokens are encrypted. Disconnect any time.</Text>
     </VStack>
   );
   else if (me.error) body = (
-    <EmptyState headingLevel={1} title={me.error.status === 0 ? "Secnd is offline" : "Something went wrong"}
-      description={me.error.status === 0 ? "We can't reach Secnd's server. Check your connection, then try again." : me.error.message}
+    <EmptyState headingLevel={1} title={me.error.status === 0 ? "Stupid is offline" : "Something went wrong"}
+      description={me.error.status === 0 ? "We can't reach Stupid's server. Check your connection, then try again." : me.error.message}
       actions={<Button label="Try again" clickAction={me.reload} />} />
   );
   else body = loading;
@@ -114,7 +114,7 @@ export default function App() {
       banner={sample && <Banner status="warning" container="section" title="Sample data" description="Nothing on this page is real. Remove ?fixtures=1 to use your own accounts." />}
       topNav={
       <TopNav label="Main navigation"
-        heading={<TopNavHeading heading="Secnd" headingHref="#today" />}
+        heading={<TopNavHeading heading="Stupid" headingHref="#today" />}
         startContent={user && [...nav, ...ready ? [] : ["setup" as const]].map(id => <TopNavItem key={id} label={pages[id]} href={`#${id}`} isSelected={page === id} />)}
         endContent={user && (
           <HStack gap={3} align="center">

@@ -103,11 +103,11 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch {
-    throw new ApiError(0, "Secnd can't reach its server right now.");
+    throw new ApiError(0, "Stupid can't reach its server right now.");
   }
   const data = (await res.json().catch(() => undefined)) as (T & { message?: string }) | undefined;
   // A non-JSON reply is either a dev proxy with no server behind it, or the server's page fallback for a route it doesn't have yet.
-  if (data === undefined) throw res.status >= 500 ? new ApiError(0, "Secnd can't reach its server right now.") : new ApiError(404, "This isn't available yet.");
+  if (data === undefined) throw res.status >= 500 ? new ApiError(0, "Stupid can't reach its server right now.") : new ApiError(404, "This isn't available yet.");
   if (!res.ok) throw new ApiError(res.status, data.message ?? `Request failed (${res.status}).`);
   return data;
 }

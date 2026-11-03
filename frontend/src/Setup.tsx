@@ -49,7 +49,7 @@ export default function Setup({ state, onChange, onConnect }: { state: Account; 
   return (
     <VStack gap={6}>
       <VStack gap={3}>
-        <Heading level={1}>{done ? "You're set" : "Set up Secnd"}</Heading>
+        <Heading level={1}>{done ? "You're set" : "Set up Stupid"}</Heading>
         <Text as="p" type="supporting">{done ? "New messages arrive in your inbox as they come in." : "One step at a time. Each card says what to do next."}</Text>
         {done && <HStack><Button variant="primary" label="Go to Inbox" href="#inbox" /></HStack>}
         <div aria-live="polite">

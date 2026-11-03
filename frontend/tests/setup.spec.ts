@@ -32,7 +32,7 @@ test("Setup walks through Meta's fixes, checks again and finishes", async ({ pag
     route.fulfill(json({ assets: [{ ...whatsapp, issues: [limited] }], selected: ["whatsapp:1"], permissions: [], problems: [] }));
   });
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Set up Secnd" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Set up Stupid" })).toBeVisible();
   await expect(page.getByText("Messages from Shop Page: the Page wasn't shared.")).toBeVisible();
   await expect(page.getByRole("link", { name: "Connect again" })).toHaveAttribute("href", "/api/v1/meta/oauth/start");
   await expect(page.getByText("Add a payment method in WhatsApp Manager.")).toBeVisible();

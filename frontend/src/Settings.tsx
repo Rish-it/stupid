@@ -16,7 +16,7 @@ export default function Settings({ name, onSignedOut }: { name: string; onSigned
       <Heading level={1}>Settings</Heading>
       <VStack gap={2} as="section" aria-labelledby="setup-heading">
         <Heading level={2} id="setup-heading">Setup</Heading>
-        <Text as="p" type="supporting">Which accounts Secnd reads, and anything Meta still needs. <Link hasUnderline href="#setup">Open setup</Link></Text>
+        <Text as="p" type="supporting">Which accounts Stupid reads, and anything Meta still needs. <Link hasUnderline href="#setup">Open setup</Link></Text>
       </VStack>
       <AiAccess />
       <Account name={name} onSignedOut={onSignedOut} />
@@ -33,7 +33,7 @@ function AiAccess() {
       const saved = await api.setAiKey(next);
       ai.setData(d => d && { ...d, ...saved });
       setKey("");
-      setStatus({ type: "success", message: next ? "Key saved. It's kept on Secnd's server and never shown again." : "Your key is removed." });
+      setStatus({ type: "success", message: next ? "Key saved. It's kept on Stupid's server and never shown again." : "Your key is removed." });
     } catch (cause) {
       setStatus({ type: "error", message: message(cause) });
     }
@@ -45,7 +45,7 @@ function AiAccess() {
         <VStack gap={4}>
           <Text as="p" type="supporting">
             {s.has_key ? `Agents run on ${s.model} with your own key.`
-              : s.workspace_ai ? `Agents run on ${s.model} using Secnd's shared allowance. Add your own key to run them on your account instead.`
+              : s.workspace_ai ? `Agents run on ${s.model} using Stupid's shared allowance. Add your own key to run them on your account instead.`
               : "Add your Muse API key from Meta so agents can run."}
           </Text>
           <TextInput type="password" label={s.has_key ? "Replace your Muse API key" : "Your Muse API key"} value={key} onEnter={() => key.trim() && void save(key.trim())}
@@ -79,7 +79,7 @@ function Account({ name, onSignedOut }: { name: string; onSignedOut: () => void 
       <HStack gap={2}><Button label="Sign out" clickAction={act(api.signOut)} /></HStack>
       <VStack gap={3}>
         <Heading level={3}>Disconnect and delete</Heading>
-        <Text as="p" type="supporting">Removes Secnd's access to your Meta apps and deletes your messages, numbers and agent results from Secnd.</Text>
+        <Text as="p" type="supporting">Removes Stupid's access to your Meta apps and deletes your messages, numbers and agent results from Stupid.</Text>
         {confirming ? (
           <VStack gap={3} role="group" aria-label="Confirm deletion">
             <Text as="p" weight="semibold">This can't be undone. Delete everything now?</Text>
