@@ -5,6 +5,7 @@ import { Card } from "@astryxdesign/core/Card";
 import { Grid } from "@astryxdesign/core/Grid";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Link } from "@astryxdesign/core/Link";
+import { Skeleton } from "@astryxdesign/core/Skeleton";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
@@ -26,6 +27,7 @@ export default function Agents({ state }: { state: Connections }) {
   const list = useLoad("agents", api.agents);
   const running = list.data?.runs.some(r => r.status === "running");
   const { reload } = list;
+  // ponytail: polls while a run is working, as a fallback for servers without /api/stream; drop once the stream is live everywhere.
   useEffect(() => {
     if (!running) return;
     const timer = setInterval(() => void reload(), 3000);
@@ -77,7 +79,13 @@ function Agent({ agent, run, ready, connected, onStarted }: { agent: (typeof age
           : <Button label="Connect an app first" href="#setup" />}
         <div aria-live="polite">
           {error && <Text as="p" color="secondary">{error}</Text>}
-          {running && <Text as="p" type="supporting">Working on it. This usually takes under a minute.</Text>}
+          {running && (
+            <VStack gap={2}>
+              <Text as="p" type="supporting">Working on it. This usually takes under a minute.</Text>
+              <Skeleton height={12} width="100%" index={0} />
+              <Skeleton height={12} width="70%" index={1} />
+            </VStack>
+          )}
           {run?.status === "failed" && <Text as="p" type="supporting">This run didn't finish: {run.error ?? "no reason given"}</Text>}
         </div>
         {run?.status === "done" && run.result && <Result result={run.result} />}
