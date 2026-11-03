@@ -7,7 +7,7 @@ import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
-import { api, drafts, useLoad } from "./api";
+import { api, drafts, senderName, useLoad } from "./api";
 import type { InboxItem } from "./api";
 import { Load } from "./Load";
 import SourceIcon from "./SourceIcon";
@@ -39,7 +39,7 @@ export default function Inbox() {
               <Fragment key={item.id}>
                 <ListItem align="start" isSelected={open === item.id} onClick={item.replied ? undefined : () => setOpen(open === item.id ? undefined : item.id)}
                   startContent={<SourceIcon source={item.kind === "instagram_comment" ? "instagram" : item.kind} />}
-                  label={<HStack gap={2} wrap="wrap"><Text weight="semibold">{item.sender}</Text><Text type="supporting">{where[item.kind]}</Text></HStack>}
+                  label={<HStack gap={2} wrap="wrap"><Text weight="semibold">{senderName(item)}</Text><Text type="supporting">{where[item.kind]}</Text></HStack>}
                   description={item.text}
                   endContent={<VStack gap={1} hAlign="end"><Timestamp value={item.created} format="relative_short" />{item.replied && <Text type="supporting">Replied</Text>}</VStack>} />
                 {open === item.id && !item.replied && <Reply item={item} onSent={() => {
@@ -69,7 +69,7 @@ function Reply({ item, onSent }: { item: InboxItem; onSent: () => void }) {
   };
   return (
     <VStack as="li" gap={2} paddingInlineStart={10} paddingBlockEnd={4}>
-      <TextArea label={`Reply to ${item.sender}`} value={text} onChange={v => { setText(v); setError(""); }}
+      <TextArea label={`Reply to ${senderName(item)}`} value={text} onChange={v => { setText(v); setError(""); }}
         rows={3} maxLength={1000} hasAutoFocus status={error ? { type: "error", message: error } : undefined} />
       <HStack gap={2}>
         <Button variant="primary" label="Send" isDisabled={!text.trim()} clickAction={send} />

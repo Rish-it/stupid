@@ -45,9 +45,9 @@ export async function answer(method: string, path: string, body: unknown): Promi
     insights: [{ name: "reach", value: 6400 }, { name: "views", value: 9100 }, { name: "accounts_engaged", value: 380 }, { name: "total_interactions", value: 512 }],
     insights_error: null }] };
   if (route === "GET /api/inbox") return { items: [
-    { id: "m1", kind: "whatsapp", asset_id: "1", sender: "Sample customer", text: "Hi, are you open today?", created: now() - 600, replied: false },
-    { id: "m2", kind: "instagram_comment", asset_id: "1", sender: "sample_fan", text: "Love this colour!", created: now() - 3600, replied: true },
-    { id: "m3", kind: "instagram", asset_id: "1", sender: "Sample buyer", text: "Do you ship the blue one?", created: now() - 7200, replied: false },
+    { id: "m1", kind: "whatsapp", asset_id: "1", sender: "15550000001", sender_name: "Sample customer", text: "Hi, are you open today?", created: now() - 600, replied: false },
+    { id: "m2", kind: "instagram_comment", asset_id: "1", sender: "17841400000000001", sender_name: null, text: "Love this colour!", created: now() - 3600, replied: true },
+    { id: "m3", kind: "instagram", asset_id: "1", sender: "17841400000000002", sender_name: "Sample buyer", text: "Do you ship the blue one?", created: now() - 7200, replied: false },
   ] };
   if (/^POST \/api\/inbox\/[^/]+\/reply$/.test(route)) return { sent: true };
   if (route === "GET /api/agents") {
