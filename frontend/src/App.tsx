@@ -28,12 +28,12 @@ const Inbox = lazy(() => import("./Inbox"));
 const Agents = lazy(() => import("./Agents"));
 const Settings = lazy(() => import("./Settings"));
 
-// Meta sends people back to /?connected=1 or /?meta_error=1. Read it once, then drop it from the address.
+// Meta sends people back to /?connected=1, /?error=<message> or /?meta_error=1. Read it once, then drop it from the address.
 const query = new URLSearchParams(location.search);
-const returned = query.has("meta_error") ? "error" : query.has("connected") ? "connected" : null;
+const failure = query.get("error")?.slice(0, 300) || (query.has("meta_error") ? "Nothing was shared with Secnd. You can try again whenever you like." : null);
+const returned = failure ? "error" : query.has("connected") ? "connected" : null;
 if (returned) {
-  query.delete("meta_error");
-  query.delete("connected");
+  for (const key of ["error", "meta_error", "connected"]) query.delete(key);
   history.replaceState(null, "", `/${query.size ? `?${query}` : ""}${returned === "connected" ? "#connections" : location.hash}`);
 }
 
@@ -53,11 +53,25 @@ export default function App() {
   const page = usePage();
   const user = me.data?.signed_in ? me.data : undefined;
   const [notice, setNotice] = useState(returned);
+  const [connecting, setConnecting] = useState(false);
+  // Coming back with the browser's Back button restores this page as it was; drop the loader then.
+  useEffect(() => {
+    const onShow = (event: PageTransitionEvent) => event.persisted && setConnecting(false);
+    addEventListener("pageshow", onShow);
+    return () => removeEventListener("pageshow", onShow);
+  }, []);
   // "You're connected" belongs to the page Meta sends people back to; leaving it retires the notice for good.
   if (notice === "connected" && page !== "connections") setNotice(null);
   const loading = <Center minHeight={240}><Spinner size="lg" aria-label="Loading" /></Center>;
   const signedIn = Boolean(user);
   useEffect(() => { document.title = signedIn ? `${pages[page]} · Secnd` : "Secnd"; }, [signedIn, page]);
+
+  const connect = () => setConnecting(true);
+  if (connecting || (returned && !me.data && !me.error)) return (
+    <Center minHeight="100dvh">
+      <VStack gap={4} hAlign="center" role="status"><Spinner size="lg" aria-hidden /><Text>Connecting to Meta…</Text></VStack>
+    </Center>
+  );
 
   let body;
   if (user && page === "connections") body = <Suspense fallback={loading}><Connections state={user} onChange={next => me.setData({ ...user, ...next })} /></Suspense>;
@@ -70,7 +84,9 @@ export default function App() {
       <VStack gap={4} hAlign="center" maxWidth={560}>
         <Heading level={1} type="display-2" justify="center" textWrap="balance">Run your Meta business in plain words</Heading>
         <Text as="p" justify="center">Your messages, posts and ads from Facebook, Instagram and WhatsApp, in one calm place.</Text>
-        <Button variant="primary" size="lg" label="Continue with Facebook" href={oauthStartUrl} />
+        <Text as="p" type="supporting" justify="center">Meta will ask which Page, Instagram account and WhatsApp number to share. Pick the ones you use for your business.</Text>
+        <Button variant="primary" size="lg" label="Continue with Facebook" href={oauthStartUrl} onClick={connect} />
+        {me.data && !me.data.signed_in && me.data.instagram_oauth_start && <Button size="lg" label="Continue with Instagram" href={me.data.instagram_oauth_start} onClick={connect} />}
       </VStack>
       <Grid columns={{ minWidth: 220 }} gap={6} maxWidth={880} width="100%">
         {welcome.map(([title, text]) => (
@@ -99,7 +115,7 @@ export default function App() {
       <VStack gap={10}>
         {notice && (notice === "error" || user) && (
           <Banner isDismissable onDismiss={() => setNotice(null)} {...notice === "error"
-            ? { status: "error", title: "Facebook didn't connect", description: "Nothing was shared with Secnd. You can try again whenever you like." }
+            ? { status: "error", title: "Facebook didn't connect", description: failure, endContent: <Button size="sm" label="Try again" href={oauthStartUrl} onClick={connect} /> }
             : { status: "success", title: "You're connected", description: "Choose which accounts Secnd can read. You can change this any time." }} />
         )}
         {body}
