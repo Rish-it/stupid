@@ -74,7 +74,7 @@ function Agent({ agent, run, ready, connected, onStarted }: { agent: (typeof age
         <Text as="p" type="supporting">{agent.does}</Text>
         {connected
           ? <Button variant="primary" label={running ? "Working…" : run ? "Run again" : "Run"} isLoading={running} isDisabled={!ready} clickAction={start} />
-          : <Button label="Connect an app first" href="#connections" />}
+          : <Button label="Connect an app first" href="#setup" />}
         <div aria-live="polite">
           {error && <Text as="p" color="secondary">{error}</Text>}
           {running && <Text as="p" type="supporting">Working on it. This usually takes under a minute.</Text>}

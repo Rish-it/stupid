@@ -50,7 +50,7 @@ function Connect({ kind }: { kind: AssetKind }) {
   return (
     <VStack gap={3}>
       <Text as="p" type="supporting">{kind === "whatsapp" ? "Connect WhatsApp, Instagram or your Facebook Page to see new messages here." : `Connect ${app.name} to see it here.`}</Text>
-      <Button variant="primary" label={`Connect ${app.name}`} href="#connections" />
+      <Button variant="primary" label={`Connect ${app.name}`} href="#setup" />
     </VStack>
   );
 }
