@@ -3,7 +3,8 @@ import { useCallback, useEffect, useState } from "react";
 export type AssetKind = "ads" | "instagram" | "whatsapp" | "messenger";
 export type Asset = { key: string; kind: AssetKind; id: string; name: string };
 export type Health = { status: "ok" | "degraded"; meta_configured: boolean; ai_configured: boolean };
-export type Me = { signed_in: false } | { signed_in: true; name: string; assets: Asset[]; selected: string[]; permissions: string[] };
+/** `instagram_oauth_start` appears once the server offers Instagram sign-in for creators without a Facebook Page. */
+export type Me = { signed_in: false; instagram_oauth_start?: string } | { signed_in: true; name: string; assets: Asset[]; selected: string[]; permissions: string[] };
 export type Connections = { assets: Asset[]; selected: string[] };
 
 export const apps: { kind: AssetKind; name: string; does: string }[] = [
