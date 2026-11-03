@@ -57,11 +57,30 @@ test("returning from Meta opens Connections and saves account switches", async (
   await expect(page.getByText("You're connected")).toBeHidden();
 });
 
-test("a refused Meta sign-in says nothing was shared", async ({ page }) => {
+test("a refused Meta sign-in shows Meta's reason and offers to try again", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json({ signed_in: false })));
-  await page.goto("/?meta_error=1");
+  await page.goto("/?error=You+cancelled+the+Facebook+dialog.");
   await expect(page.getByText("Facebook didn't connect")).toBeVisible();
+  await expect(page.getByText("You cancelled the Facebook dialog.")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Try again" })).toHaveAttribute("href", "/api/v1/meta/oauth/start");
   await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole("link", { name: "Continue with Instagram" })).toHaveCount(0);
+
+  await page.goto("/?meta_error=1");
+  await expect(page.getByText("Nothing was shared with Secnd.")).toBeVisible();
+});
+
+test("continuing with Facebook shows a full-screen loader on the way out and back", async ({ page }) => {
+  let answer = () => {};
+  await page.route("**/api/me", async route => { await new Promise<void>(done => (answer = done)); await route.fulfill(json({ signed_in: false, instagram_oauth_start: "/api/v1/instagram/oauth/start" })); });
+  await page.goto("/?connected=1");
+  await expect(page.getByText("Connecting to Meta…")).toBeVisible();
+  answer();
+  await expect(page.getByRole("link", { name: "Continue with Instagram" })).toHaveAttribute("href", "/api/v1/instagram/oauth/start");
+  await page.route("**/api/v1/meta/oauth/start", route => route.fulfill({ status: 204 })); // 204 keeps the page where it is
+  await page.getByRole("link", { name: "Continue with Facebook" }).click({ noWaitAfter: true });
+  // Locators wait on the pending navigation, so read the page directly.
+  await expect.poll(() => page.evaluate(() => document.body.innerText)).toContain("Connecting to Meta…");
 });
 
 test("Today asks to connect missing apps and reads the ones that are on", async ({ page }) => {
