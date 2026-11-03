@@ -526,6 +526,19 @@ pub fn parse_webhook(payload: &Value) -> Vec<Event> {
     out
 }
 
+/// WhatsApp delivery failures, which Meta reports only through the webhook after accepting a send.
+pub fn failed_sends(payload: &Value) -> Vec<String> {
+    let changes = payload["entry"].as_array().into_iter().flatten().flat_map(|e| e["changes"].as_array().into_iter().flatten());
+    changes
+        .flat_map(|c| c["value"]["statuses"].as_array().into_iter().flatten())
+        .filter(|st| st["status"] == "failed")
+        .map(|st| {
+            let e = &st["errors"][0];
+            format!("to {}: {} {} {}", st["recipient_id"].as_str().unwrap_or("?"), e["code"], e["title"].as_str().unwrap_or(""), e["error_data"]["details"].as_str().unwrap_or(""))
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -540,6 +553,8 @@ mod tests {
         assert_eq!(e.len(), 1);
         assert_eq!((e[0].kind.as_str(), e[0].asset_id.as_str()), ("instagram", "77"));
         assert!(numeric("act_123") && !numeric("act_") && !numeric("12a"));
+        let st = json!({"entry":[{"changes":[{"value":{"statuses":[{"status":"delivered"},{"status":"failed","recipient_id":"91","errors":[{"code":131026,"title":"Undeliverable"}]}]}}]}]});
+        assert_eq!(failed_sends(&st), vec!["to 91: 131026 Undeliverable ".to_string()]);
     }
 
     #[test]
