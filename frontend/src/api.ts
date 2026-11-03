@@ -60,7 +60,11 @@ export class ApiError extends Error {
   }
 }
 
+/** Dev builds only: ?fixtures=1 answers from labelled sample data instead of the server. */
+export const sample = import.meta.env.DEV && new URLSearchParams(location.search).has("fixtures");
+
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
+  if (sample) return (await import("./fixtures")).answer(method, path, body) as Promise<T>;
   let res: Response;
   try {
     res = await fetch(path, {

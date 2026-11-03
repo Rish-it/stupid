@@ -8,7 +8,7 @@ import { Spinner } from "@astryxdesign/core/Spinner";
 import { VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TopNav, TopNavHeading, TopNavItem } from "@astryxdesign/core/TopNav";
-import { api, oauthStartUrl, useLoad } from "./api";
+import { api, oauthStartUrl, sample, useLoad } from "./api";
 
 const pages = { today: "Today", inbox: "Inbox", agents: "Agents", connections: "Connections", settings: "Settings" } as const;
 type Page = keyof typeof pages;
@@ -16,8 +16,13 @@ const nav: Page[] = ["today", "inbox", "agents", "connections"];
 const Connections = lazy(() => import("./Connections"));
 
 // Meta sends people back to /?connected=1 or /?meta_error=1. Read it once, then drop it from the address.
-const returned = new URLSearchParams(location.search).has("meta_error") ? "error" : new URLSearchParams(location.search).has("connected") ? "connected" : null;
-if (returned) history.replaceState(null, "", `/${returned === "connected" ? "#connections" : location.hash}`);
+const query = new URLSearchParams(location.search);
+const returned = query.has("meta_error") ? "error" : query.has("connected") ? "connected" : null;
+if (returned) {
+  query.delete("meta_error");
+  query.delete("connected");
+  history.replaceState(null, "", `/${query.size ? `?${query}` : ""}${returned === "connected" ? "#connections" : location.hash}`);
+}
 
 function usePage(): Page {
   const read = () => { const hash = location.hash.slice(1); return hash in pages ? hash as Page : "today"; };
@@ -53,7 +58,9 @@ export default function App() {
   else body = loading;
 
   return (
-    <AppShell contentPadding={6} topNav={
+    <AppShell contentPadding={6}
+      banner={sample && <Banner status="warning" container="section" title="Sample data" description="Nothing on this page is real. Remove ?fixtures=1 to use your own accounts." />}
+      topNav={
       <TopNav label="Main navigation"
         heading={<TopNavHeading heading="Secnd" headingHref="#today" />}
         startContent={user && nav.map(id => <TopNavItem key={id} label={pages[id]} href={`#${id}`} isSelected={page === id} />)}
