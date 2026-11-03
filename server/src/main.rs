@@ -166,6 +166,7 @@ CREATE TABLE IF NOT EXISTS deletions (code TEXT PRIMARY KEY, created INTEGER NOT
     "ALTER TABLE users ADD COLUMN permissions_json TEXT NOT NULL DEFAULT '[]';",
     "CREATE TABLE replies (event_id INTEGER PRIMARY KEY, user_id TEXT NOT NULL, text TEXT NOT NULL, created INTEGER NOT NULL);",
     "ALTER TABLE users ADD COLUMN ai_key_blob TEXT; ALTER TABLE spend ADD COLUMN own INTEGER NOT NULL DEFAULT 0;",
+    "ALTER TABLE users ADD COLUMN problems_json TEXT NOT NULL DEFAULT '[]';",
 ];
 
 fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
@@ -201,6 +202,7 @@ pub struct User {
     pub assets: Vec<meta::Asset>,
     pub selected: Vec<String>,
     pub permissions: Vec<String>,
+    pub problems: Vec<String>,
 }
 impl User {
     pub fn selected_assets(&self, kind: &str) -> Vec<&meta::Asset> {
@@ -213,13 +215,13 @@ pub fn user(state: &AppState, headers: &HeaderMap) -> ApiResult<User> {
     let db = lock(&state.db);
     let row = db
         .query_row(
-            "SELECT u.id,u.name,u.token_blob,u.assets_json,u.selected_json,u.permissions_json FROM sessions s JOIN users u ON u.id=s.user_id
+            "SELECT u.id,u.name,u.token_blob,u.assets_json,u.selected_json,u.permissions_json,u.problems_json FROM sessions s JOIN users u ON u.id=s.user_id
              WHERE s.hash=?1 AND s.expires>?2",
             params![digest(&session), now()],
-            |r| Ok((r.get::<_, String>(0)?, r.get(1)?, r.get(2)?, r.get::<_, String>(3)?, r.get::<_, String>(4)?, r.get::<_, String>(5)?)),
+            |r| Ok((r.get::<_, String>(0)?, r.get(1)?, r.get(2)?, r.get::<_, String>(3)?, r.get::<_, String>(4)?, r.get::<_, String>(5)?, r.get::<_, String>(6)?)),
         )
         .optional()?;
-    let (id, name, token_blob, assets, selected, permissions) = row.ok_or_else(|| AppError::new(401, "Your session ended. Sign in again."))?;
+    let (id, name, token_blob, assets, selected, permissions, problems) = row.ok_or_else(|| AppError::new(401, "Your session ended. Sign in again."))?;
     Ok(User {
         id,
         name,
@@ -227,6 +229,7 @@ pub fn user(state: &AppState, headers: &HeaderMap) -> ApiResult<User> {
         assets: serde_json::from_str(&assets).unwrap_or_default(),
         selected: serde_json::from_str(&selected).unwrap_or_default(),
         permissions: serde_json::from_str(&permissions).unwrap_or_default(),
+        problems: serde_json::from_str(&problems).unwrap_or_default(),
     })
 }
 
@@ -245,7 +248,7 @@ async fn health(State(s): State<AppState>) -> Json<Value> {
 
 async fn me(State(s): State<AppState>, headers: HeaderMap) -> Json<Value> {
     match user(&s, &headers) {
-        Ok(u) => Json(json!({ "signed_in": true, "name": u.name, "assets": u.assets, "selected": u.selected, "permissions": u.permissions })),
+        Ok(u) => Json(json!({ "signed_in": true, "name": u.name, "assets": u.assets, "selected": u.selected, "permissions": u.permissions, "problems": u.problems })),
         Err(_) => Json(json!({ "signed_in": false })),
     }
 }
@@ -563,6 +566,7 @@ async fn main() {
         .route("/api/v1/meta/deletion/{code}", get(deletion_status))
         .route("/api/sign-out", post(sign_out))
         .route("/api/connections", put(select).delete(disconnect))
+        .route("/api/connections/refresh", post(meta::refresh))
         .route("/api/ads", get(meta::ads))
         .route("/api/instagram", get(meta::instagram))
         .route("/api/inbox", get(meta::inbox))

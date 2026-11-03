@@ -88,9 +88,40 @@ fn numeric(id: &str) -> bool {
     !raw.is_empty() && raw.len() <= 32 && raw.bytes().all(|b| b.is_ascii_digit())
 }
 
-/// Everything the person granted in Meta's dialog. A product the app lacks yields no assets, not a failure.
-async fn inventory(state: &AppState, token: &str) -> (Vec<Asset>, HashMap<String, String>) {
-    let (mut assets, mut page_tokens) = (Vec::new(), HashMap::new());
+/// What Meta shared at sign-in: accounts, Page tokens, granted permissions, and why any lookup failed.
+pub struct Grant {
+    assets: Vec<Asset>,
+    page_tokens: HashMap<String, String>,
+    permissions: Vec<String>,
+    problems: Vec<String>,
+}
+
+/// Everything the person granted in Meta's dialog. A lookup Meta refuses yields no assets and a
+/// problem line saying why, so a missing Page or number is explained instead of silently absent.
+async fn discover(state: &AppState, token: &str) -> Grant {
+    let (mut assets, mut page_tokens, mut problems) = (Vec::new(), HashMap::new(), Vec::new());
+    let mut take = |what: &str, r: ApiResult<Vec<Value>>| r.unwrap_or_else(|e| {
+        problems.push(format!("{what}: {}", e.1.trim_start_matches("Meta: ")));
+        Vec::new()
+    });
+    let (ad_accounts, pages, businesses, permissions) = tokio::join!(
+        async { rows(state, "me/adaccounts", "id,name", token).await },
+        async { rows(state, "me/accounts", "id,name,access_token,instagram_business_account{id,username}", token).await },
+        async { rows(state, "me/businesses", "id", token).await },
+        async { rows(state, "me/permissions", "permission,status", token).await },
+    );
+    let (ad_accounts, pages, businesses, permissions) =
+        (take("Ad accounts", ad_accounts), take("Facebook Pages", pages), take("Businesses", businesses), take("Permissions", permissions));
+    let mut wabas = Vec::new();
+    for business in &businesses {
+        let Some(b) = business["id"].as_str().filter(|b| numeric(b)) else { continue };
+        wabas.extend(take("WhatsApp accounts", rows(state, &format!("{b}/owned_whatsapp_business_accounts"), "id,name", token).await));
+    }
+    let mut numbers = Vec::new();
+    for waba in &wabas {
+        let Some(w) = waba["id"].as_str().filter(|w| numeric(w)) else { continue };
+        numbers.extend(take("WhatsApp numbers", rows(state, &format!("{w}/phone_numbers"), "id,verified_name,display_phone_number", token).await));
+    }
     let mut add = |kind: &str, id: &Value, name: &Value, fallback: &str, token: Option<&str>| {
         let id = id.as_str().map(str::to_string).unwrap_or_else(|| id.to_string());
         if !numeric(&id) {
@@ -103,15 +134,10 @@ async fn inventory(state: &AppState, token: &str) -> (Vec<Asset>, HashMap<String
         let name: String = name.as_str().unwrap_or(fallback).chars().take(200).collect();
         assets.push(Asset { key, kind: kind.into(), id, name });
     };
-    let (ad_accounts, pages, businesses) = tokio::join!(
-        async { rows(state, "me/adaccounts", "id,name", token).await },
-        async { rows(state, "me/accounts", "id,name,access_token,instagram_business_account{id,username}", token).await },
-        async { rows(state, "me/businesses", "id", token).await },
-    );
-    for row in ad_accounts.unwrap_or_default() {
+    for row in &ad_accounts {
         add("ads", &row["id"], &row["name"], "Ad account", None);
     }
-    for row in pages.unwrap_or_default() {
+    for row in &pages {
         let page_token = row["access_token"].as_str();
         add("messenger", &row["id"], &row["name"], "Facebook Page", page_token);
         let ig = &row["instagram_business_account"];
@@ -119,24 +145,43 @@ async fn inventory(state: &AppState, token: &str) -> (Vec<Asset>, HashMap<String
             add("instagram", &ig["id"], &ig["username"], "Instagram", page_token);
         }
     }
-    for business in businesses.unwrap_or_default() {
-        let Some(b) = business["id"].as_str().filter(|b| numeric(b)) else { continue };
-        for waba in rows(state, &format!("{b}/owned_whatsapp_business_accounts"), "id,name", token).await.unwrap_or_default() {
-            let Some(w) = waba["id"].as_str().filter(|w| numeric(w)) else { continue };
-            for number in rows(state, &format!("{w}/phone_numbers"), "id,verified_name,display_phone_number", token).await.unwrap_or_default() {
-                add("whatsapp", &number["id"], &number["verified_name"], "WhatsApp number", None);
-            }
-        }
+    for number in &numbers {
+        add("whatsapp", &number["id"], &number["verified_name"], "WhatsApp number", None);
     }
-    (assets, page_tokens)
+    let mut permissions: Vec<String> = permissions.iter().filter(|r| r["status"] == "granted").filter_map(|r| r["permission"].as_str().map(str::to_string)).collect();
+    permissions.sort();
+    let count = |k: &str| assets.iter().filter(|a| a.kind == k).count();
+    tracing::info!(
+        "Meta shared: ads={} pages={} instagram={} whatsapp={} (businesses={} wabas={}) permissions={} problems={:?}",
+        count("ads"), count("messenger"), count("instagram"), count("whatsapp"), businesses.len(), wabas.len(), permissions.len(), problems
+    );
+    Grant { assets, page_tokens, permissions, problems }
 }
 
-/// Permissions the person actually granted; Meta lets them untick some in the dialog.
-async fn granted(state: &AppState, token: &str) -> Vec<String> {
-    let rows = rows(state, "me/permissions", "permission,status", token).await.unwrap_or_default();
-    let mut out: Vec<String> = rows.iter().filter(|r| r["status"] == "granted").filter_map(|r| r["permission"].as_str().map(str::to_string)).collect();
-    out.sort();
-    out
+fn to_json<T: Serialize + ?Sized>(v: &T) -> String {
+    serde_json::to_string(v).expect("json")
+}
+
+/// Encrypt the tokens and save what Meta shared. Accounts new to this person start switched on;
+/// earlier on/off choices for accounts still shared are kept. Returns our user id.
+fn store(state: &AppState, meta_user: &str, name: &str, token: String, expires: i64, g: Grant) -> ApiResult<String> {
+    let fernet = state.fernet.as_ref().ok_or_else(|| AppError::new(503, "Token encryption is not configured."))?;
+    let blob = fernet.encrypt(&serde_json::to_vec(&Tokens { user: token, assets: g.page_tokens }).expect("serializable"));
+    let db = lock(&state.db);
+    let existing: Option<(String, String, String)> = db
+        .query_row("SELECT id,assets_json,selected_json FROM users WHERE meta_user_id=?1", [meta_user], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+        .optional()?;
+    let (id, known, selected): (String, Vec<Asset>, Vec<String>) = match existing {
+        Some((id, a, s)) => (id, serde_json::from_str(&a).unwrap_or_default(), serde_json::from_str(&s).unwrap_or_default()),
+        None => (random_token(), Vec::new(), Vec::new()),
+    };
+    let selected: Vec<&String> = g.assets.iter().map(|a| &a.key).filter(|k| selected.contains(k) || !known.iter().any(|a| &a.key == *k)).collect();
+    db.execute(
+        "INSERT INTO users (id,meta_user_id,name,token_blob,token_expires,assets_json,selected_json,permissions_json,problems_json) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)
+         ON CONFLICT(meta_user_id) DO UPDATE SET name=?3,token_blob=?4,token_expires=?5,assets_json=?6,selected_json=?7,permissions_json=?8,problems_json=?9",
+        params![id, meta_user, name, blob, expires, to_json(&g.assets), to_json(&selected), to_json(&g.permissions), to_json(&g.problems)],
+    )?;
+    Ok(id)
 }
 
 /// Exchange the login code, store encrypted tokens, and return our user id.
@@ -152,27 +197,21 @@ pub async fn sign_in(state: &AppState, code: &str) -> ApiResult<String> {
     let me = get(state, "me", &[("fields", "id,name".into())], &token).await?;
     let meta_user = me["id"].as_str().filter(|id| numeric(id)).ok_or_else(|| AppError::new(403, "Meta returned no user."))?.to_string();
     let name = me["name"].as_str().unwrap_or("You").to_string();
-    let (inventory, permissions) = tokio::join!(inventory(state, &token), granted(state, &token));
-    let (assets, page_tokens) = inventory;
-    let fernet = state.fernet.as_ref().ok_or_else(|| AppError::new(503, "Token encryption is not configured."))?;
-    let blob = fernet.encrypt(&serde_json::to_vec(&Tokens { user: token, assets: page_tokens }).expect("serializable"));
+    let grant = discover(state, &token).await;
+    store(state, &meta_user, &name, token, expires, grant)
+}
 
-    let db = lock(&state.db);
-    let existing: Option<(String, String, String)> = db
-        .query_row("SELECT id,assets_json,selected_json FROM users WHERE meta_user_id=?1", [&meta_user], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
-        .optional()?;
-    // Accounts chosen in Meta's dialog start switched on; earlier choices for accounts still granted are kept.
-    let (id, known, selected): (String, Vec<Asset>, Vec<String>) = match existing {
-        Some((id, a, s)) => (id, serde_json::from_str(&a).unwrap_or_default(), serde_json::from_str(&s).unwrap_or_default()),
-        None => (random_token(), Vec::new(), Vec::new()),
-    };
-    let selected: Vec<&String> = assets.iter().map(|a| &a.key).filter(|k| selected.contains(k) || !known.iter().any(|a| &a.key == *k)).collect();
-    db.execute(
-        "INSERT INTO users (id,meta_user_id,name,token_blob,token_expires,assets_json,selected_json,permissions_json) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)
-         ON CONFLICT(meta_user_id) DO UPDATE SET name=?3,token_blob=?4,token_expires=?5,assets_json=?6,selected_json=?7,permissions_json=?8",
-        params![id, meta_user, name, blob, expires, serde_json::to_string(&assets).expect("json"), serde_json::to_string(&selected).expect("json"), serde_json::to_string(&permissions).expect("json")],
-    )?;
-    Ok(id)
+/// Read again what the person's current Meta access covers, without the sign-in dialog.
+pub async fn refresh(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Value>> {
+    let u = user(&s, &headers)?;
+    let token = tokens(&s, &u)?.user;
+    let (meta_user, expires): (String, i64) = lock(&s.db).query_row("SELECT meta_user_id,token_expires FROM users WHERE id=?1", [&u.id], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    let grant = discover(&s, &token).await;
+    store(&s, &meta_user, &u.name, token, expires, grant)?;
+    let prefix = format!("{}:", u.id);
+    lock(&s.cache).retain(|k, _| !k.starts_with(&prefix));
+    let u = user(&s, &headers)?;
+    Ok(Json(json!({ "assets": u.assets, "selected": u.selected, "permissions": u.permissions, "problems": u.problems })))
 }
 
 /// Cache Meta reads per user so screens load from memory, not from a Graph round trip.
