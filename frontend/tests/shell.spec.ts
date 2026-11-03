@@ -45,6 +45,13 @@ test("returning from Meta opens Connections and saves account switches", async (
   await instagram.click();
   await expect(instagram).toBeChecked();
   expect(saved).toEqual({ selected: ["ads:act_1", "instagram:1"] });
+
+  await page.getByRole("link", { name: "Today" }).click();
+  await expect(page.getByRole("heading", { name: "Today" })).toBeVisible();
+  await expect(page.getByText("You're connected")).toBeHidden();
+  await page.getByRole("link", { name: "Connections" }).click();
+  await expect(page.getByRole("heading", { name: "Connections" })).toBeVisible();
+  await expect(page.getByText("You're connected")).toBeHidden();
 });
 
 test("a refused Meta sign-in says nothing was shared", async ({ page }) => {
@@ -71,7 +78,25 @@ const inbox = { items: [
   { id: "w1", kind: "whatsapp", asset_id: "1", sender: "15550001", sender_name: "Ana", text: "Are you open?", created: 1, replied: false },
   { id: "c1", kind: "instagram_comment", asset_id: "1", sender: "ben", sender_name: null, text: "Nice post", created: 1, replied: true },
   { id: "d1", kind: "instagram", asset_id: "1", sender: "Cy", sender_name: null, text: "Old question", created: 1, replied: false },
+  { id: "w2", kind: "whatsapp", asset_id: "1", sender: "918081388336", sender_name: "", text: "Price?", created: 1, replied: false },
 ] };
+
+test("Today lists the three newest messages with who, where, when and whether they were answered", async ({ page }) => {
+  await page.route("**/api/me", route => route.fulfill(json({ ...signedIn, selected: ["instagram:1"] })));
+  await page.route("**/api/instagram", route => route.fulfill(json({ accounts: [] })));
+  const now = Math.floor(Date.now() / 1000);
+  await page.route("**/api/inbox", route => route.fulfill(json({ items: [
+    { ...inbox.items[3], created: now - 120 }, inbox.items[0], inbox.items[1], inbox.items[2],
+  ] })));
+  await page.goto("/#today");
+  await expect(page.getByText("+91 80813 88336")).toBeVisible();
+  await expect(page.getByText("2 minutes ago")).toBeVisible();
+  await expect(page.getByRole("img", { name: "WhatsApp" })).toHaveCount(2);
+  await expect(page.getByRole("img", { name: "Instagram" })).toHaveCount(2);
+  await expect(page.getByRole("img", { name: "Messages" })).toBeVisible();
+  await expect(page.getByText("Replied")).toBeVisible();
+  await expect(page.getByText("Old question")).toBeHidden();
+});
 
 test("Inbox filters by app, sends a reply and shows the server's refusal", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json(signedIn)));
@@ -88,6 +113,7 @@ test("Inbox filters by app, sends a reply and shows the server's refusal", async
   await expect(page.getByText("Ana", { exact: true })).toBeVisible();
   await expect(page.getByText("15550001")).toBeHidden();
   await expect(page.getByText("ben", { exact: true })).toBeVisible();
+  await expect(page.getByText("+91 80813 88336")).toBeVisible();
 
   await page.getByText("Are you open?").click();
   await page.getByLabel("Reply to Ana").fill("Yes, until 7.");
