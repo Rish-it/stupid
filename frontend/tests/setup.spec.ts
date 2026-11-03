@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test";
 
 const json = (body: unknown) => ({ contentType: "application/json", body: JSON.stringify(body) });
+// The preview server proxies /api to a local backend; keep the live stream out of tests that don't mock it.
+test.beforeEach(({ page }) => page.route("**/api/stream", route => route.fulfill({ status: 404, ...json({ message: "Not found." }) })));
 const ads = { key: "ads:act_1", kind: "ads", id: "act_1", name: "Test ads" };
 const instagram = { key: "instagram:1", kind: "instagram", id: "1", name: "Test IG" };
 const whatsapp = { key: "whatsapp:1", kind: "whatsapp", id: "1", name: "Shop number" };

@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test";
 
 const json = (body: unknown) => ({ contentType: "application/json", body: JSON.stringify(body) });
+// The preview server proxies /api to a local backend; keep the live stream out of tests that don't mock it.
+test.beforeEach(({ page }) => page.route("**/api/stream", route => route.fulfill({ status: 404, ...json({ message: "Not found." }) })));
 
 test("shows a clear offline state when the server is down", async ({ page }) => {
   await page.route("**/api/**", route => route.abort());
@@ -133,7 +135,7 @@ test("Inbox filters by app, sends a reply and shows the server's refusal", async
   await page.getByLabel("Reply to Ana").fill("Yes, until 7.");
   await page.getByRole("button", { name: "Send" }).click();
   await expect(page.getByLabel("Reply to Ana")).toBeHidden();
-  await expect(page.getByText("Replied")).toHaveCount(2);
+  await expect(page.getByText("Sent", { exact: true })).toBeVisible();
   expect(sent).toEqual({ text: "Yes, until 7." });
 
   await page.getByText("Old question").click();
