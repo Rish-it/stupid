@@ -28,7 +28,6 @@ const runs = new Map<AgentId, AgentRun>();
 export async function answer(method: string, path: string, body: unknown): Promise<unknown> {
   await new Promise(done => setTimeout(done, 300));
   const route = `${method} ${path}`;
-  if (route === "GET /api/health") return { status: "ok", meta_configured: true, ai_configured: true };
   if (route === "GET /api/me") return me;
   if (route === "POST /api/sign-out") return (me = { signed_in: false });
   if (route === "PUT /api/connections" && me.signed_in) {

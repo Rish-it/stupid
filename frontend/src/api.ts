@@ -4,7 +4,6 @@ export type AssetKind = "ads" | "instagram" | "whatsapp" | "messenger";
 /** Something Meta still needs from the person. `blocking` means the account can't work yet; otherwise it works with limits. */
 export type Issue = { blocking: boolean; text: string; fix: string; link?: string | null };
 export type Asset = { key: string; kind: AssetKind; id: string; name: string; issues?: Issue[] };
-export type Health = { status: "ok" | "degraded"; meta_configured: boolean; ai_configured: boolean };
 /** `instagram_oauth_start` appears once the server offers Instagram sign-in for creators without a Facebook Page. */
 export type Me = { signed_in: false; instagram_oauth_start?: string } | { signed_in: true; name: string; assets: Asset[]; selected: string[]; permissions: string[]; problems?: string[] };
 export type Connections = { assets: Asset[]; selected: string[] };
@@ -116,7 +115,6 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
 export const oauthStartUrl = "/api/v1/meta/oauth/start";
 
 export const api = {
-  health: () => call<Health>("GET", "/api/health"),
   me: () => call<Me>("GET", "/api/me"),
   signOut: () => call<{ signed_in: false }>("POST", "/api/sign-out"),
   select: (selected: string[]) => call<Connections>("PUT", "/api/connections", { selected }),
