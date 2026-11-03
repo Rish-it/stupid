@@ -51,6 +51,8 @@ export default function App() {
   const page = usePage();
   const user = me.data?.signed_in ? me.data : undefined;
   const [notice, setNotice] = useState(returned);
+  // "You're connected" belongs to the page Meta sends people back to; leaving it retires the notice for good.
+  if (notice === "connected" && page !== "connections") setNotice(null);
   const loading = <Center minHeight={240}><Spinner size="lg" aria-label="Loading" /></Center>;
   const signedIn = Boolean(user);
   useEffect(() => { document.title = signedIn ? `${pages[page]} · Secnd` : "Secnd"; }, [signedIn, page]);
