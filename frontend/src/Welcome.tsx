@@ -83,6 +83,11 @@ export default function Welcome({ instagram, onConnect, onPassed }: { instagram?
         <VStack ref={signIn} gap={2} hAlign="center" maxWidth={408} width="100%" paddingBlockStart={2}>
           <p className="hero-ask">Sign in with the Facebook account that runs your business.</p>
           {buttons}
+          <details className="before-start">
+            <summary>Before you start</summary>
+            <Text as="p" type="supporting" size="sm">Use the Facebook profile that manages your business Page. For Instagram, have a public Professional account (Creator or Business) linked to that Page. For WhatsApp, use a Business Platform account and registered number, or Meta's test number. Ads needs an ad account you can view. You can connect one app now and add the rest later.</Text>
+            <Text as="p" type="supporting" size="sm">A business portfolio groups these accounts. In Meta Business Suite, the dropdown below Home → Create a business portfolio lets you make one. Business verification is needed only when Meta asks for it; it is separate from the paid Meta Verified badge. Stupid walks you through each app after sign-in.</Text>
+          </details>
           <Text as="p" type="supporting" size="sm" justify="center">Meta will ask which Page, Instagram account and WhatsApp number to share. Pick the ones you use for your business.</Text>
         </VStack>
         <div className="hero-more"><Button label="Learn more" variant="secondary" size="lg" elevation="low" endContent={<Icon icon="arrowDown" size="sm" />} onClick={more} /></div>
