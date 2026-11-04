@@ -866,3 +866,55 @@ test("the three app covers fit a laptop screen without scrolling, and stack on a
   await page.keyboard.press("Escape");
   await expect(page.getByRole("button", { name: "Instagram" })).toBeFocused();
 });
+
+test("Inbox shows one card per person, with their recent messages on hover, focus or the corner button", async ({ page }) => {
+  await page.route("**/api/me", route => route.fulfill(json(signedIn)));
+  await page.route("**/api/inbox", route => route.fulfill(json({ items: [
+    { id: "a2", kind: "whatsapp", asset_id: "1", sender: "15550001", sender_name: "Ana", text: "Are you open?", created: now() - 60, replied: false },
+    { id: "b1", kind: "whatsapp", asset_id: "1", sender: "15550002", sender_name: "Ben", text: "Do you deliver?", created: now() - 120, replied: false },
+    { id: "a1", kind: "whatsapp", asset_id: "1", sender: "15550001", sender_name: "Ana", text: "Hi, it's Ana", created: now() - 3600, replied: true },
+  ] })));
+  await page.goto("/#inbox");
+  await expect(page.locator(".person-card")).toHaveCount(2);
+  await expect(page.locator(".person-card").first()).toContainText("2 messages");
+  // Hover shows Ana's thread, oldest first; Escape closes it.
+  await page.getByRole("button", { name: /Are you open\?/ }).hover();
+  const ana = page.getByRole("region", { name: "Recent messages from Ana" });
+  await expect(ana.getByRole("listitem")).toHaveText([/Hi, it's Ana.*you replied/, /Are you open\?/]);
+  await page.keyboard.press("Escape");
+  await expect(ana).toHaveCount(0);
+  // Keyboard: focus opens it, the corner's button toggles it; one message says there's nothing earlier.
+  await page.mouse.move(0, 0);
+  await page.getByRole("button", { name: /Do you deliver\?/ }).focus();
+  const ben = page.getByRole("region", { name: "Recent messages from Ben" });
+  await expect(ben).toContainText("No earlier messages from Ben.");
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "Recent messages from Ben" })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(ben).toHaveCount(0);
+  await page.keyboard.press("Enter");
+  await expect(ben).toBeVisible();
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("dialog", { name: "Ben" })).toBeVisible();
+});
+
+test("a new message or draft from the live stream shows a toast, and the new card arrives", async ({ page }) => {
+  let fresh = false;
+  const ana = { id: "w1", kind: "whatsapp", asset_id: "1", sender: "15550001", sender_name: "Ana", text: "Are you open?", created: now() - 60, replied: false };
+  const zoe = { id: "w9", kind: "whatsapp", asset_id: "1", sender: "15550009", sender_name: "Zoe", text: "Is the cake ready?", created: now(), replied: false };
+  await page.route("**/api/me", route => route.fulfill(json(signedIn)));
+  await page.route("**/api/inbox", route => route.fulfill(json({ items: fresh ? [zoe, ana] : [ana] })));
+  await page.route("**/api/agent", route => route.fulfill(json({ ...agentHome(), needs: fresh ? [{ type: "draft", id: 1, event_id: "w9", text: "Yes, at 5.", source: "agent", created: now(), message: { kind: "whatsapp", sender: "15550009", sender_name: "Zoe", text: "Is the cake ready?" } }] : [] })));
+  await page.route("**/api/stream", route => route.fulfill({ contentType: "text/event-stream",
+    body: `retry: 300\nevent: update\ndata: {"inbox":"${fresh ? 2 : 1}","replies":"1","runs":"1","agent":"${fresh ? 2 : 1}","connections":"1"}\n\n` }));
+  await page.goto("/#inbox");
+  await expect(page.locator(".person-card")).toHaveCount(1);
+  fresh = true;
+  // The stream reconnects every 300 ms here; the next connection carries the new counts.
+  const toasts = page.getByRole("region", { name: "Notifications" });
+  await expect(toasts.getByText("New WhatsApp message from Zoe")).toHaveCount(1, { timeout: 15000 });
+  await expect(toasts.getByText("Draft ready for Zoe")).toHaveCount(1);
+  await expect(page.locator(".person-card")).toHaveCount(2);
+  await expect(page.locator(".person-card").first()).toHaveCSS("animation-name", "arrive");
+});

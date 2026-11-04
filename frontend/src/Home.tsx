@@ -9,6 +9,7 @@ import { Token } from "@astryxdesign/core/Token";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
 import { ago, api, drafts, jobNames, sample, sampleSend, senderName, useLoad } from "./api";
 import type { AgentHome, AgentId, AgentResult, AgentRun, Connections, Need, Persona } from "./api";
+import { Check } from "./Icons";
 import Match from "./Match";
 import { Result } from "./Agents";
 import { Load } from "./Load";
@@ -75,7 +76,7 @@ function Panel({ id, title, count, children }: { id: string; title: string; coun
       <VStack gap={4}>
         <HStack gap={2} align="center">
           <Heading level={2} id={id} tabIndex={-1} className="panel-title">{title}</Heading>
-          {count ? <span className="count">{count}</span> : null}
+          {count ? <span key={count} className="count">{count}</span> : null}
         </HStack>
         {children}
       </VStack>
@@ -153,7 +154,9 @@ function Draft({ need, onDone }: { need: Extract<Need, { type: "draft" }>; onDon
   const [error, setError] = useState("");
   const edit = () => { drafts.set(need.event_id, { text: need.text, source: need.source === "muse" ? "muse" : "agent" }); location.hash = "#inbox"; };
   // The tap on Send is the person's approval; nothing goes out before it.
-  const send = () => api.reply(need.event_id, need.text).then(onDone, (cause: unknown) => setError(message(cause)));
+  const [sent, setSent] = useState(false);
+  // A moment for the check to draw before the row leaves.
+  const send = () => api.reply(need.event_id, need.text).then(() => { setSent(true); setTimeout(onDone, 450); }, (cause: unknown) => setError(message(cause)));
   return (
     <VStack gap={3}>
       <Who message={need.message} label={need.source === "muse" ? "From Muse" : "Drafted by AI"} when={need.created} />
@@ -165,7 +168,8 @@ function Draft({ need, onDone }: { need: Extract<Need, { type: "draft" }>; onDon
         {need.used && <Text as="p" type="supporting" size="sm">Used what you told me on {toldOn(need.used.told)}: {need.used.answer}</Text>}
       </VStack>}
       <HStack gap={2}>
-        <Button variant="primary" size="sm" label={sample ? sampleSend : "Send"} isDisabled={sample} clickAction={send} />
+        {sent ? <span role="status" className="sent"><Check /> Sent</span>
+          : <Button variant="primary" size="sm" label={sample ? sampleSend : "Send"} isDisabled={sample} clickAction={send} />}
         <Button variant="ghost" size="sm" label="Edit" onClick={edit} />
       </HStack>
       <div aria-live="polite">{error && <Text as="p" size="sm">{error}</Text>}</div>
