@@ -1,6 +1,6 @@
 // Sample data for ?fixtures=1, loaded only then. Every name says "Sample"; nothing here is real.
 import { ApiError, appStatus, factsPrompt } from "./api";
-import type { Account, AgentHome, AgentId, AgentRun, Asset, AssetKind, InboxItem, McpKey, Me, Persona, SetupNext, SetupStep } from "./api";
+import type { Account, AgentHome, AgentId, AgentRun, Asset, AssetKind, InboxItem, McpKey, Me, Persona, SetupNext, SetupStep, Style } from "./api";
 
 const now = () => Math.floor(Date.now() / 1000);
 const assets: Asset[] = [
@@ -70,6 +70,7 @@ const results: Record<AgentId, AgentRun["result"]> = {
 };
 const runs = new Map<AgentId, AgentRun>();
 const customer = { kind: "whatsapp" as const, sender: "15550000001", sender_name: "Sample customer" };
+let style: Style = { style: { note: "Sample: short and warm, starts with Hi, one emoji at most.", length: "short", greeting: "Hi", emoji: "one at most", language: "English", sign_off: "none" }, built: now() - 3600, from: 4, sent: 4, message: null };
 let home: AgentHome = {
   proactive: true, rules: "", watching: ["whatsapp", "instagram"], last_checked: now() - 120,
   facts: [{ id: 1, question: "Sample question: do you deliver on Sundays?", answer: "Sample answer: yes, before noon.", created: now() - 86400 }],
@@ -223,6 +224,8 @@ export async function answer(method: string, path: string, body: unknown): Promi
   if (route === "DELETE /api/mcp/key") { mcp = { has_key: false, created: null, last_used: null }; return { has_key: false }; }
   if (route === "GET /api/agent") return home;
   if (route === "PUT /api/agent/settings") { home = { ...home, ...(body as { proactive: boolean; rules: string }) }; return { proactive: home.proactive, rules: home.rules }; }
+  if (route === "GET /api/agent/style") return style;
+  if (route === "DELETE /api/agent/style") { style = { style: null, built: null, from: 0, sent: style.sent, message: "Your agent learns how you write once a day. Check back tomorrow." }; return { style: null, message: "Forgotten." }; }
   const fact = /^DELETE \/api\/agent\/facts\/(\d+)$/.exec(route);
   if (fact) { home = { ...home, facts: home.facts.filter(f => f.id !== Number(fact[1])) }; return { facts: home.facts }; }
   if (/^POST \/api\/agent\/tickets\/\d+\/answer$/.test(route)) { home = { ...home, needs: home.needs.filter(n => n.type !== "question") }; return { state: "open" }; }

@@ -126,9 +126,35 @@ function AgentRules() {
     <Row id="agent-heading" title="Your agent" description="When it drafts, and the rules it follows.">
       <Load state={home}>{h => <VStack gap={6}>
         <AgentForm proactive={h.proactive} rules={h.rules} onSaved={saved => home.setData(d => d && { ...d, ...saved })} />
+        <YourStyle />
         <Facts facts={h.facts} onChange={facts => home.setData(d => d && { ...d, facts })} />
       </VStack>}</Load>
     </Row>
+  );
+}
+
+/** How the owner writes, learned from replies they sent, or why there's nothing yet. */
+function YourStyle() {
+  const state = useLoad("style", api.style);
+  const [error, setError] = useState("");
+  return (
+    <VStack gap={3}>
+      <VStack gap={1}>
+        <Heading level={4}>How you write</Heading>
+        <Text as="p" type="supporting" size="sm">Learned from replies you sent, at most once a day. Drafts written this way say so.</Text>
+      </VStack>
+      <Load state={state}>{s => s.style ? (
+        <HStack gap={3} align="start" hAlign="between">
+          <VStack gap={1}>
+            <Text as="p">{s.style.note}</Text>
+            <Text as="p" type="supporting" size="sm">From {s.from} sent {s.from === 1 ? "reply" : "replies"}{s.built && <>, <Timestamp value={s.built} format="relative" /></>}</Text>
+          </VStack>
+          <Button size="sm" variant="ghost" label="Forget" aria-label="Forget how you write"
+            clickAction={() => api.forgetStyle().then(() => { setError(""); return state.reload(); }, (cause: unknown) => setError(message(cause)))} />
+        </HStack>
+      ) : <Text as="p" type="supporting">{s.message}</Text>}</Load>
+      <div aria-live="polite">{error && <Text as="p">{error}</Text>}</div>
+    </VStack>
   );
 }
 

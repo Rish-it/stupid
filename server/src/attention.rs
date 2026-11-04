@@ -18,7 +18,7 @@ pub async fn home(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Js
     let (proactive, rules): (bool, String) = db.query_row("SELECT agent_proactive,agent_rules FROM users WHERE id=?1", [&u.id], |r| Ok((r.get(0)?, r.get(1)?)))?;
     // The newest draft per message, while the message can still be answered and nobody has.
     let mut stmt = db.prepare(
-        "SELECT d.id,d.event_id,d.text,d.source,d.created,e.kind,e.asset_id,e.sender,e.sender_name,e.text,l.answer,l.created FROM drafts d JOIN events e ON e.id=d.event_id
+        "SELECT d.id,d.event_id,d.text,d.source,d.created,e.kind,e.asset_id,e.sender,e.sender_name,e.text,l.answer,l.created,d.styled FROM drafts d JOIN events e ON e.id=d.event_id
          LEFT JOIN learned l ON l.id=d.learned_id AND l.user_id=d.user_id
          WHERE d.id IN (SELECT MAX(id) FROM drafts WHERE user_id=?1 GROUP BY event_id)
            AND NOT EXISTS (SELECT 1 FROM replies r WHERE r.event_id=d.event_id AND r.error IS NULL)
@@ -27,6 +27,7 @@ pub async fn home(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Js
     let drafts = stmt.query_map(params![u.id, now() - 86_400], |r| Ok((r.get::<_, String>(6)?, json!({ "type": "draft", "id": r.get::<_, i64>(0)?,
         "event_id": r.get::<_, i64>(1)?, "text": r.get::<_, String>(2)?, "source": r.get::<_, String>(3)?, "created": r.get::<_, i64>(4)?,
         "message": { "kind": r.get::<_, String>(5)?, "sender": r.get::<_, String>(7)?, "sender_name": r.get::<_, Option<String>>(8)?, "text": r.get::<_, String>(9)? },
+        "styled": r.get::<_, bool>(12)?,
         "used": r.get::<_, Option<String>>(10)?.map(|a| -> rusqlite::Result<Value> { Ok(json!({ "answer": a, "told": r.get::<_, i64>(11)? })) }).transpose()? }))))?
         .collect::<Result<Vec<_>, _>>()?
         .into_iter().filter(|(asset, _)| ids.contains(asset)).map(|(_, v)| v);

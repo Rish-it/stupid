@@ -1,7 +1,7 @@
 //! The agent's executor: Muse Spark Open works one ticket with the tool registry, in a bounded loop.
 //! It stops at MAX_STEPS model calls or TICKET_CAP_USD, whichever comes first, and always ends with an
 //! honest report. Its tools only read and prepare; nothing here sends.
-use crate::{agents, attention, control, lock, now, tools, user_by_id, ApiResult, AppState, User};
+use crate::{agents, attention, control, lock, style, now, tools, user_by_id, ApiResult, AppState, User};
 use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Value};
 
@@ -141,7 +141,12 @@ pub async fn work(s: &AppState, ticket: i64) -> ApiResult<()> {
         input["owner_note"] = json!(note);
     }
     let u = user_by_id(s, &user_id)?;
-    let system = format!("{}{REPLY_JOB}{}", agents::owner_line(u.persona.as_deref()), control::note_line(&note));
+    let style = style::current(s, &u).await?;
+    let mut system = format!("{}{REPLY_JOB}{}", agents::owner_line(u.persona.as_deref()), control::note_line(&note));
+    if let Some(style) = &style {
+        input["owner_style"] = style.clone();
+        system.push_str(style::STYLE_LINE);
+    }
     let mut brain = Muse { s, u, ticket, ai: agents::ai(s, &user_id)?, tools: tools::specs() };
     let messages = vec![
         json!({ "role": "system", "content": system }),
@@ -150,6 +155,9 @@ pub async fn work(s: &AppState, ticket: i64) -> ApiResult<()> {
     let (end, done) = run_loop(&mut brain, messages, ticket).await;
     let (kind, text, open) = report_for(&end, &done);
     let db = lock(&s.db);
+    if style.is_some() {
+        style::mark(&db, ticket)?;
+    }
     db.execute("INSERT INTO reports (ticket_id,kind,text,created) VALUES (?1,?2,?3,?4)", params![ticket, kind, text, now()])?;
     if !open {
         db.execute("UPDATE tickets SET state='ended',ended=?2 WHERE id=?1", params![ticket, now()])?;
