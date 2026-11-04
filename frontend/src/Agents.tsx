@@ -53,6 +53,37 @@ function found(result: AgentResult) {
   return result.summary;
 }
 
+// The page shows three apps, each an album cover; its agents open from the cover.
+type AppId = "whatsapp" | "instagram" | "meta";
+const apps: { id: AppId; name: string; icon: AssetKind; does: string; agents: AgentId[]; kinds: AssetKind[]; stops: string[] }[] = [
+  { id: "whatsapp", name: "WhatsApp", icon: "whatsapp", does: "Drafts replies to your customers' messages.", agents: ["replies"], kinds: ["whatsapp"], stops: ["#03261F", "#075E54", "#128C7E", "#25D366"] },
+  { id: "instagram", name: "Instagram", icon: "instagram", does: "Directs Reels, drafts posts and finds brand deals and buyers.", agents: ["reels", "ideas", "leads"], kinds: ["instagram"], stops: ["#F9CE34", "#EE2A7B", "#C13584", "#6228D7", "#2A1260"] },
+  { id: "meta", name: "Meta", icon: "ads", does: "Watches your ads, Facebook Page and Messenger.", agents: ["ads"], kinds: ["ads", "messenger"], stops: ["#020B24", "#0A2A6B", "#0064E0", "#5AA9FF"] },
+];
+// Ordered (Bayer 8x8) dither of a diagonal gradient, drawn once per app and scaled up without smoothing.
+const bayer = [0, 32, 8, 40, 2, 34, 10, 42, 48, 16, 56, 24, 50, 18, 58, 26, 12, 44, 4, 36, 14, 46, 6, 38, 60, 28, 52, 20, 62, 30, 54, 22,
+  3, 35, 11, 43, 1, 33, 9, 41, 51, 19, 59, 27, 49, 17, 57, 25, 15, 47, 7, 39, 13, 45, 5, 37, 63, 31, 55, 23, 61, 29, 53, 21];
+const covers: Partial<Record<AppId, string>> = {};
+function dither(id: AppId, stops: string[]) {
+  if (covers[id] !== undefined) return covers[id];
+  const n = 72, canvas = document.createElement("canvas");
+  canvas.width = canvas.height = n;
+  const g = canvas.getContext("2d");
+  if (!g) return covers[id] = "";
+  const rgb = stops.map(s => [1, 3, 5].map(i => parseInt(s.slice(i, i + 2), 16)));
+  const img = g.createImageData(n, n);
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    // Bottom-left to top-right, with a soft glow in the middle where the mark sits.
+    const glow = 1 - Math.hypot(x - n / 2, y - n / 2) / (n * .7);
+    const t = Math.min(1, Math.max(0, .8 * (x + n - 1 - y) / (2 * n - 2) + .2 * glow));
+    const p = t * (stops.length - 1), i = Math.min(Math.floor(p), stops.length - 2);
+    const [r, gr, b] = rgb[p - i > (bayer[(y % 8) * 8 + x % 8] + .5) / 64 ? i + 1 : i];
+    img.data.set([r, gr, b, 255], (y * n + x) * 4);
+  }
+  g.putImageData(img, 0, 0);
+  return covers[id] = `url(${canvas.toDataURL()})`;
+}
+
 export default function Agents({ state }: { state: Connections }) {
   const list = useLoad("agents", api.agents);
   const running = list.data?.runs.some(r => r.status === "running");
@@ -63,43 +94,66 @@ export default function Agents({ state }: { state: Connections }) {
     const timer = setInterval(() => void reload(), 3000);
     return () => clearInterval(timer);
   }, [running, reload]);
+  const [app, setApp] = useState<AppId>();
   const [open, setOpen] = useState<AgentId>();
+  const [work, setWork] = useState(false);
   // A run started here opens its results once it finishes.
   const [waiting, setWaiting] = useState<AgentId>();
   const runs = list.data?.runs;
   const shownId = open ?? (waiting && runs?.find(r => r.agent === waiting)?.status === "done" ? waiting : undefined);
-  const close = () => { setOpen(undefined); setWaiting(undefined); };
+  const back = () => { setOpen(undefined); setWaiting(undefined); };
+  const close = () => { back(); setApp(undefined); };
 
   const on = (kinds: AssetKind[]) => state.assets.some(a => kinds.includes(a.kind) && state.selected.includes(a.key));
   const shown = agents.find(a => a.id === shownId);
   const shownRun = runs?.find(r => r.agent === shownId);
+  const result = shown && shownRun?.result ? shownRun.result : undefined;
+  const current = apps.find(a => a.id === app) ?? (result ? apps.find(a => a.agents.includes(shownId!)) : undefined);
   return (
-    <Page title="Agents" description="Each one prepares work in the background. Nothing is sent, posted or changed until you tap.">
-      <Load state={list}>{data => (
-        <VStack gap={4}>
-          {!data.ai_ready && <Banner status="info" title="Agents need AI access" description="Add an AI key in Settings to start running agents." endContent={<Button size="sm" label="Open Settings" href="#settings" />} />}
-          <div className="library">
-            {data.order.map(id => agents.find(a => a.id === id)).filter(a => a !== undefined).map(agent => (
-              <Agent key={agent.id} agent={agent} run={data.runs.find(r => r.agent === agent.id)} control={data.controls?.[agent.id]}
-                onControl={next => list.setData(d => d && { ...d, controls: { ...d.controls, [agent.id]: next } })} model={plannedModel(agent.id, data.model)} ready={data.ai_ready} connected={on(agent.needs)}
-                onOpen={() => setOpen(agent.id)}
-                onStarted={() => {
-                  setWaiting(agent.id);
-                  list.setData(d => d && { ...d, runs: [...d.runs.filter(r => r.agent !== agent.id), { agent: agent.id, status: "running", result: null, error: null, cost_usd: null, created: Date.now() / 1000, finished: null, models: [] }] });
-                }} />
-            ))}
-          </div>
-          {data.model && <Text as="p" type="supporting" size="sm">Agents run on {data.model}{data.own_key ? " with your own key" : ""}.</Text>}
-        </VStack>
-      )}</Load>
-      <RecentWork />
-      {shown && shownRun?.result && (
-        <Modal isOpen onClose={close} title={shown.name}
-          subtitle={shownRun.finished ? `Finished ${ago(shownRun.finished)}${shownRun.models.length ? ` · made with ${shownRun.models.join(", ")}` : ""}${shownRun.cost_usd != null ? ` · cost $${shownRun.cost_usd.toFixed(3)}` : ""}` : undefined}
-          footer={<Button label="Close" onClick={close} />}>
-          <Result result={shownRun.result} onLeave={close} />
-        </Modal>
-      )}
+    <Page title="Agents" description="Each one prepares work in the background. Nothing is sent, posted or changed until you tap."
+      actions={<RecentWork open={work} onOpen={() => setWork(true)} onClose={() => setWork(false)} />}>
+      <Load state={list}>{data => {
+        const rank = (id: AgentId) => { const i = data.order.indexOf(id); return i < 0 ? Infinity : i; };
+        const sorted = [...apps].sort((a, b) => Math.min(...a.agents.map(rank)) - Math.min(...b.agents.map(rank)));
+        const inApp = current ? data.order.filter(id => current.agents.includes(id)).map(id => agents.find(a => a.id === id)).filter(a => a !== undefined) : [];
+        return (
+          <VStack gap={4}>
+            {!data.ai_ready && <Banner status="info" title="Agents need AI access" description="Add an AI key in Settings to start running agents." endContent={<Button size="sm" label="Open Settings" href="#settings" />} />}
+            <div className="covers">
+              {sorted.map(a => (
+                <article key={a.id} className="cover" data-app={a.id} aria-labelledby={`app-${a.id}`}>
+                  <div className="cover-art" style={{ backgroundImage: dither(a.id, a.stops) }}><SourceIcon source={a.icon} size={96} /></div>
+                  <VStack gap={1}>
+                    <Heading level={2} id={`app-${a.id}`} className="cover-name"><button type="button" className="cover-open" onClick={() => setApp(a.id)}>{a.name}</button></Heading>
+                    <Text as="p" type="supporting" size="sm">{a.does}</Text>
+                    <Text as="p" size="sm" className="cover-state" data-on={on(a.kinds) || undefined}>{on(a.kinds) ? "Connected" : "Not connected"}</Text>
+                  </VStack>
+                </article>
+              ))}
+            </div>
+            {data.model && <Text as="p" type="supporting" size="sm">Agents run on {data.model}{data.own_key ? " with your own key" : ""}.</Text>}
+            {current && (result && shown && shownRun
+              ? <Modal isOpen onClose={close} title={shown.name} width={720}
+                subtitle={shownRun.finished ? `Finished ${ago(shownRun.finished)}${shownRun.models.length ? ` · made with ${shownRun.models.join(", ")}` : ""}${shownRun.cost_usd != null ? ` · cost $${shownRun.cost_usd.toFixed(3)}` : ""}` : undefined}
+                footer={<><Button label={`Back to ${current.name}`} onClick={() => { back(); setApp(current.id); }} /><Button label="Close" onClick={close} /></>}>
+                <Result result={result} onLeave={close} />
+              </Modal>
+              : <Modal isOpen onClose={close} title={current.name} subtitle={current.does} width={inApp.length > 1 ? 960 : 560}>
+                <div className="agent-list">
+                  {inApp.map(agent => (
+                    <Agent key={agent.id} agent={agent} run={data.runs.find(r => r.agent === agent.id)} control={data.controls?.[agent.id]}
+                      onControl={next => list.setData(d => d && { ...d, controls: { ...d.controls, [agent.id]: next } })} model={plannedModel(agent.id, data.model)} ready={data.ai_ready} connected={on(agent.needs)}
+                      onOpen={() => setOpen(agent.id)}
+                      onStarted={() => {
+                        setWaiting(agent.id);
+                        list.setData(d => d && { ...d, runs: [...d.runs.filter(r => r.agent !== agent.id), { agent: agent.id, status: "running", result: null, error: null, cost_usd: null, created: Date.now() / 1000, finished: null, models: [] }] });
+                      }} />
+                  ))}
+                </div>
+              </Modal>)}
+          </VStack>
+        );
+      }}</Load>
     </Page>
   );
 }
@@ -121,29 +175,26 @@ function Agent({ agent, run, control, onControl, model, ready, connected, onStar
   const running = run?.status === "running";
   return (
     <article className="agent-tile" data-agent={agent.id} data-mode={control?.mode} aria-labelledby={`agent-${agent.id}`}>
-      <HStack gap={2} align="center" wrap="wrap" className="agent-top">
-        <SourceIcon source={agent.needs[0]} size={16} />
-        {run?.models.length ? <span className="kind">{run.models.join(" · ")}</span> : model ? <span className="kind">{model}</span> : null}
-      </HStack>
-      <VStack gap={2} className="agent-body">
-        <div aria-live="polite">
-          {error && <Text as="p" size="sm">{error}</Text>}
-          {running && <Text as="p" size="sm" className="shimmer">Working on it. This usually takes under a minute.</Text>}
-          {run?.status === "failed" && <Text as="p" size="sm">This run didn't finish: {run.error ?? "no reason given"}</Text>}
-          {run?.status === "done" && run.result && <Text as="p" size="sm">{found(run.result)}{run.finished ? ` ${ago(run.finished)}.` : ""}</Text>}
-          {control?.mode === "off" ? <Text as="p" size="sm">Off. It won't run until you choose Ask me first or Draft for me.</Text>
-            : !run && <Text as="p" size="sm">{agent.does}</Text>}
-        </div>
-        <Heading level={2} id={`agent-${agent.id}`} className="agent-name">{agent.name}</Heading>
-        <HStack gap={2} wrap="wrap">
-          {connected
-            ? <Button variant="primary" size="sm" label={running ? "Working…" : run ? "Run again" : "Run"} isLoading={running} isDisabled={!ready || control?.mode === "off"} clickAction={start}
-              aria-label={running ? `${agent.name} is working` : run ? `Run again: ${agent.name}` : `Run ${agent.name}`} />
-            : <Button size="sm" label={`Connect ${appNames[agent.needs[0]]}`} href="#setup" />}
-          {run?.status === "done" && run.result && <Button size="sm" label="See results" aria-label={`See results: ${agent.name}`} onClick={onOpen} />}
-        </HStack>
-        {control && <Control agent={agent} control={control} onSaved={onControl} />}
+      <VStack gap={1}>
+        <Heading level={3} id={`agent-${agent.id}`} className="agent-name">{agent.name}</Heading>
+        {run?.models.length ? <Text size="sm" type="supporting">{run.models.join(" · ")}</Text> : model ? <Text size="sm" type="supporting">{model}</Text> : null}
       </VStack>
+      <div aria-live="polite">
+        {error && <Text as="p" size="sm">{error}</Text>}
+        {running && <Text as="p" size="sm" className="shimmer">Working on it. This usually takes under a minute.</Text>}
+        {run?.status === "failed" && <Text as="p" size="sm">This run didn't finish: {run.error ?? "no reason given"}</Text>}
+        {run?.status === "done" && run.result && <Text as="p" size="sm">{found(run.result)}{run.finished ? ` ${ago(run.finished)}.` : ""}</Text>}
+        {control?.mode === "off" ? <Text as="p" size="sm">Off. It won't run until you choose Ask me first or Draft for me.</Text>
+          : !run && <Text as="p" size="sm">{agent.does}</Text>}
+      </div>
+      <HStack gap={2} wrap="wrap">
+        {connected
+          ? <Button variant="primary" size="sm" label={running ? "Working…" : run ? "Run again" : "Run"} isLoading={running} isDisabled={!ready || control?.mode === "off"} clickAction={start}
+            aria-label={running ? `${agent.name} is working` : run ? `Run again: ${agent.name}` : `Run ${agent.name}`} />
+          : <Button size="sm" label={`Connect ${appNames[agent.needs[0]]}`} href="#setup" />}
+        {run?.status === "done" && run.result && <Button size="sm" label="See results" aria-label={`See results: ${agent.name}`} onClick={onOpen} />}
+      </HStack>
+      {control && <Control agent={agent} control={control} onSaved={onControl} />}
     </article>
   );
 }
@@ -268,15 +319,15 @@ function CreativePack({ pack }: { pack: Crop[] }) {
 
 const said = { progress: "Working", waiting: "Waiting", ready: "Ready", blocked: "Stopped", failed: "Failed", dropped: "Nothing to do", question: "Asked you", answer: "You answered", idea: "Idea", advice: "Advice" } as const;
 
-/** Every task the agent took on lately, with each step it reported. */
-function RecentWork() {
+/** Every task the agent took on lately, with each step it reported, in a window opened from the page heading. */
+function RecentWork({ open, onOpen, onClose }: { open: boolean; onOpen: () => void; onClose: () => void }) {
   const home = useLoad("agent", api.agent);
   const tickets = home.data?.tickets ?? [];
   if (!tickets.length) return null;
   return (
-    <section aria-labelledby="work-heading">
-      <VStack gap={4}>
-        <Heading level={2} id="work-heading">Recent work</Heading>
+    <>
+      <Button label="Recent work" onClick={onOpen} />
+      {open && <Modal isOpen onClose={onClose} title="Recent work" footer={<Button label="Close" onClick={onClose} />}>
         <VStack gap={5} as="ul">
           {tickets.map((t: Ticket) => (
             <VStack key={t.id} as="li" gap={2}>
@@ -292,8 +343,8 @@ function RecentWork() {
             </VStack>
           ))}
         </VStack>
-      </VStack>
-    </section>
+      </Modal>}
+    </>
   );
 }
 

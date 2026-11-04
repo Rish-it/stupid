@@ -24,6 +24,7 @@ const Agents = lazy(() => import("./Agents"));
 const Settings = lazy(() => import("./Settings"));
 const SideBar = lazy(() => import("./SideBar"));
 const Onboarding = lazy(() => import("./Onboarding"));
+const Toasts = lazy(() => import("./Toasts"));
 // Closing the onboarding card (or skipping its optional step) holds it back for the rest of this visit.
 const later = { get: () => { try { return sessionStorage.getItem("stupid.onboarding") === "later"; } catch { return false; } },
   set: () => { try { sessionStorage.setItem("stupid.onboarding", "later"); } catch { /* private mode: it just shows again */ } } };
@@ -125,6 +126,7 @@ export default function App() {
           <Banner status="warning" isDismissable onDismiss={() => setFailed(null)} title="Facebook didn't connect" description={failed}
             endContent={<Button size="sm" label="Try again" href={oauthStartUrl} onClick={connect} />} />
         </VStack>}
+        {user && !sample && <Suspense fallback={null}><Toasts /></Suspense>}
         {reconnecting && <Text className="shimmer reconnecting" type="supporting" size="sm" role="status">Reconnecting…</Text>}
         {body}
         {user && page === "settings" && <Suspense><Settings name={user.name} persona={user.persona} onPersona={setPersona} onSignedOut={signOut}

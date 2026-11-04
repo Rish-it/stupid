@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import type { FocusEvent } from "react";
 import { Button } from "@astryxdesign/core/Button";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
@@ -8,6 +9,7 @@ import { TextArea } from "@astryxdesign/core/TextArea";
 import { Token } from "@astryxdesign/core/Token";
 import { ago, api, drafts, sample, sampleSend, senderName, useLoad } from "./api";
 import type { InboxItem } from "./api";
+import { Check } from "./Icons";
 import Match from "./Match";
 import { Load } from "./Load";
 import SourceIcon from "./SourceIcon";
@@ -23,6 +25,15 @@ export default function Inbox() {
   const inbox = useLoad("inbox", api.inbox);
   const [filter, setFilter] = useState<keyof typeof filters>("all");
   const [open, setOpen] = useState(() => [...drafts.keys()].at(-1));
+  // The person whose recent messages show in a popover: on hover, on focus, or from the corner's button.
+  const [peek, setPeek] = useState<string>();
+  // Escape closes it, wherever focus is (a hover opens it without moving focus).
+  useEffect(() => {
+    if (!peek) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setPeek(undefined); };
+    addEventListener("keydown", onKey);
+    return () => removeEventListener("keydown", onKey);
+  }, [peek]);
   // What this screen knows about a reply before the server does. It lasts until the inbox is fetched again,
   // when the item's own `replied` or `reply_error` takes over.
   const [marks, setMarks] = useState<Record<string, { label: Mark; items: InboxItem[] }>>({});
@@ -58,22 +69,38 @@ export default function Inbox() {
           <EmptyState headingLevel={2} title={items.length ? `Nothing from ${filters[filter]} yet` : "No messages yet"}
             description="New messages and comments show up here as they arrive." />
         );
+        // One card per person: their newest message on the card, the rest in its popover.
+        const threads = new Map<string, InboxItem[]>();
+        for (const i of shown) threads.set(`${i.kind}:${i.sender}`, [...threads.get(`${i.kind}:${i.sender}`) ?? [], i]);
+        const people = [...threads.values()];
         return (
           <ul className="people">
-            {shown.map(item => {
+            {people.map(thread => {
+              const item = thread[0];
               const label = mark(item);
               const status = item.replied ? "Replied" : label ?? (item.reply_error ? "Not delivered" : item.draft ? "Draft ready" : undefined);
               const note = noteLabel(item);
+              const name = senderName(item);
+              const peeking = peek === item.id;
+              const leave = (event: FocusEvent<HTMLLIElement>) => { if (!event.currentTarget.contains(event.relatedTarget)) setPeek(undefined); };
               return (
-                <li key={item.id}>
-                  <button type="button" className="person" data-id={item.id} onClick={() => setOpen(item.id)}>
-                    <span className="kind">{where[item.kind]}</span>
+                <li key={item.id} className="person-card" data-peek={peeking || undefined}
+                  onMouseEnter={() => setPeek(item.id)} onMouseLeave={() => setPeek(undefined)} onBlur={leave}>
+                  <button type="button" className="person" data-id={item.id} onClick={() => setOpen(item.id)} onFocus={() => setPeek(item.id)}
+                    aria-describedby={peeking ? `history-${item.id}` : undefined}>
+                    <span className="kind">{where[item.kind]}{thread.length > 1 ? ` · ${thread.length} messages` : ""}</span>
                     <span className="person-text">{item.transcribing ? working[item.transcribing] : item.text}</span>
                     <span className="person-foot">
-                      <strong>{senderName(item)}</strong>
-                      <span className="person-meta">{note && <span>{note}</span>}<span>{ago(item.created)}</span>{status && <span data-status={status}>{status}</span>}</span>
+                      <strong>{name}</strong>
+                      <span className="person-meta">{note && <span>{note}</span>}<span>{ago(item.created)}</span>{status && <span data-status={status}>{(status === "Sent" || status === "Replied") && <Check />}{status}</span>}</span>
                     </span>
                   </button>
+                  <span className="corner">
+                    <button type="button" className="corner-button" aria-label={`Recent messages from ${name}`} aria-expanded={peeking} aria-controls={`history-${item.id}`}
+                      onClick={() => setPeek(peeking ? undefined : item.id)}><HistoryGlyph /></button>
+                    <button type="button" className="corner-button" aria-label={`Open the thread with ${name}`} onClick={() => setOpen(item.id)}><OpenGlyph /></button>
+                  </span>
+                  {peeking && <History id={`history-${item.id}`} name={name} thread={thread} />}
                 </li>
               );
             })}
@@ -85,6 +112,28 @@ export default function Inbox() {
     </Page>
   );
 }
+
+/** A person's recent messages, oldest first, from the inbox they're already in. */
+function History({ id, name, thread }: { id: string; name: string; thread: InboxItem[] }) {
+  const recent = thread.slice(0, 5).reverse();
+  return (
+    <div id={id} role="region" aria-label={`Recent messages from ${name}`} className="history">
+      <ol>
+        {recent.map(m => (
+          <li key={m.id}>
+            <span className="history-text">{m.transcribing ? working[m.transcribing] : m.text}</span>
+            <span className="history-meta">{ago(m.created)}{m.replied ? " · you replied" : ""}</span>
+          </li>
+        ))}
+      </ol>
+      {thread.length === 1 && <p className="history-meta">No earlier messages from {name}.</p>}
+    </div>
+  );
+}
+
+const glyph = { viewBox: "0 0 24 24", width: 16, height: 16, fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true } as const;
+const HistoryGlyph = () => <svg {...glyph}><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5M12 7v5l3 2" /></svg>;
+const OpenGlyph = () => <svg {...glyph}><path d="M7 17 17 7M8 7h9v9" /></svg>;
 
 /** Voice notes say so, since their text is a transcript by Muse Voice Transcribe; photos and videos say while they're being looked at. */
 function noteLabel(item: InboxItem) {

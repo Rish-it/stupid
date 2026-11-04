@@ -1,8 +1,15 @@
 import { expect, test } from "@playwright/test";
+import type { Page } from "@playwright/test";
 
 const json = (body: unknown) => ({ contentType: "application/json", body: JSON.stringify(body) });
 // The preview server proxies /api to a local backend; keep the live stream out of tests that don't mock it.
 test.beforeEach(({ page }) => page.route("**/api/stream", route => route.fulfill({ status: 404, ...json({ message: "Not found." }) })));
+
+/** Opens an app's window from its cover on the Agents page. */
+const openApp = async (page: Page, name: string) => {
+  await page.getByRole("button", { name, exact: true }).click();
+  await expect(page.getByRole("dialog", { name })).toBeVisible();
+};
 
 test("shows a clear offline state when the server is down", async ({ page }) => {
   await page.route("**/api/**", route => route.abort());
@@ -211,12 +218,17 @@ test("Agents run, poll to a result and hand a reply draft to the Inbox", async (
   await page.goto("/#agents");
 
   // Each button names its agent; the model shows before the first run (QA 5-2, 5-3).
+  await openApp(page, "Instagram");
   await expect(page.getByRole("button", { name: "Run Lead finder" })).toBeVisible();
-  await expect(page.getByRole("article", { name: "Ad watcher" })).toContainText("test-model");
   await expect(page.getByRole("article", { name: "Reel director" })).toContainText("Muse Wonder");
   await page.getByRole("article", { name: "Post ideas" }).getByRole("button", { name: "Run" }).click();
   await expect(page.getByText("This month's AI budget is used up.")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await openApp(page, "Meta");
+  await expect(page.getByRole("article", { name: "Ad watcher" })).toContainText("test-model");
+  await page.keyboard.press("Escape");
 
+  await openApp(page, "WhatsApp");
   await page.getByRole("article", { name: "Reply drafts" }).getByRole("button", { name: "Run" }).click();
   await expect(page.getByText("Working on it.")).toBeVisible();
   await expect(page.getByText("We're open until 7.")).toBeVisible({ timeout: 10000 });
@@ -257,6 +269,8 @@ test("Agents point to Settings when there is no AI access", async ({ page }) => 
   await expect(page.getByText("Agents need AI access")).toBeVisible();
   await expect(page.getByRole("link", { name: "Open Settings" })).toHaveAttribute("href", "#settings");
   // An agent whose app isn't on names that app and opens its connect step (QA 5-1).
+  await expect(page.locator(".cover", { hasText: "Instagram" })).toContainText("Not connected");
+  await openApp(page, "Instagram");
   await expect(page.getByRole("article", { name: "Post ideas" }).getByRole("link", { name: "Connect Instagram" })).toHaveAttribute("href", "#setup");
 });
 
@@ -464,7 +478,8 @@ test("Agents lists recent work with every report", async ({ page }) => {
   await page.route("**/api/agents", route => route.fulfill(json({ ai_ready: true, own_key: false, model: "test-model", order: ["leads", "ideas", "replies", "reels", "ads"], runs: [] })));
   await page.route("**/api/agent", route => route.fulfill(json(agentHome())));
   await page.goto("/#agents");
-  await expect(page.getByRole("heading", { name: "Recent work" })).toBeVisible();
+  await page.getByRole("button", { name: "Recent work" }).click();
+  await expect(page.getByRole("dialog", { name: "Recent work" })).toBeVisible();
   await expect(page.getByText("Reply to Priya")).toBeVisible();
   await expect(page.getByText("Asks about delivery cost.")).toBeVisible();
   await expect(page.getByText("Waiting for your answer.")).toBeVisible();
@@ -554,6 +569,7 @@ test("Reel director shows what works, labelled guesses and scripts to copy", asy
     scripts: [{ title: "Three breads in 15 seconds", hook: "Which one would you tear first?", caption: "Fresh at 8.", shots: [{ shot: "Close-up of the crust", seconds: 2, on_screen: "Crackle test", sound: "Crust crackle" }] }],
   } }] })));
   await page.goto("/#agents");
+  await openApp(page, "Instagram");
   await expect(page.getByText("Watched 1 Reel and wrote 1 script.")).toBeVisible();
   await page.getByRole("button", { name: "See results" }).click();
   const dialog = page.getByRole("dialog", { name: "Reel director" });
@@ -577,6 +593,7 @@ test("Ad watcher adds a creative pack cropped around what SAM found", async ({ p
     ],
   } }] })));
   await page.goto("/#agents");
+  await openApp(page, "Meta");
   await page.getByRole("button", { name: "See results" }).click();
   const dialog = page.getByRole("dialog", { name: "Ad watcher" });
   await expect(dialog.getByText("Ad creative pack")).toBeVisible();
@@ -628,6 +645,7 @@ test("Post ideas say how many of the creator's pictures they looked at", async (
   await page.route("**/api/agents", route => route.fulfill(json({ ai_ready: true, own_key: false, model: "test-model", order: ["leads", "ideas", "replies", "reels", "ads"], runs: [{ agent: "ideas", status: "done", error: null, models: [], cost_usd: 0.004, created: 1, finished: 2,
     result: { looked_at: 4, ideas: [{ hook: "Crab sticker unboxing", caption: "New drop", format: "reel", why: "Your second picture, the close-up, got the most comments." }] } }] })));
   await page.goto("/#agents");
+  await openApp(page, "Instagram");
   await expect(page.getByText("Drafted 1 post idea after looking at 4 of your pictures.")).toBeVisible();
 });
 
@@ -657,16 +675,19 @@ test("Inbox shows each person as a card with the app, the words, when, and what'
   await expect(page.getByRole("radio", { name: "WhatsApp" })).toHaveCSS("color", "rgb(180, 180, 186)");
 });
 
-test("Agents are laid out in the path's order, each naming the models behind its last run", async ({ page }) => {
+test("Agents show three apps in the path's order, each agent naming the models behind its last run", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json({ ...signedIn, selected: ["instagram:1"], persona: "business" })));
   await page.route("**/api/agent", route => route.fulfill(json({ proactive: true, rules: "", facts: [], needs: [], tickets: [], watching: [], last_checked: null })));
   await page.route("**/api/agents", route => route.fulfill(json({ ai_ready: true, own_key: false, model: "m", order: ["replies", "leads", "ads", "ideas", "reels"], runs: [
     { agent: "reels", status: "done", error: null, models: ["Muse Wonder"], cost_usd: 0, created: 1, finished: 2, result: { from_captions_only: false, watched: [], scripts: [] } },
   ] })));
   await page.goto("/#agents");
-  await expect(page.getByRole("article")).toHaveCount(5);
-  await expect(page.getByRole("article").first()).toHaveAccessibleName("Reply drafts");
-  await expect(page.getByRole("article").last()).toHaveAccessibleName("Reel director");
+  await expect(page.locator(".cover")).toHaveCount(3);
+  await expect(page.locator(".cover").first()).toHaveAccessibleName("WhatsApp");
+  await expect(page.locator(".cover").last()).toHaveAccessibleName("Meta");
+  await openApp(page, "Instagram");
+  // Inside an app, its agents keep the path's order too.
+  await expect(page.getByRole("dialog").getByRole("article").first()).toHaveAccessibleName("Lead finder");
   await expect(page.getByRole("article", { name: "Reel director" })).toContainText("Muse Wonder");
 });
 
@@ -712,7 +733,10 @@ for (const [persona, off] of [["business", "Reel director"], ["creator", "Ad wat
   test(`each ${persona} agent tile sets how far it goes and takes one sentence`, async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`http://127.0.0.1:8032/?fixtures=1&persona=${persona}&stage=ready#agents`);
-    // Off stays on the page, quiet.
+    // The path's main app comes first.
+    await expect(page.locator(".cover").first()).toHaveAccessibleName(persona === "business" ? "WhatsApp" : "Instagram");
+    await openApp(page, persona === "business" ? "Instagram" : "Meta");
+    // Off stays in its app, quiet.
     const resting = page.locator("article", { has: page.getByRole("heading", { name: off }) });
     await expect(resting).toHaveAttribute("data-mode", "off");
     await expect(resting.getByRole("radio", { name: "Off" })).toBeChecked();
@@ -720,6 +744,7 @@ for (const [persona, off] of [["business", "Reel director"], ["creator", "Ad wat
     await expect(resting.getByRole("button", { name: `Run ${off}`, disabled: false })).toHaveCount(0);
     await expect(resting.getByText(/^Off\. It won't run until/)).toBeVisible();
     await expect(resting.getByRole("radio", { name: "Draft for me" })).toHaveCSS("color", "rgb(255, 255, 255)");
+    if (persona === "creator") { await page.keyboard.press("Escape"); await openApp(page, "Instagram"); }
     const leads = page.locator("article", { has: page.getByRole("heading", { name: "Lead finder" }) });
     const modes = leads.getByRole("radiogroup", { name: "What Lead finder does on its own" });
     await modes.getByRole("radio", { name: "Ask me first" }).focus();
@@ -737,8 +762,10 @@ for (const [persona, off] of [["business", "Reel director"], ["creator", "Ad wat
     await expect(leads.getByText("Saved")).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     // Both survive leaving the page and coming back.
+    await page.keyboard.press("Escape");
     await page.getByRole("link", { name: "Home" }).click();
     await page.getByRole("link", { name: "Agents" }).click();
+    await openApp(page, "Instagram");
     await expect(note).toHaveValue("Only flag people who ask about price.");
     await expect(modes.getByRole("radio", { name: "Draft for me" })).toBeChecked();
   });
@@ -787,7 +814,13 @@ test("the sample desk never calls the server, so a real session is never used", 
     }
   }
   await page.goto("/?fixtures=1&persona=creator&stage=busy#agents");
-  for (const run of await page.getByRole("button", { name: /^Run/ }).all()) await run.click();
+  for (const app of ["Instagram", "WhatsApp", "Meta"]) {
+    await openApp(page, app);
+    const runs = await page.getByRole("dialog").getByRole("button", { name: /^Run/ }).all();
+    for (const run of runs) if (await run.isEnabled()) await run.click();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+  }
   await page.goto("/?fixtures=1&persona=business&stage=busy#settings");
   for (const tab of ["Your work", "Connections", "Your agent", "AI model", "Muse", "Account"]) await page.getByRole("tab", { name: tab }).click();
   expect(calls).toEqual([]);
@@ -800,4 +833,88 @@ test("a chunk gone after a deploy reloads the page once instead of going blank",
   await page.goto("/?fixtures=1&persona=creator&stage=ready#settings");
   await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
   expect(failed).toBe(true);
+});
+
+test("the three app covers fit a laptop screen without scrolling, and stack on a phone", async ({ page }) => {
+  for (const persona of ["business", "creator"]) {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(`/?fixtures=1&persona=${persona}&stage=busy#agents`);
+    await expect(page.locator(".cover")).toHaveCount(3);
+    const main = page.locator("#astryx-app-shell-main");
+    expect(await main.evaluate(el => el.scrollHeight <= el.clientHeight)).toBe(true);
+    const [a, b] = await page.locator(".cover-art").evaluateAll(els => els.slice(0, 2).map(el => el.getBoundingClientRect().top));
+    expect(a).toBe(b);
+    await page.setViewportSize({ width: 390, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  }
+  // Each agent's choices read on one line, at laptop and phone widths alike.
+  for (const width of [1440, 390]) {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+    await openApp(page, "Instagram");
+    // A label's text box is no taller than one line of it.
+    expect(await page.getByRole("dialog").getByRole("radio").evaluateAll(els => els.every(el => {
+      const text = [...el.querySelectorAll("*")].find(c => c.childElementCount === 0 && c.textContent) ?? el;
+      return text.getBoundingClientRect().height < 1.5 * parseFloat(getComputedStyle(text).lineHeight);
+    }))).toBe(true);
+    expect(await page.getByRole("dialog").getByRole("radio").evaluateAll(els => els.every(el => el.scrollWidth <= el.clientWidth))).toBe(true);
+    await page.keyboard.press("Escape");
+  }
+  // The cover opens from the keyboard, and closing hands focus back to it.
+  await page.locator(".cover-open").first().focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("dialog", { name: "Instagram" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Instagram" })).toBeFocused();
+});
+
+test("Inbox shows one card per person, with their recent messages on hover, focus or the corner button", async ({ page }) => {
+  await page.route("**/api/me", route => route.fulfill(json(signedIn)));
+  await page.route("**/api/inbox", route => route.fulfill(json({ items: [
+    { id: "a2", kind: "whatsapp", asset_id: "1", sender: "15550001", sender_name: "Ana", text: "Are you open?", created: now() - 60, replied: false },
+    { id: "b1", kind: "whatsapp", asset_id: "1", sender: "15550002", sender_name: "Ben", text: "Do you deliver?", created: now() - 120, replied: false },
+    { id: "a1", kind: "whatsapp", asset_id: "1", sender: "15550001", sender_name: "Ana", text: "Hi, it's Ana", created: now() - 3600, replied: true },
+  ] })));
+  await page.goto("/#inbox");
+  await expect(page.locator(".person-card")).toHaveCount(2);
+  await expect(page.locator(".person-card").first()).toContainText("2 messages");
+  // Hover shows Ana's thread, oldest first; Escape closes it.
+  await page.getByRole("button", { name: /Are you open\?/ }).hover();
+  const ana = page.getByRole("region", { name: "Recent messages from Ana" });
+  await expect(ana.getByRole("listitem")).toHaveText([/Hi, it's Ana.*you replied/, /Are you open\?/]);
+  await page.keyboard.press("Escape");
+  await expect(ana).toHaveCount(0);
+  // Keyboard: focus opens it, the corner's button toggles it; one message says there's nothing earlier.
+  await page.mouse.move(0, 0);
+  await page.getByRole("button", { name: /Do you deliver\?/ }).focus();
+  const ben = page.getByRole("region", { name: "Recent messages from Ben" });
+  await expect(ben).toContainText("No earlier messages from Ben.");
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "Recent messages from Ben" })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(ben).toHaveCount(0);
+  await page.keyboard.press("Enter");
+  await expect(ben).toBeVisible();
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("dialog", { name: "Ben" })).toBeVisible();
+});
+
+test("a new message or draft from the live stream shows a toast, and the new card arrives", async ({ page }) => {
+  let fresh = false;
+  const ana = { id: "w1", kind: "whatsapp", asset_id: "1", sender: "15550001", sender_name: "Ana", text: "Are you open?", created: now() - 60, replied: false };
+  const zoe = { id: "w9", kind: "whatsapp", asset_id: "1", sender: "15550009", sender_name: "Zoe", text: "Is the cake ready?", created: now(), replied: false };
+  await page.route("**/api/me", route => route.fulfill(json(signedIn)));
+  await page.route("**/api/inbox", route => route.fulfill(json({ items: fresh ? [zoe, ana] : [ana] })));
+  await page.route("**/api/agent", route => route.fulfill(json({ ...agentHome(), needs: fresh ? [{ type: "draft", id: 1, event_id: "w9", text: "Yes, at 5.", source: "agent", created: now(), message: { kind: "whatsapp", sender: "15550009", sender_name: "Zoe", text: "Is the cake ready?" } }] : [] })));
+  await page.route("**/api/stream", route => route.fulfill({ contentType: "text/event-stream",
+    body: `retry: 300\nevent: update\ndata: {"inbox":"${fresh ? 2 : 1}","replies":"1","runs":"1","agent":"${fresh ? 2 : 1}","connections":"1"}\n\n` }));
+  await page.goto("/#inbox");
+  await expect(page.locator(".person-card")).toHaveCount(1);
+  fresh = true;
+  // The stream reconnects every 300 ms here; the next connection carries the new counts.
+  const toasts = page.getByRole("region", { name: "Notifications" });
+  await expect(toasts.getByText("New WhatsApp message from Zoe")).toHaveCount(1, { timeout: 15000 });
+  await expect(toasts.getByText("Draft ready for Zoe")).toHaveCount(1);
+  await expect(page.locator(".person-card")).toHaveCount(2);
+  await expect(page.locator(".person-card").first()).toHaveCSS("animation-name", "arrive");
 });
