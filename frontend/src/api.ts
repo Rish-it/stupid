@@ -215,7 +215,7 @@ export const drafts = new Map<string, Draft>();
 const cache = new Map<string, unknown>();
 // Screens on view, by what they load, so a live update can refetch just that.
 const loaders = new Map<string, Set<() => unknown>>();
-const refetch = (key: string) => loaders.get(key)?.forEach(load => load());
+export const refetch = (key: string) => loaders.get(key)?.forEach(load => load());
 
 export function useLoad<T>(key: string, load: () => Promise<T>) {
   const [data, setData] = useState(() => cache.get(key) as T | undefined);
