@@ -1,6 +1,6 @@
 // Sample data for dev builds only (?fixtures=1). Every name says "Sample"; nothing here is real.
-import { ApiError, localNext } from "./api";
-import type { AgentHome, AgentId, AgentRun, Asset, InboxItem, Me, Persona } from "./api";
+import { ApiError, appStatus, factsPrompt } from "./api";
+import type { Account, AgentHome, AgentId, AgentRun, Asset, AssetKind, InboxItem, Me, Persona, SetupNext, SetupStep } from "./api";
 
 const now = () => Math.floor(Date.now() / 1000);
 const assets: Asset[] = [
@@ -9,7 +9,7 @@ const assets: Asset[] = [
   { key: "whatsapp:1", kind: "whatsapp", id: "1", name: "Sample WhatsApp number" },
   { key: "whatsapp:2", kind: "whatsapp", id: "2", name: "Sample second number", issues: [{ blocking: true, text: "This number can't send messages yet.", fix: "Add a payment method in WhatsApp Manager.", link: "https://business.facebook.com/wa/manage/home/" }] },
 ];
-let me: Me = { signed_in: true, name: "Sample creator", assets, selected: ["ads:act_1", "instagram:1", "whatsapp:1", "whatsapp:2"], permissions: ["ads_read", "instagram_basic", "instagram_manage_insights", "whatsapp_business_messaging"], problems: ["Messages from Sample Page: the Page wasn't shared."] };
+let me: Me = { signed_in: true, name: "Sample creator", persona: null, assets, selected: ["ads:act_1", "instagram:1", "whatsapp:1", "whatsapp:2"], permissions: ["ads_read", "instagram_basic", "instagram_manage_insights", "whatsapp_business_messaging"], problems: ["Messages from Sample Page: the Page wasn't shared."] };
 const tutorial = new URLSearchParams(location.search);
 const tutorialKind = tutorial.get("tutorial");
 if (["instagram", "whatsapp", "messenger", "ads"].includes(tutorialKind ?? "")) {
@@ -22,7 +22,7 @@ if (["instagram", "whatsapp", "messenger", "ads"].includes(tutorialKind ?? "")) 
     ads: { text: "This ad account has an unpaid balance.", fix: "Open Billing & payments and select this ad account.", link: "https://business.facebook.com/latest/billing_hub/payment_methods/" },
   };
   const asset: Asset = { key: `${kind}:1`, kind, id: "1", name: `Sample ${kind} account`, issues: stage === "fix" ? [{ blocking: true, ...fixes[kind] }] : [] };
-  me = { signed_in: true, name: "Sample first-timer", assets: stage === "connect" ? [] : [asset], selected: stage === "choose" || stage === "connect" ? [] : [asset.key],
+  me = { signed_in: true, name: "Sample first-timer", persona: null, assets: stage === "connect" ? [] : [asset], selected: stage === "choose" || stage === "connect" ? [] : [asset.key],
     permissions: ["ads_read", "instagram_basic", "instagram_manage_insights", "instagram_manage_comments", "instagram_manage_messages", "pages_messaging", "whatsapp_business_messaging"], problems: [] };
 }
 
@@ -141,6 +141,28 @@ const inbox = () => world ? (stage === "busy" && persona ? messages[persona] : [
   { id: "m4", kind: "messenger", asset_id: "1", sender: "24000000000000001", sender_name: "", text: "Sample: can I book for Saturday?", created: now() - 86400, replied: false },
 ];
 
+/** The sample answer to GET /api/setup/next, worked out like the server does from /api/me and the agent's rules. */
+export function localNext(me: Account & { persona?: Persona | null }, rules: string, persona = me.persona ?? null): SetupNext {
+  if (!persona) return { persona: null, done: false, progress: { done: 0, total: 0 } };
+  const main: AssetKind = persona === "creator" ? "instagram" : "whatsapp";
+  const on = (kind: AssetKind) => appStatus(me, kind).on;
+  const issue = on(main).flatMap(a => a.issues ?? []).find(i => i.blocking);
+  // Every step this path needs, each with whether it's passed; the first one not passed is next.
+  const steps: [passed: boolean, step: () => SetupStep][] = persona === "creator" ? [
+    [on("instagram").length > 0, () => ({ id: "instagram_connect", app: "instagram", title: "Connect Instagram", why: "Stupid watches your Reels and reads your comments and DMs.", action: "connect", button: "Connect Instagram", optional: false })],
+  ] : [
+    [on("whatsapp").length > 0, () => ({ id: "whatsapp_connect", app: "whatsapp", title: "Connect WhatsApp and your Facebook Page", why: "Stupid hears your customers' chats, voice notes and photos.", action: "connect", button: "Connect WhatsApp", optional: false })],
+    [on("messenger").length > 0, () => ({ id: "page_connect", app: "messenger", title: "Connect your Facebook Page", why: "Stupid answers Messenger chats from your Page too.", action: "connect", button: "Connect your Page", optional: false })],
+  ];
+  steps.push(
+    [on(main).length > 0 && !issue, () => ({ id: persona === "creator" ? "instagram_issue" : "whatsapp_payment", app: main, title: issue!.text, why: "Your agent can't answer until Meta has this.", fix: issue!.fix, action: "fix_in_meta", button: "Open in Meta", link: issue!.link ?? undefined, optional: false })],
+    [Boolean(rules.trim()), () => ({ id: "agent_facts", app: "agent", title: "Tell your agent about you", why: factsPrompt[persona], action: "tell_agent", button: "Save", optional: true })],
+  );
+  const left = steps.filter(([passed]) => !passed).map(([, step]) => step);
+  const next = left[0]?.();
+  return { persona, done: left.length === 0 || (left.length === 1 && next?.optional === true), progress: { done: steps.length - left.length, total: steps.length }, step: next };
+}
+
 export async function answer(method: string, path: string, body: unknown): Promise<unknown> {
   await new Promise(done => setTimeout(done, 300));
   const route = `${method} ${path}`;
@@ -172,8 +194,8 @@ export async function answer(method: string, path: string, body: unknown): Promi
   if (/^POST \/api\/inbox\/[^/]+\/reply$/.test(route)) return { sent: true };
   if (route === "GET /api/agents") {
     for (const [id, run] of runs) if (run.status === "running" && now() - run.created >= 4) runs.set(id, { ...run, status: "done", result: results[id], cost_usd: 0.004, finished: now() });
-    const path = me.signed_in && me.persona ? order[me.persona] : undefined;
-    return { runs: [...runs.values()], ai_ready: true, own_key: hasKey, model: "sample-model", ...path && { order: path } };
+    const path: AgentId[] = me.signed_in && me.persona ? order[me.persona] : ["leads", "ideas", "replies", "reels", "ads"];
+    return { runs: [...runs.values()], ai_ready: true, own_key: hasKey, model: "sample-model", order: path };
   }
   const run = route.match(/^POST \/api\/agents\/(leads|ideas|reels|replies|ads)\/run$/);
   if (run) {

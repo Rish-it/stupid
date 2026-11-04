@@ -49,7 +49,6 @@ export default function App() {
   const me = useLoad("me", api.me);
   const user = me.data?.signed_in ? me.data : undefined;
   // The door picked before sign-in becomes the account's path, once, right after sign-in.
-  // A server without the endpoint answers 404; the stored choice then stands in for this visit.
   const pending = user && !user.persona ? door.get() : null;
   const { setData: setMe } = me;
   useEffect(() => {

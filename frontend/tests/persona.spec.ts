@@ -13,10 +13,10 @@ test("the door picked before sign-in is saved as the account's path after sign-i
   await expect.poll(() => sent).toEqual([{ persona: "business" }]);
 });
 
-test("the setup fallback asks for one thing at a time on each path", async ({ page }) => {
+test("the sample setup steps ask for one thing at a time on each path", async ({ page }) => {
   await page.goto("http://127.0.0.1:8032/?fixtures=1&stage=out");
   const steps = await page.evaluate(async () => {
-    const { localNext } = await import("/src/api.ts");
+    const { localNext } = await import("/src/fixtures.ts");
     const ig = { key: "instagram:1", kind: "instagram" as const, id: "1", name: "ig" };
     const wa = { key: "whatsapp:1", kind: "whatsapp" as const, id: "1", name: "wa" };
     const page = { key: "messenger:1", kind: "messenger" as const, id: "1", name: "page" };
@@ -38,12 +38,12 @@ test("the setup fallback asks for one thing at a time on each path", async ({ pa
   expect(steps).toEqual([
     " false 0/0",
     "instagram_connect false 0/3",
-    "instagram_fix false 1/3",
+    "instagram_issue false 1/3",
     "agent_facts true 2/3",
     " true 3/3",
     "whatsapp_connect false 0/4",
     "page_connect false 2/4",
-    "whatsapp_fix false 2/4",
+    "whatsapp_payment false 2/4",
     " true 4/4",
   ]);
 });
