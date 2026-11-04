@@ -251,6 +251,19 @@ function Again({ run }: { run: AgentRun }) {
  * The agent, asked in the same space as the open item: the same brain as the owner's chat, with this conversation as context.
  * Its answer shows here; a reply it writes is only a draft, used with a tap and sent with another.
  */
+/** The dotted orb beside what the agent is doing; still for reduced motion, where it holds one frame. */
+function Thinking({ label }: { label: string }) {
+  return (
+    <HStack gap={3} align="center" role="status">
+      <Suspense fallback={<span className="space-orb" />}><Orb state="composing" size={64} theme="dark" paused={matchMedia("(prefers-reduced-motion: reduce)").matches} aria-hidden /></Suspense>
+      <Text type="supporting" size="sm" className="shimmer">{label}</Text>
+    </HStack>
+  );
+}
+
+// One tap on Ask your agent: the owner's own words, sent for them, so there is nothing to type.
+const replyFor = "Read my whole conversation with this person, oldest to newest, and write the reply I should send to their latest message. Save it as a draft for that message.";
+
 function Ask({ about, onDraft, onClose }: { about?: string; onDraft?: (text: string) => void; onClose: () => void }) {
   const [text, setText] = useState("");
   const [said, setSaid] = useState<{ q: string; a: string; draft?: string }[]>([]);
@@ -275,11 +288,7 @@ function Ask({ about, onDraft, onClose }: { about?: string; onDraft?: (text: str
       </VStack>)}
       {thinking && <VStack gap={2}>
         <div className="bubble bubble-mine"><Text as="p">{thinking}</Text></div>
-        <HStack gap={3} align="center" role="status">
-          {/* Still for reduced motion: the orb holds one frame. */}
-          <Suspense fallback={<span className="space-orb" />}><Orb state="composing" size={64} theme="dark" paused={matchMedia("(prefers-reduced-motion: reduce)").matches} aria-hidden /></Suspense>
-          <Text type="supporting" size="sm" className="shimmer">Your agent is thinking…</Text>
-        </HStack>
+        <Thinking label="Your agent is thinking…" />
       </VStack>}
       <TextArea label="Ask your agent" placeholder={about ? "What does this person want? Draft a reply that…" : "What should I do with this?"} value={text}
         onChange={v => { setText(v); setError(""); }} rows={2} maxLength={1000} hasAutoFocus status={error ? { type: "error", message: error } : undefined} />
@@ -295,12 +304,15 @@ function Ask({ about, onDraft, onClose }: { about?: string; onDraft?: (text: str
 /** A person's conversation, oldest first, with the agent's draft ready to send, change or write from scratch. */
 function Conversation({ who, kind, thread, need }: { who: string; kind: InboxKind; thread: InboxItem[]; need?: Extract<Need, { type: "draft" }> }) {
   const last = thread[0];
-  const draft = need?.text ?? (last && !last.replied ? last.draft?.text : undefined);
+  // A draft the agent just wrote from one tap, before the lists catch up.
+  const [own, setOwn] = useState<string>();
+  const [target, setTarget] = useState<string>();
+  const draft = own ?? need?.text ?? (last && !last.replied ? last.draft?.text : undefined);
   const [text, setText] = useState(draft ?? "");
   const [editing, setEditing] = useState(!draft);
   const [error, setError] = useState("");
   const [sent, setSent] = useState(false);
-  const id = need?.event_id ?? last?.id;
+  const id = target ?? need?.event_id ?? last?.id;
   const [skipped, setSkipped] = useState(false);
   const canReply = !sent && !skipped && (last ? !last.replied && !last.skipped : Boolean(need));
   // The tap on Send is the person's approval; nothing goes out before it.
@@ -309,7 +321,25 @@ function Conversation({ who, kind, thread, need }: { who: string; kind: InboxKin
   const skip = () => api.skip(id!).then(() => { setSkipped(true); refetch("inbox"); refetch("agent"); }, (cause: unknown) => setError(message(cause)));
   const kept = need ?? last?.draft ?? undefined;
   const [asking, setAsking] = useState(false);
-  const askButton = !asking && <Button variant="ghost" size="sm" label="Ask your agent" onClick={() => setAsking(true)} />;
+  // One tap: the agent reads the whole thread and leaves its reply as the draft here, for Send, Edit or Skip.
+  const [drafting, setDrafting] = useState(false);
+  const [note, setNote] = useState("");
+  const draftIt = () => {
+    setDrafting(true);
+    setError("");
+    setNote("");
+    api.ask(replyFor, String(last?.id ?? id)).then(r => {
+      const d = r.drafts.at(-1);
+      if (!d) return setNote(r.answer);
+      setTarget(String(d.event_id));
+      setText(d.text);
+      setOwn(d.text);
+      setEditing(false);
+      refetch("agent");
+      refetch("inbox");
+    }, (cause: unknown) => setError(message(cause))).finally(() => setDrafting(false));
+  };
+  const askButton = !asking && <Button variant="ghost" size="sm" label="Ask something else" onClick={() => setAsking(true)} />;
   const failed = last && !last.replied && !sent ? last.reply_error : undefined;
   return (
     <Pane who={who} tag={apps[kind] ?? kind} when={last?.created ?? need?.created ?? 0} source={kind}
@@ -338,8 +368,13 @@ function Conversation({ who, kind, thread, need }: { who: string; kind: InboxKin
           <Button variant="primary" size="sm" label={sample ? sampleSend : "Send"} isDisabled={sample || !text.trim()} clickAction={send} />
           {draft && !editing && <Button variant="ghost" size="sm" label="Edit" onClick={() => setEditing(true)} />}
           <Button variant="ghost" size="sm" label="Skip" clickAction={skip} />
+          {/* A plain click, not clickAction: an action's transition would hold the orb back until the draft is in. */}
+          {!drafting && <Button variant="ghost" size="sm" label={draft ? "Draft again" : "Ask your agent"} isDisabled={sample} onClick={draftIt} />}
           {askButton}
         </HStack>
+        {drafting && <Thinking label="Your agent is reading the conversation…" />}
+        {note && <HStack gap={2} align="start"><span className="space-agent space-agent-sm" aria-label="Your agent" role="img"><Logo size={14} /></span>
+          <div className="bubble"><Text as="p">{note}</Text></div></HStack>}
         <div aria-live="polite">{error && <Text as="p" size="sm">{error}</Text>}</div>
       </VStack>}
       {asking && <Ask about={String(id)} onClose={() => setAsking(false)}

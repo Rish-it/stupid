@@ -460,7 +460,14 @@ test("the agent is asked inside the open conversation, and its reply is only a d
   await page.goto("/#home");
   await page.getByRole("button", { name: /^Ana / }).click();
   const pane = page.locator(".space-detail");
-  await pane.getByRole("button", { name: "Ask your agent" }).click();
+  // One tap, nothing to type: the agent reads the thread and its reply becomes the draft, still waiting for Send.
+  await pane.getByRole("button", { name: "Draft again" }).click();
+  await expect(pane.getByText("Yes! Open till 7 tonight.")).toBeVisible();
+  expect((asked as { text: string }).text).toMatch(/^Read my whole conversation with this person/);
+  await expect(pane.getByRole("button", { name: "Send" })).toBeVisible();
+  expect(replied).toBe(false);
+  // Asking in words stays possible.
+  await pane.getByRole("button", { name: "Ask something else" }).click();
   await pane.getByLabel("Ask your agent").fill("Draft a short yes");
   await pane.getByRole("button", { name: "Ask", exact: true }).click();
   await expect(pane.getByText("Ana asks if you're open. I drafted a short yes.")).toBeVisible();
@@ -1134,7 +1141,7 @@ test("Home says when it's pinging you on WhatsApp, and the agent is asked in the
   await page.getByRole("button", { name: /^Rohan / }).click();
   const pane = page.locator(".space-detail");
   await expect(pane.getByRole("link", { name: "Ask your agent" })).toHaveCount(0);
-  await pane.getByRole("button", { name: "Ask your agent" }).click();
+  await pane.getByRole("button", { name: "Ask something else" }).click();
   await expect(pane.getByLabel("Ask your agent")).toBeFocused();
 });
 
