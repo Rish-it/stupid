@@ -1,13 +1,18 @@
 body { background: var(--color-background-body); }
 
-/* Meta colours: the neutral theme's black accent goes back to Meta blue (Astryx's own default), on Muse's near-white page. */
+/* Dark only, after Rishit's references: near-black page, flat panels with hairline borders, white pill buttons
+   with black text, and one warm colour (--live) for what is happening now. */
 [data-astryx-theme="neutral"] {
-  --color-background-body: light-dark(#FCFCFC, #111112);
-  --color-accent: #0064E0; --color-on-accent: #fff; --color-accent-muted: light-dark(#0082FB33, #0082FB3F);
-  --color-text-accent: light-dark(#0064E0, #3E9EFB); --color-icon-accent: light-dark(#0064E0, #2694FE);
-  /* Tiles sit one step off the page surface in both themes. */
-  --color-background-muted: light-dark(#F3F3F4, #242426);
+  --color-background-body: #0E0E0F; --color-background-card: #141416; --color-background-surface: #18181A;
+  --color-background-muted: #1C1C1F; --color-background-popover: #1C1C1F;
+  /* No borders or divider lines anywhere: things are separated by space, surface tone and weight. */
+  --color-border: transparent; --color-border-emphasized: transparent;
+  --color-text-primary: #EDEDED; --color-text-secondary: #8E8E93; --color-icon-primary: #EDEDED; --color-icon-secondary: #8E8E93;
+  --color-accent: #EDEDED; --color-on-accent: #0E0E0F; --color-accent-muted: #FFFFFF14;
+  --color-text-accent: #EDEDED; --color-icon-accent: #EDEDED;
+  --live: #FF5A1F;
 }
+.astryx-button, .astryx-segmented-control, .astryx-segmented-control-item { --radius-element: 9999px; }
 
 /* Motion follows muse.ai: the same curves and timings, with Stupid's content. Everything moving here
    stops for people who ask for reduced motion. */
@@ -17,13 +22,6 @@ body { background: var(--color-background-body); }
 @keyframes fade-in { from { opacity: 0; } }
 @keyframes fade-out { to { opacity: 0; } }
 
-/* Top bar: blends into the page, then shows its edge over the first 64px of scroll. */
-.shell { timeline-scope: --page; }
-.shell .astryx-layout-content { scroll-timeline: --page block; }
-@supports (animation-timeline: scroll()) {
-  .shell .astryx-app-shell-header { animation: edge-in linear both; animation-timeline: --page; animation-range: 0 64px; }
-}
-@keyframes edge-in { from { box-shadow: 0 1px 0 transparent; } to { box-shadow: 0 1px 0 var(--color-border); } }
 /* Signed-in screens: one surface per screen, centred, with tiles or rows inside. */
 /* The signed-in workspace reads at the larger (touch) type scale on every screen. */
 .workspace {
@@ -36,8 +34,42 @@ body { background: var(--color-background-body); }
   --text-heading-4-size: var(--font-size-base); --text-heading-5-size: var(--font-size-sm); --text-heading-6-size: var(--font-size-xs);
 }
 /* Every screen sits in the same panel: full width, at least the height of the window. */
-.page { box-sizing: border-box; min-height: calc(100dvh - 3.5rem - 1.5rem); padding: 1.5rem; border-radius: 20px; background: var(--color-background-card); }
-@media (min-width: 48rem) { .page { padding: 2.5rem 3rem; } }
+/* Signed in: the rail sits on the page colour, the content on one framed panel beside it (as the ChatGPT app). */
+.workspace .astryx-layout-content { background: var(--color-background-card); }
+@media (min-width: 48rem) {
+  .workspace .astryx-layout-content { margin: 8px 8px 8px 0; border-radius: 12px; }
+}
+.page { box-sizing: border-box; width: 100%; max-width: 1100px; margin-inline: auto; padding: 1.5rem 0 2rem; }
+@media (min-width: 48rem) { .page { padding: 3rem 1.5rem; } }
+.rail { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 56px; height: 100%; padding: 12px 0; box-sizing: border-box; }
+.rail-logo { display: grid; place-items: center; width: 36px; height: 36px; margin-block-end: 16px; border-radius: 10px; }
+.rail-item { position: relative; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; color: var(--color-text-secondary); }
+.rail-item:hover, .rail-item[aria-current="page"] { background: var(--color-background-muted); color: var(--color-text-primary); }
+.rail-logo:focus-visible, .rail-item:focus-visible { outline: 2px solid var(--color-text-primary); outline-offset: 2px; }
+.rail-item::after {
+  content: attr(data-label); position: absolute; inset-inline-start: calc(100% + 8px); top: 50%; translate: 0 -50%; z-index: 10;
+  padding: 4px 8px; border-radius: 8px; background: var(--color-background-popover);
+  color: var(--color-text-primary); font-size: 12px; white-space: nowrap; opacity: 0; pointer-events: none;
+}
+.rail-item:hover::after, .rail-item:focus-visible::after { opacity: 1; }
+@media (prefers-reduced-motion: no-preference) { .rail-item::after { transition: opacity .15s ease-out; } }
+.rail-me { margin-block-start: auto; }
+/* Phones: no hamburger; the rail becomes a bottom bar with the same three places and Settings. */
+@media (max-width: 47.99rem) {
+  .workspace .astryx-layout-header:has(.rail) { height: 0; min-height: 0; padding: 0; overflow: visible; }
+  .workspace .astryx-layout-header button[aria-label="Open navigation"] { display: none; }
+  .workspace .rail {
+    position: fixed; inset-inline: 0; inset-block-end: 0; z-index: 30; flex-direction: row; justify-content: space-around;
+    width: 100%; height: calc(56px + env(safe-area-inset-bottom)); padding: 0 8px env(safe-area-inset-bottom); background: var(--color-background-muted);
+  }
+  .workspace .rail-logo, .workspace .rail-item::after { display: none; }
+  .workspace .rail-me { margin: 0; }
+  .workspace .astryx-layout-content { padding-block-end: 72px; }
+}
+.reconnecting { position: fixed; inset-block-start: 12px; inset-inline-end: 16px; z-index: 20; padding: 4px 10px; border-radius: 9999px; background: var(--color-background-popover); }
+/* Fields show as a filled surface instead of an outline. */
+.astryx-text-area-control, .astryx-text-input, .astryx-input-group { background: #232327; }
+.app-footer { padding-block: 1rem 1.5rem; font-size: .8125rem; }
 .page-meta { font-size: .875rem; color: var(--color-text-secondary); }
 .logo { display: block; flex: none; }
 .bento { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: 1rem; }

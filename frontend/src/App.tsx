@@ -8,13 +8,12 @@ import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { Spinner } from "@astryxdesign/core/Spinner";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
-import { Avatar } from "@astryxdesign/core/Avatar";
 import { TopNav, TopNavHeading } from "@astryxdesign/core/TopNav";
 import { api, door, legal, oauthStartUrl, sample, setupDone, useLoad, useStream } from "./api";
 import { Logo } from "./Icons";
 import Landing from "./Landing";
 
-const pages = { today: "Today", inbox: "Inbox", agents: "Agents", setup: "Setup", settings: "Settings" } as const;
+const pages = { home: "Home", inbox: "Inbox", agents: "Agents", setup: "Setup", settings: "Settings" } as const;
 type Page = keyof typeof pages;
 const Setup = lazy(() => import("./Setup"));
 const Today = lazy(() => import("./Today"));
@@ -35,7 +34,8 @@ if (returned) {
 
 /** The page named in the address, or null when there is none. */
 function usePage(): Page | null {
-  const read = () => { const hash = location.hash.slice(1); return hash in pages ? hash as Page : null; };
+  // #today is the old name for Home; links to it still work.
+  const read = () => { const hash = location.hash.slice(1).replace(/^today$/, "home"); return hash in pages ? hash as Page : null; };
   const [page, setPage] = useState(read);
   useEffect(() => {
     const onHash = () => setPage(read());
@@ -57,7 +57,7 @@ export default function App() {
   const ready = user && setupDone(user);
   // Until setup is done, it is home; afterwards it lives in Settings. Pin it to the address so finishing doesn't jump away.
   const named = usePage();
-  const page = named ?? (user && !ready ? "setup" : "today");
+  const page = named ?? (user && !ready ? "setup" : "home");
   useEffect(() => { if (!named && page === "setup") location.replace("#setup"); }, [named, page]);
   const [failed, setFailed] = useState(failure);
   const [connecting, setConnecting] = useState(false);
@@ -71,7 +71,11 @@ export default function App() {
   const signedIn = Boolean(user);
   const signOut = useCallback(() => { setMe({ signed_in: false }); location.hash = ""; }, [setMe]);
   const reconnecting = useStream(signedIn, signOut);
-  useEffect(() => { document.title = signedIn ? `${pages[page]} · Stupid` : "Stupid"; }, [signedIn, page]);
+  useEffect(() => {
+    document.title = signedIn ? `${pages[page]} · Stupid` : "Stupid";
+    // Each place starts at its top, not where the last one was scrolled to.
+    document.querySelector(".astryx-layout-content")?.scrollTo(0, 0);
+  }, [signedIn, page]);
 
   const connect = () => setConnecting(true);
   if (connecting || (returned && !me.data && !me.error)) return (
@@ -83,7 +87,7 @@ export default function App() {
   const welcome = !user && Boolean(me.data || me.error?.status === 401);
   let body;
   if (user && page === "setup") body = <Suspense fallback={loading}><Setup state={user} onChange={next => me.setData({ ...user, ...next })} onConnect={connect} /></Suspense>;
-  else if (user && page === "today") body = <Suspense fallback={loading}><Today state={user} /></Suspense>;
+  else if (user && page === "home") body = <Suspense fallback={loading}><Today state={user} /></Suspense>;
   else if (user && page === "inbox") body = <Suspense fallback={loading}><Inbox /></Suspense>;
   else if (user && page === "agents") body = <Suspense fallback={loading}><Agents state={user} /></Suspense>;
   else if (user) body = <Suspense fallback={loading}><Settings name={user.name} onSignedOut={signOut} /></Suspense>;
@@ -98,24 +102,16 @@ export default function App() {
   return (
     <AppShell className={user ? "shell workspace" : "shell"} variant="wash" contentPadding={welcome ? 0 : 3}
       banner={sample && <Banner status="warning" container="section" title="Sample data" description="Nothing on this page is real. Remove ?fixtures=1 to use your own accounts." />}
-      topNav={
-      <TopNav label="Main navigation"
-        heading={<TopNavHeading logo={<Logo />} heading="Stupid" headingHref={user ? "#today" : "/"} />}
-        endContent={user ? (
-          <HStack gap={3} align="center">
-            {reconnecting && <Text className="shimmer" type="supporting" size="sm" role="status">Reconnecting…</Text>}
-            <Avatar name={user.name} size="sm" href="#settings" tooltip={false} alt={`${user.name}, settings`} />
-          </HStack>
-        ) : undefined} />
-    }
-      sideNav={user && <Suspense fallback={null}><SideBar page={page} setup={!ready} /></Suspense>}>
+      topNav={!user && <TopNav label="Main navigation" heading={<TopNavHeading logo={<Logo />} heading="Stupid" headingHref="/" />} />}
+      sideNav={user && <Suspense fallback={null}><SideBar page={page} setup={!ready} name={user.name} /></Suspense>}>
       <VStack gap={6}>
         {failed && <VStack paddingInline={welcome ? 4 : 0} paddingBlockStart={welcome ? 4 : 0}>
           <Banner status="warning" isDismissable onDismiss={() => setFailed(null)} title="Facebook didn't connect" description={failed}
             endContent={<Button size="sm" label="Try again" href={oauthStartUrl} onClick={connect} />} />
         </VStack>}
+        {reconnecting && <Text className="shimmer reconnecting" type="supporting" size="sm" role="status">Reconnecting…</Text>}
         {body}
-        {!welcome && !user && <VStack as="footer" gap={2} hAlign="center">
+        {!welcome && <VStack as="footer" gap={2} hAlign="center" className="app-footer">
           <HStack as="nav" aria-label="Legal" gap={4} wrap="wrap" hAlign="center">
             {legal.map(([label, href]) => <Link key={href} href={href} type="supporting">{label}</Link>)}
           </HStack>
