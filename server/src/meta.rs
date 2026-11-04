@@ -670,7 +670,8 @@ pub fn inbox_rows(state: &AppState, u: &User) -> ApiResult<Vec<Value>> {
     let marks = (1..=ids.len()).map(|i| format!("?{i}")).collect::<Vec<_>>().join(",");
     let db = lock(&state.db);
     let mut stmt = db.prepare(&format!("SELECT events.id,kind,asset_id,sender,events.text,events.created,EXISTS(SELECT 1 FROM replies r WHERE r.event_id=events.id AND r.error IS NULL),sender_name,
-          (SELECT error FROM replies r WHERE r.event_id=events.id),voice,media,d.text,d.source,matched_json,heard_json,d.model,d.styled,l.answer,l.created,post_id
+          (SELECT error FROM replies r WHERE r.event_id=events.id),voice,media,d.text,d.source,matched_json,heard_json,d.model,d.styled,l.answer,l.created,post_id,
+          (SELECT text FROM replies r WHERE r.event_id=events.id AND r.error IS NULL)
           FROM events LEFT JOIN drafts d ON d.id=(SELECT MAX(id) FROM drafts WHERE event_id=events.id AND user_id=?{u})
           LEFT JOIN learned l ON l.id=d.learned_id AND l.user_id=d.user_id
           WHERE asset_id IN ({marks}) ORDER BY events.created DESC, events.id DESC LIMIT 100", u = ids.len() + 1))?;
@@ -687,7 +688,9 @@ pub fn inbox_rows(state: &AppState, u: &User) -> ApiResult<Vec<Value>> {
                 "used": r.get::<_, Option<String>>(17)?.map(|a| -> rusqlite::Result<Value> { Ok(json!({ "answer": a, "told": r.get::<_, i64>(18)? })) }).transpose()? })) }).transpose()?,
             "matched_post": crate::tools::matched(r.get(13)?, &u.id),
             // The owner's post a comment is on, as Stupid's own copy of its picture.
-            "post_picture": r.get::<_, Option<String>>(19)?.map(|id| format!("/api/instagram/media/{id}/image")) }))
+            "post_picture": r.get::<_, Option<String>>(19)?.map(|id| format!("/api/instagram/media/{id}/image")),
+            // What the owner sent, so a replied thread shows it.
+            "reply_text": r.get::<_, Option<String>>(20)? }))
     })?;
     Ok(rows.collect::<Result<_, _>>()?)
 }
@@ -947,9 +950,11 @@ mod tests {
             let db = lock(&s.db);
             db.execute("INSERT INTO events (id,kind,asset_id,sender,text,created) VALUES (1,'whatsapp','p1','91','price?',1),(2,'whatsapp','p1','92','hi',2)", []).unwrap();
             db.execute("INSERT INTO drafts (user_id,event_id,text,source,created) VALUES ('u',1,'old','agent',1),('u',1,'It is 450.','muse',2),('someone',2,'not yours','muse',3)", []).unwrap();
+            db.execute("INSERT INTO replies (event_id,user_id,text,created) VALUES (2,'u','Hello!',3)", []).unwrap();
         }
         let rows = inbox_rows(&s, &u).unwrap();
         assert_eq!(rows.len(), 2);
+        assert_eq!((rows[0]["replied"].clone(), rows[0]["reply_text"].clone(), rows[1]["reply_text"].clone()), (json!(true), json!("Hello!"), Value::Null), "a replied thread shows what was sent");
         assert_eq!(rows[1]["draft"], json!({ "text": "It is 450.", "source": "muse", "models": {}, "styled": false, "used": null }), "Muse over MCP: its model is not known");
         assert_eq!(rows[0]["draft"], Value::Null, "another person's draft stays theirs");
         assert_eq!((rows[1]["photo"].clone(), rows[1]["voice"].clone()), (json!(false), json!(false)));
