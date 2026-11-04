@@ -8,7 +8,8 @@ use serde_json::{json, Value};
 use std::{collections::HashMap, future::Future, sync::{Arc, Mutex}, time::Duration};
 
 /// Wait this long after a thread's last trigger, so a burst of messages is judged once.
-const DEBOUNCE: Duration = Duration::from_secs(60);
+/// How long a thread waits for more messages before the agent reads it, so a burst is judged once.
+const DEBOUNCE: Duration = Duration::from_secs(20);
 /// Agent runs and evals together, per person per day.
 pub const CALLS_PER_DAY: i64 = 30;
 
@@ -83,11 +84,12 @@ pub fn gate(f: &Facts) -> Gate {
         Gate::Drop("The account is switched off in Stupid.")
     } else if f.own {
         Gate::Drop("Our own message.")
-    } else if f.comment {
-        Gate::Drop("Comments are read by Lead finder when you run it.")
     } else if f.replied {
         Gate::Drop("Already replied.")
-    } else if f.age_secs >= 86_400 {
+    } else if f.comment && f.age_secs >= 7 * 86_400 {
+        // Comments have no reply window, but a first read of an account shouldn't draft for old ones.
+        Gate::Drop("A comment from over a week ago.")
+    } else if !f.comment && f.age_secs >= 86_400 {
         Gate::Drop("Outside Meta's 24-hour reply window.")
     } else if f.open_ticket {
         Gate::Fanout
@@ -343,10 +345,11 @@ mod tests {
     fn gate_rules() {
         assert_eq!(gate(&ready()), Gate::Eval);
         type Change = fn(&mut Facts);
-        let cases: [(Change, Gate); 9] = [
+        let cases: [(Change, Gate); 10] = [
             (|f| f.selected = false, Gate::Drop("The account is switched off in Stupid.")),
             (|f| f.own = true, Gate::Drop("Our own message.")),
-            (|f| f.comment = true, Gate::Drop("Comments are read by Lead finder when you run it.")),
+            (|f| { f.comment = true; f.age_secs = 7 * 86_400 }, Gate::Drop("A comment from over a week ago.")),
+            (|f| { f.comment = true; f.age_secs = 3 * 86_400 }, Gate::Eval),
             (|f| f.replied = true, Gate::Drop("Already replied.")),
             (|f| f.age_secs = 86_400, Gate::Drop("Outside Meta's 24-hour reply window.")),
             (|f| f.open_ticket = true, Gate::Fanout),
