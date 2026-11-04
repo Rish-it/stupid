@@ -603,7 +603,13 @@ fn reply_request(kind: &str, asset_id: &str, sender: &str, dedupe: &str, text: &
 /// Send the person's reply to one inbox message. Only their tap calls this; each message gets one reply.
 pub async fn reply(State(s): State<AppState>, headers: HeaderMap, Path(id): Path<i64>, Json(body): Json<ReplyBody>) -> ApiResult<Json<Value>> {
     let u = user(&s, &headers)?;
-    let text = body.text.trim();
+    send_reply(&s, &u, id, &body.text).await?;
+    Ok(Json(json!({ "sent": true })))
+}
+
+/// The one send path for a reply to a customer: the app's Send tap, and the owner's "1" on WhatsApp.
+pub async fn send_reply(s: &AppState, u: &User, id: i64, text: &str) -> ApiResult<()> {
+    let text = text.trim();
     if text.is_empty() || text.chars().count() > 1000 {
         return Err(AppError::new(400, "Write a reply of up to 1,000 characters."));
     }
@@ -621,7 +627,7 @@ pub async fn reply(State(s): State<AppState>, headers: HeaderMap, Path(id): Path
         return Err(AppError::new(409, "Meta only allows a reply within 24 hours of their message."));
     }
     let (path, payload) = reply_request(&kind, &asset_id, &sender, &dedupe, text).ok_or_else(missing)?;
-    let t = tokens(&s, &u)?;
+    let t = tokens(s, u)?;
     // Claim the message before sending, so a double tap cannot send twice. A reply Meta failed
     // to deliver frees the message for another try.
     let claimed = {
@@ -632,7 +638,7 @@ pub async fn reply(State(s): State<AppState>, headers: HeaderMap, Path(id): Path
     if claimed == 0 {
         return Err(AppError::new(409, "You already replied to this message."));
     }
-    let sent = match post(&s, &path, &payload, t.for_asset(&asset.key)).await {
+    let sent = match post(s, &path, &payload, t.for_asset(&asset.key)).await {
         Ok(sent) => sent,
         Err(e) => {
             let _ = lock(&s.db).execute("DELETE FROM replies WHERE event_id=?1", [id]);
@@ -642,7 +648,7 @@ pub async fn reply(State(s): State<AppState>, headers: HeaderMap, Path(id): Path
     // Meta's id for the sent message, so a later delivery failure can be matched to this reply.
     let message_id = [&sent["messages"][0]["id"], &sent["message_id"], &sent["id"]].into_iter().find_map(|v| v.as_str());
     lock(&s.db).execute("UPDATE replies SET message_id=?2 WHERE event_id=?1", params![id, message_id])?;
-    Ok(Json(json!({ "sent": true })))
+    Ok(())
 }
 
 pub struct Event {

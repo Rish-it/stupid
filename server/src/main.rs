@@ -10,6 +10,7 @@ mod executor;
 mod meta;
 mod mcp;
 mod meta_ai;
+mod owner;
 mod reels;
 mod setup;
 mod style;
@@ -247,6 +248,15 @@ ALTER TABLE users ADD COLUMN agent_rules TEXT NOT NULL DEFAULT '';
     "ALTER TABLE users ADD COLUMN ai_model TEXT;",
     // How each step of a draft's trace was made: what a media model heard in a message and which model wrote the draft.
     "ALTER TABLE events ADD COLUMN heard_json TEXT; ALTER TABLE drafts ADD COLUMN model TEXT;",
+    // The agent on the owner's own WhatsApp: their number, its link, the 24-hour window they open, and each ping sent.
+    "CREATE TABLE owner_channel (user_id TEXT PRIMARY KEY, phone TEXT, link_code TEXT NOT NULL, linked INTEGER NOT NULL DEFAULT 0, asset_id TEXT,
+       business_number TEXT, window_until INTEGER, digest_time TEXT, tz TEXT NOT NULL DEFAULT 'Asia/Kolkata', quiet_from TEXT, quiet_to TEXT,
+       urgent_json TEXT NOT NULL DEFAULT '[\"big_order\",\"complaint\",\"brand_deal\",\"payment\"]', last_ping INTEGER,
+       seen_draft INTEGER NOT NULL DEFAULT 0, seen_report INTEGER NOT NULL DEFAULT 0, digest_day INTEGER, digest_held INTEGER NOT NULL DEFAULT 0, digest_since INTEGER);
+     CREATE INDEX owner_channel_phone ON owner_channel(phone);
+     CREATE TABLE owner_pings (id INTEGER PRIMARY KEY, user_id TEXT NOT NULL, kind TEXT NOT NULL CHECK (kind IN ('draft','question')), ref_id INTEGER NOT NULL,
+       event_id INTEGER NOT NULL, category TEXT NOT NULL, text TEXT NOT NULL, state TEXT NOT NULL, created INTEGER NOT NULL, sent INTEGER, UNIQUE(user_id, kind, ref_id));
+     CREATE TABLE owner_seen (dedupe TEXT PRIMARY KEY, created INTEGER NOT NULL);",
 ];
 
 /// The built app. A missing hashed asset answers 404, so a stale page fails loudly instead of loading
@@ -517,7 +527,7 @@ fn delete_user(s: &AppState, id: &str) -> rusqlite::Result<()> {
         tx.execute("DELETE FROM sessions WHERE user_id=?1", [id])?;
         tx.execute("DELETE FROM agent_runs WHERE user_id=?1", [id])?;
         tx.execute("DELETE FROM reports WHERE ticket_id IN (SELECT id FROM tickets WHERE user_id=?1)", [id])?;
-        for table in ["drafts", "tickets", "evals", "triggers", "threads", "learned", "agent_controls"] {
+        for table in ["drafts", "tickets", "evals", "triggers", "threads", "learned", "agent_controls", "owner_channel", "owner_pings"] {
             tx.execute(&format!("DELETE FROM {table} WHERE user_id=?1"), [id])?;
         }
         tx.execute("DELETE FROM access_keys WHERE user_id=?1", [id])?;
@@ -595,7 +605,17 @@ async fn webhook(State(s): State<AppState>, headers: HeaderMap, body: Bytes) -> 
         db.execute("UPDATE replies SET error=?2 WHERE message_id=?1", params![message_id, format!("WhatsApp didn't deliver this reply: {reason}")])?;
     }
     let mut added = Vec::new();
+    let mut from_owner = Vec::new();
     for e in events {
+        // The owner writing to their own business number is talking to their agent, never a customer.
+        if e.kind == "whatsapp" {
+            if let Some(owner) = owner::owner_of(&db, &e.asset_id, &e.sender)? {
+                if db.execute("INSERT OR IGNORE INTO owner_seen (dedupe,created) VALUES (?1,?2)", params![e.dedupe, now()])? == 1 {
+                    from_owner.push((owner, e.asset_id, e.text));
+                }
+                continue;
+            }
+        }
         if db.execute(
             "INSERT OR IGNORE INTO events (kind,asset_id,sender,sender_name,text,created,dedupe,media) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
             params![e.kind, e.asset_id, e.sender, e.sender_name, e.text, now(), e.dedupe, e.media],
@@ -605,6 +625,14 @@ async fn webhook(State(s): State<AppState>, headers: HeaderMap, body: Bytes) -> 
     }
     drop(db);
     voice::arrived(&s, &added);
+    for (owner, asset, text) in from_owner {
+        let s = s.clone();
+        tokio::spawn(async move {
+            if let Err(e) = owner::inbound(&s, &owner, &asset, &text).await {
+                tracing::warn!("owner message: {}", e.1);
+            }
+        });
+    }
     Ok(StatusCode::OK)
 }
 
@@ -650,6 +678,8 @@ fn sweep(s: &AppState, startup: bool) {
         .and_then(|_| db.execute("DELETE FROM oauth_states WHERE expires<?1", [t]))
         // ponytail: fixed 30-day inbox retention; make it a setting if anyone needs longer history.
         .and_then(|_| db.execute("DELETE FROM events WHERE created<?1", [t - 30 * 86400]))
+        .and_then(|_| db.execute("DELETE FROM owner_seen WHERE created<?1", [t - 7 * 86400]))
+        .and_then(|_| db.execute("DELETE FROM owner_pings WHERE created<?1", [t - 30 * 86400]))
         .and_then(|_| db.execute("DELETE FROM replies WHERE created<?1", [t - 30 * 86400]))
         // Lead and reply results quote customer messages, so they expire with them.
         .and_then(|_| db.execute("DELETE FROM agent_runs WHERE created<?1", [t - 30 * 86400]))
@@ -716,6 +746,15 @@ async fn main() {
             sweep(&swept, false);
         }
     });
+    // Urgent pings, pings held over quiet hours and the daily summary, for owners who linked their WhatsApp.
+    let pinging = state.clone();
+    tokio::spawn(async move {
+        let mut every = tokio::time::interval(Duration::from_secs(30));
+        loop {
+            every.tick().await;
+            owner::tick(&pinging).await;
+        }
+    });
 
     let app = Router::new()
         .route("/api/health", get(health))
@@ -744,6 +783,8 @@ async fn main() {
         .route("/api/agent", get(attention::home))
         .route("/api/agent/settings", put(attention::settings))
         .route("/api/agent/tickets/{id}/answer", post(attention::answer))
+        .route("/api/owner-channel", get(owner::get).put(owner::save))
+        .route("/api/owner-channel/test", post(owner::test))
         .route("/api/agent/facts/{id}", delete(attention::forget))
         .route("/api/agent/style", get(style::get).delete(style::forget))
         .route("/api/mcp/key", get(mcp::key_status).post(mcp::create_key).delete(mcp::revoke_key))

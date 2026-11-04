@@ -289,6 +289,15 @@ pub fn open_job(db: &Connection, user_id: &str, job: &str, run_id: i64) -> rusql
     open_explicit(db, user_id, &format!("job:{job}"), "run", &format!("run:{run_id}"), None, job)
 }
 
+/// A finished step taken outside a job, such as a WhatsApp ping or an owner command, for Recent work.
+pub fn note(db: &Connection, user_id: &str, event_id: Option<i64>, job: &str, kind: &str, text: &str) -> rusqlite::Result<()> {
+    let thread_id = thread(db, user_id, job)?;
+    let reference = format!("{job}:{}", rand::random::<u64>());
+    db.execute("INSERT INTO triggers (user_id,thread_id,source,ref,event_id,created,disposition) VALUES (?1,?2,'owner',?3,?4,?5,'accept')", params![user_id, thread_id, reference, event_id, now()])?;
+    db.execute("INSERT INTO tickets (user_id,thread_id,trigger_id,job,created,state,ended) VALUES (?1,?2,?3,?4,?5,'ended',?5)", params![user_id, thread_id, db.last_insert_rowid(), job, now()])?;
+    db.execute("INSERT INTO reports (ticket_id,kind,text,created) VALUES (?1,?2,?3,?4)", params![db.last_insert_rowid(), kind, text, now()]).map(drop)
+}
+
 /// An explicit request from the person or from Muse: an accepted trigger and a ticket, with no eval.
 pub fn open_explicit(db: &Connection, user_id: &str, key: &str, source: &str, reference: &str, event_id: Option<i64>, job: &str) -> rusqlite::Result<i64> {
     let thread_id = thread(db, user_id, key)?;

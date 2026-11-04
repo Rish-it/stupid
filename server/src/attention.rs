@@ -116,8 +116,13 @@ pub struct Answer {
 /// The person answers the agent's one question, or skips it. An answer resumes the ticket on its thread's worker.
 pub async fn answer(State(s): State<AppState>, headers: HeaderMap, Path(id): Path<i64>, Json(body): Json<Answer>) -> ApiResult<Json<Value>> {
     let u = user(&s, &headers)?;
-    let text = body.text.trim();
-    if !body.skip && !(1..=1000).contains(&text.chars().count()) {
+    Ok(Json(json!({ "state": give_answer(&s, &u, id, &body.text, body.skip)? })))
+}
+
+/// The owner's answer to the agent's question, from the app or from WhatsApp: remembered as a fact, then the agent works with it.
+pub fn give_answer(s: &AppState, u: &User, id: i64, text: &str, skip: bool) -> ApiResult<&'static str> {
+    let text = text.trim();
+    if !skip && !(1..=1000).contains(&text.chars().count()) {
         return Err(AppError::new(400, "Write an answer of up to 1000 characters, or skip the question."));
     }
     let thread = {
@@ -126,10 +131,10 @@ pub async fn answer(State(s): State<AppState>, headers: HeaderMap, Path(id): Pat
             "SELECT thread_id FROM tickets k WHERE id=?1 AND user_id=?2 AND state='open' AND (SELECT kind FROM reports WHERE ticket_id=k.id ORDER BY id DESC LIMIT 1)='waiting'",
             params![id, u.id], |r| r.get(0)).optional()?;
         let thread = waiting.ok_or_else(|| AppError::new(404, "That question was already answered."))?;
-        if body.skip {
+        if skip {
             db.execute("INSERT INTO reports (ticket_id,kind,text,created) VALUES (?1,'dropped','You skipped the question.',?2)", params![id, now()])?;
             db.execute("UPDATE tickets SET state='ended',ended=?2 WHERE id=?1", params![id, now()])?;
-            return Ok(Json(json!({ "state": "ended" })));
+            return Ok("ended");
         }
         db.execute("INSERT INTO reports (ticket_id,kind,text,created) VALUES (?1,'answer',?2,?3)", params![id, text, now()])?;
         // Remembered past this ticket, so the agent asks once.
@@ -149,7 +154,7 @@ pub async fn answer(State(s): State<AppState>, headers: HeaderMap, Path(id): Pat
             }
         }
     });
-    Ok(Json(json!({ "state": "open" })))
+    Ok("open")
 }
 
 #[derive(Deserialize)]
