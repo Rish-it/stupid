@@ -531,14 +531,15 @@ pub fn inbox_rows(state: &AppState, u: &User) -> ApiResult<Vec<Value>> {
     let mut stmt = db.prepare(&format!("SELECT id,kind,asset_id,sender,text,created,EXISTS(SELECT 1 FROM replies r WHERE r.event_id=events.id AND r.error IS NULL),sender_name,
           (SELECT error FROM replies r WHERE r.event_id=events.id),voice,media,
           (SELECT text FROM drafts d WHERE d.event_id=events.id AND d.user_id=?{u} ORDER BY d.id DESC LIMIT 1),
-          (SELECT source FROM drafts d WHERE d.event_id=events.id AND d.user_id=?{u} ORDER BY d.id DESC LIMIT 1)
+          (SELECT source FROM drafts d WHERE d.event_id=events.id AND d.user_id=?{u} ORDER BY d.id DESC LIMIT 1),matched_json
           FROM events WHERE asset_id IN ({marks}) ORDER BY created DESC, id DESC LIMIT 100", u = ids.len() + 1))?;
     let rows = stmt.query_map(rusqlite::params_from_iter(ids.iter().chain([&u.id])), |r| {
         Ok(json!({ "id": r.get::<_, i64>(0)?, "kind": r.get::<_, String>(1)?, "asset_id": r.get::<_, String>(2)?, "sender": r.get::<_, String>(3)?, "text": r.get::<_, String>(4)?, "created": r.get::<_, i64>(5)?, "replied": r.get::<_, bool>(6)?, "sender_name": r.get::<_, Option<String>>(7)?, "reply_error": r.get::<_, Option<String>>(8)?,
             "voice": r.get::<_, bool>(9)?,
             // A voice note, photo or video still being put into words.
             "transcribing": r.get::<_, Option<String>>(10)?.map(|m| crate::voice::media_kind(&m).0).map(|k| match k { crate::voice::Media::Voice => "voice", crate::voice::Media::Photo => "photo", crate::voice::Media::Video => "video" }),
-            "draft": r.get::<_, Option<String>>(11)?.map(|text| -> rusqlite::Result<Value> { Ok(json!({ "text": text, "source": r.get::<_, String>(12)? })) }).transpose()? }))
+            "draft": r.get::<_, Option<String>>(11)?.map(|text| -> rusqlite::Result<Value> { Ok(json!({ "text": text, "source": r.get::<_, String>(12)? })) }).transpose()?,
+            "matched_post": crate::tools::matched(r.get(13)?) }))
     })?;
     Ok(rows.collect::<Result<_, _>>()?)
 }
