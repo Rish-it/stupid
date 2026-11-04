@@ -450,6 +450,26 @@ test("a draft on Home is sent only on the Send tap, and focus moves on", async (
   await expect(page.getByLabel("Your answer")).toBeVisible();
 });
 
+test("the agent is asked inside the open conversation, and its reply is only a draft until Send", async ({ page }) => {
+  let asked: unknown, replied = false;
+  await page.route("**/api/me", route => route.fulfill(json({ ...signedIn, selected: ["instagram:1"] })));
+  await page.route("**/api/agent", route => route.fulfill(json(agentHome())));
+  await page.route("**/api/inbox", route => route.fulfill(json(inbox)));
+  await page.route("**/api/inbox/w1/reply", route => { replied = true; return route.fulfill(json({ sent: true })); });
+  await page.route("**/api/agent/ask", route => { asked = route.request().postDataJSON(); return route.fulfill(json({ answer: "Ana asks if you're open. I drafted a short yes.", drafts: [{ event_id: "w1", text: "Yes! Open till 7 tonight." }] })); });
+  await page.goto("/#home");
+  await page.getByRole("button", { name: /^Ana / }).click();
+  const pane = page.locator(".space-detail");
+  await pane.getByRole("button", { name: "Ask your agent" }).click();
+  await pane.getByLabel("Ask your agent").fill("Draft a short yes");
+  await pane.getByRole("button", { name: "Ask", exact: true }).click();
+  await expect(pane.getByText("Ana asks if you're open. I drafted a short yes.")).toBeVisible();
+  expect((asked as { text: string }).text).toBe("Draft a short yes");
+  await pane.getByRole("button", { name: "Use as draft" }).click();
+  await expect(pane.getByLabel("Reply to Ana")).toHaveValue("Yes! Open till 7 tonight.");
+  expect(replied).toBe(false);
+});
+
 test("a question from the agent is answered right on Home", async ({ page }) => {
   let answered: unknown;
   await page.route("**/api/me", route => route.fulfill(json({ ...signedIn, selected: ["instagram:1"] })));
@@ -1107,12 +1127,15 @@ test("a closed window says how to reopen it, and the test says exactly what's ne
   await expect(panel.getByText(/within 24 hours of your last message\. Send any message to the business number/)).toBeVisible();
 });
 
-test("Home says when it's pinging you on WhatsApp, and any conversation can go to the agent's chat", async ({ page }) => {
+test("Home says when it's pinging you on WhatsApp, and the agent is asked in the same pane", async ({ page }) => {
   await page.goto("http://127.0.0.1:8032/?fixtures=1&persona=business&stage=busy#home");
   await expect(page.getByText(/· Pinging you on WhatsApp/)).toBeVisible();
-  // Any open conversation can be taken to the agent's own chat, with who it's about typed in.
+  // Asking the agent about a conversation happens right in its pane, never by leaving for WhatsApp.
   await page.getByRole("button", { name: /^Rohan / }).click();
-  await expect(page.locator(".space-detail").getByRole("link", { name: "Ask your agent" })).toHaveAttribute("href", /^https:\/\/wa\.me\/15550100000\?text=About%20Rohan/);
+  const pane = page.locator(".space-detail");
+  await expect(pane.getByRole("link", { name: "Ask your agent" })).toHaveCount(0);
+  await pane.getByRole("button", { name: "Ask your agent" }).click();
+  await expect(pane.getByLabel("Ask your agent")).toBeFocused();
 });
 
 test("pairing needs only the code: the number is optional, and a failed test shows the server's own words", async ({ page }) => {

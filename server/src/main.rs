@@ -825,6 +825,7 @@ async fn main() {
         .route("/api/custom-agents/{id}/run", post(custom::run_now))
         .route("/api/agent", get(attention::home))
         .route("/api/agent/settings", put(attention::settings))
+        .route("/api/agent/ask", post(owner::ask))
         .route("/api/agent/tickets/{id}/answer", post(attention::answer))
         .route("/api/owner-channel", get(owner::get).put(owner::save))
         .route("/api/owner-channel/test", post(owner::test))

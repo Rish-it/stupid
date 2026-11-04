@@ -10,7 +10,7 @@ import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
-import { ago, api, chatUrl, jobNames, lastReport, ownerPlace, refetch, sample, sampleSend, senderName, useLoad, whatsappBlock } from "./api";
+import { ago, api, jobNames, lastReport, ownerPlace, refetch, sample, sampleSend, senderName, useLoad, whatsappBlock } from "./api";
 import type { AgentHome, AgentId, AgentResult, AgentRun, Connections, CustomResult, InboxItem, InboxKind, Need, Persona } from "./api";
 import { Check, Logo } from "./Icons";
 import Trace from "./Trace";
@@ -18,6 +18,8 @@ import { Result } from "./Agents";
 import SourceIcon from "./SourceIcon";
 
 const Numbers = lazy(() => import("./Numbers"));
+// The agent thinking: a dotted orb (thinking-orbs, MIT, plain 2D canvas), loaded only when someone asks.
+const Orb = lazy(() => import("thinking-orbs").then(m => ({ default: m.ThinkingOrb })));
 // Sample desk only: the owner's own WhatsApp, and drawn stand-ins for customers' photos.
 const SamplePhone = lazy(() => import("./Sample"));
 const SamplePhoto = lazy(() => import("./Sample").then(m => ({ default: m.SamplePhoto })));
@@ -66,13 +68,11 @@ export default function Home({ state, persona }: { state: Connections; persona: 
   const home = useLoad("agent", api.agent);
   const runs = useLoad("agents", api.agents);
   const inbox = useLoad("inbox", api.inbox);
-  const owner = useLoad("owner-channel", api.ownerChannel).data;
   const [group, setGroup] = useState<keyof typeof groups>("all");
   const [picked, setPicked] = useState<string>();
   // On a phone the list fills the screen and a chosen row opens over it; wider, the first row is open beside the list.
   const [open, setOpen] = useState(false);
   const [numbers, setNumbers] = useState(false);
-  const ask = owner?.linked && owner.business_number ? owner.business_number : undefined;
 
   const rows: Row[] = [];
   const needs = home.data?.needs ?? [];
@@ -92,7 +92,7 @@ export default function Home({ state, persona }: { state: Connections; persona: 
       urgent: need?.urgent ? urgency[need.urgent] ?? "Urgent" : undefined,
       key: `t:${key}`, group: (last?.replied || last?.skipped) && !need ? "done" : last?.transcribing && !need ? "working" : "needs", who, tag: apps[kind] ?? kind, source: kind,
       preview: last ? (last.transcribing ? working[last.transcribing] : last.text) : need?.message.text ?? "", when: Math.max(last?.created ?? 0, need?.created ?? 0), state,
-      pane: <Conversation key={key} who={who} kind={kind} thread={thread} need={need} ask={ask} />,
+      pane: <Conversation key={key} who={who} kind={kind} thread={thread} need={need} />,
     });
   }
   for (const need of needs) if (need.type === "question") rows.push({
@@ -124,10 +124,10 @@ export default function Home({ state, persona }: { state: Connections; persona: 
       pane: <Pane who={name} tag="Working" when={when} agent><Text as="p" className="shimmer">{own ? "Working…" : `${name} ${workingOn[run.agent as AgentId]}`}</Text></Pane> });
     else if (run.status === "failed") rows.push({ key: `r:${run.agent}`, group: "done", who: name, tag: "Agent", agent: true,
       preview: run.error ?? "Didn't finish.", when, state: "Didn't finish",
-      pane: <Pane who={name} tag="Didn't finish" when={when} agent actions={<Again run={run} ask={ask} name={name} />}><Text as="p">{run.error ?? "This run didn't finish."}</Text></Pane> });
+      pane: <Pane who={name} tag="Didn't finish" when={when} agent actions={<Again run={run} />}><Text as="p">{run.error ?? "This run didn't finish."}</Text></Pane> });
     else if (result) rows.push({ key: `r:${run.agent}`, group: "done", who: name, tag: "Agent", agent: true,
       preview: own ? (result as unknown as CustomResult).summary : gist(result), when, state: own || !thin(result) ? "Ready" : "Nothing new",
-      pane: <Pane who={name} tag={run.models?.length ? `Made with ${list(run.models)}` : "Agent"} when={when} agent actions={<Again run={run} ask={ask} name={name} />}>
+      pane: <Pane who={name} tag={run.models?.length ? `Made with ${list(run.models)}` : "Agent"} when={when} agent actions={<Again run={run} />}>
         {own ? <VStack gap={2}>
           <Text as="p">{(result as unknown as CustomResult).summary}</Text>
           {(result as unknown as CustomResult).drafts > 0 && <Text as="p" type="supporting" size="sm">Its drafts wait in Needs you.</Text>}
@@ -233,20 +233,67 @@ function Pane({ who, tag, when, agent, source, actions, children }: { who: strin
   );
 }
 
-/** Run an agent again, or ask it about this on the owner's own chat with it. */
-function Again({ run, ask, name }: { run: AgentRun; ask?: string; name: string }) {
+/** Run an agent again, or ask it about its work right here. */
+function Again({ run }: { run: AgentRun }) {
   const [error, setError] = useState("");
+  const [asking, setAsking] = useState(false);
   const again = () => (run.agent.startsWith("custom:") ? api.runAgent(Number(run.agent.slice(7))) : api.run(run.agent as AgentId))
     .then(() => refetch("agents"), (cause: unknown) => setError(message(cause)));
   return <>
     <Button size="sm" label="Run again" clickAction={again} />
-    {ask && <Button variant="ghost" size="sm" label="Ask your agent" href={chatUrl(ask, `About ${name}: `)} target="_blank" rel="noopener noreferrer" />}
+    {!asking && <Button variant="ghost" size="sm" label="Ask your agent" onClick={() => setAsking(true)} />}
     {error && <Text as="p" size="sm" role="alert">{error}</Text>}
+    {asking && <Ask onClose={() => setAsking(false)} />}
   </>;
 }
 
+/**
+ * The agent, asked in the same space as the open item: the same brain as the owner's chat, with this conversation as context.
+ * Its answer shows here; a reply it writes is only a draft, used with a tap and sent with another.
+ */
+function Ask({ about, onDraft, onClose }: { about?: string; onDraft?: (text: string) => void; onClose: () => void }) {
+  const [text, setText] = useState("");
+  const [said, setSaid] = useState<{ q: string; a: string; draft?: string }[]>([]);
+  const [error, setError] = useState("");
+  const [thinking, setThinking] = useState("");
+  const ask = () => {
+    const q = text.trim();
+    setThinking(q);
+    setText("");
+    return api.ask(q, about).then(r => {
+      setSaid(s => [...s, { q, a: r.answer, draft: r.drafts.find(d => about !== undefined && String(d.event_id) === about)?.text }]);
+      if (r.drafts.length) { refetch("agent"); refetch("inbox"); }
+    }, (cause: unknown) => { setText(q); setError(message(cause)); }).finally(() => setThinking(""));
+  };
+  return (
+    <VStack gap={3} className="space-ask">
+      {said.map((x, i) => <VStack key={i} gap={2}>
+        <div className="bubble bubble-mine"><Text as="p">{x.q}</Text></div>
+        <HStack gap={2} align="start"><span className="space-agent space-agent-sm" aria-label="Your agent" role="img"><Logo size={14} /></span>
+          <div className="bubble"><Text as="p">{x.a}</Text></div></HStack>
+        {x.draft && onDraft && <HStack><Button size="sm" label="Use as draft" onClick={() => onDraft(x.draft!)} /></HStack>}
+      </VStack>)}
+      {thinking && <VStack gap={2}>
+        <div className="bubble bubble-mine"><Text as="p">{thinking}</Text></div>
+        <HStack gap={3} align="center" role="status">
+          {/* Still for reduced motion: the orb holds one frame. */}
+          <Suspense fallback={<span className="space-orb" />}><Orb state="composing" size={64} theme="dark" paused={matchMedia("(prefers-reduced-motion: reduce)").matches} aria-hidden /></Suspense>
+          <Text type="supporting" size="sm" className="shimmer">Your agent is thinking…</Text>
+        </HStack>
+      </VStack>}
+      <TextArea label="Ask your agent" placeholder={about ? "What does this person want? Draft a reply that…" : "What should I do with this?"} value={text}
+        onChange={v => { setText(v); setError(""); }} rows={2} maxLength={1000} hasAutoFocus status={error ? { type: "error", message: error } : undefined} />
+      <HStack gap={2}>
+        {/* A plain click, not clickAction: an action's transition would hold the thinking orb back until the answer is in. */}
+        <Button variant="primary" size="sm" label="Ask" isDisabled={sample || !text.trim() || Boolean(thinking)} onClick={() => void ask()} />
+        <Button variant="ghost" size="sm" label="Close" onClick={onClose} />
+      </HStack>
+    </VStack>
+  );
+}
+
 /** A person's conversation, oldest first, with the agent's draft ready to send, change or write from scratch. */
-function Conversation({ who, kind, thread, need, ask }: { who: string; kind: InboxKind; thread: InboxItem[]; need?: Extract<Need, { type: "draft" }>; ask?: string }) {
+function Conversation({ who, kind, thread, need }: { who: string; kind: InboxKind; thread: InboxItem[]; need?: Extract<Need, { type: "draft" }> }) {
   const last = thread[0];
   const draft = need?.text ?? (last && !last.replied ? last.draft?.text : undefined);
   const [text, setText] = useState(draft ?? "");
@@ -261,11 +308,12 @@ function Conversation({ who, kind, thread, need, ask }: { who: string; kind: Inb
   // Skipping sends nothing: the message moves to Done and its draft leaves Needs you.
   const skip = () => api.skip(id!).then(() => { setSkipped(true); refetch("inbox"); refetch("agent"); }, (cause: unknown) => setError(message(cause)));
   const kept = need ?? last?.draft ?? undefined;
-  const asking = ask && <Button variant="ghost" size="sm" label="Ask your agent" href={chatUrl(ask, `About ${who}: `)} target="_blank" rel="noopener noreferrer" />;
+  const [asking, setAsking] = useState(false);
+  const askButton = !asking && <Button variant="ghost" size="sm" label="Ask your agent" onClick={() => setAsking(true)} />;
   const failed = last && !last.replied && !sent ? last.reply_error : undefined;
   return (
     <Pane who={who} tag={apps[kind] ?? kind} when={last?.created ?? need?.created ?? 0} source={kind}
-      actions={!canReply && asking}>
+      actions={!canReply && askButton}>
       <VStack gap={2}>
         {(thread.length ? [...thread].reverse() : [{ id: need!.event_id, text: need!.message.text ?? "", replied: false } as InboxItem]).map(m => <VStack key={m.id} gap={2}>
           <div className="bubble"><Text as="p">{m.transcribing ? working[m.transcribing] : m.text}</Text></div>
@@ -290,10 +338,12 @@ function Conversation({ who, kind, thread, need, ask }: { who: string; kind: Inb
           <Button variant="primary" size="sm" label={sample ? sampleSend : "Send"} isDisabled={sample || !text.trim()} clickAction={send} />
           {draft && !editing && <Button variant="ghost" size="sm" label="Edit" onClick={() => setEditing(true)} />}
           <Button variant="ghost" size="sm" label="Skip" clickAction={skip} />
-          {asking}
+          {askButton}
         </HStack>
         <div aria-live="polite">{error && <Text as="p" size="sm">{error}</Text>}</div>
       </VStack>}
+      {asking && <Ask about={String(id)} onClose={() => setAsking(false)}
+        onDraft={canReply ? t => { setText(t); setEditing(true); setError(""); } : undefined} />}
     </Pane>
   );
 }

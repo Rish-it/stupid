@@ -15,7 +15,8 @@
     "@stylexjs/stylex": "0.19.1",
     "bot-avatars": "^0.2.2",
     "react": "^19.3.1",
-    "react-dom": "^19.3.1"
+    "react-dom": "^19.3.1",
+    "thinking-orbs": "0.3.2"
   },
   "devDependencies": {
     "@astryxdesign/cli": "0.7.6",
