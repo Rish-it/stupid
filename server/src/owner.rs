@@ -524,7 +524,7 @@ pub async fn act(s: &AppState, user_id: &str, step: Step) -> ApiResult<Option<St
 }
 
 const CHAT: &str = "You are the owner's assistant for their small business, and the owner is texting you. \
-`owner_message` is what they wrote. Answer in plain words, short like a text message: under 600 characters, no markdown, no lists of ids. \
+`owner_message` is what they wrote. Answer in plain words, short like a text message: under 600 characters, no markdown, no lists of ids, no tool or field names. \
 Look things up before you answer: get_today for counts, list_inbox for messages not replied to, read_thread for one conversation, \
 list_drafts for drafts waiting, list_leads for leads. owner_facts are things the owner told you before. \
 When the owner asks you to reply to a customer, find the message with list_inbox and call save_reply_draft with the reply in the customer's language. \
