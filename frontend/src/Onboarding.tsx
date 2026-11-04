@@ -1,14 +1,21 @@
 import { useEffect, useRef, useState } from "react";
+import type { CSSProperties } from "react";
 import { Button } from "@astryxdesign/core/Button";
 import { ProgressBar } from "@astryxdesign/core/ProgressBar";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
-import { api, factsPrompt, oauthStartUrl, useLoad } from "./api";
+import { api, oauthStartUrl, refetch, useLoad } from "./api";
 import type { Account, Persona, SetupNext, SetupStep } from "./api";
 import { Modal } from "./Surface";
 
 const message = (cause: unknown) => cause instanceof Error ? cause.message : String(cause);
+// The muted track is the card's own colour, so an empty bar vanished; a faint grey keeps it in view.
+const track = { "--color-background-muted": "var(--color-text-disabled)" } as CSSProperties;
+/** When the card closes and focus fell to the page itself (nothing opened the card), start at the page heading. */
+const focusPage = () => requestAnimationFrame(() => requestAnimationFrame(() => {
+  if (document.activeElement === document.body || !document.activeElement) document.querySelector<HTMLElement>("main h1, h1")?.focus();
+}));
 
 /**
  * Onboarding is one card over Home: the single next step from GET /api/setup/next, the same for both paths.
@@ -23,14 +30,22 @@ export default function Onboarding({ persona, onPersona, onAccount, onConnect, o
   // A path chosen elsewhere (the door, Settings) changes the steps.
   useEffect(() => { void reload(); }, [persona, reload]);
   const data = next.data;
+  const step = data?.persona ? data.step : undefined;
   // Closes when no step is left; done with only an optional step still offers it, with Skip for now.
-  if (!data || next.error) return null;
-  const step = data.persona ? data.step : undefined;
-  if (data.persona && !step) return null;
+  const open = Boolean(data && !next.error && (!data.persona || step));
+  const box = useRef<HTMLDivElement>(null);
+  // A new step replaces the old one in the same card: its heading takes focus, as on opening.
+  useEffect(() => {
+    if (open) box.current?.closest("dialog, [role=dialog]")?.querySelector<HTMLElement>("h2")?.focus();
+  }, [open, step?.id]);
+  useEffect(() => { if (open) return () => void focusPage(); }, [open]);
+  if (!data || !open) return null;
   return (
     <Modal isOpen onClose={onClose} title={step?.title ?? "What do you do on Meta?"} purpose="form">
-      {step ? <Step data={data} step={step} reload={reload} onAccount={onAccount} onConnect={onConnect} onSkip={onClose} />
-        : <Choose onPersona={onPersona} />}
+      <div ref={box}>
+        {step ? <Step data={data} step={step} reload={reload} onAccount={onAccount} onConnect={onConnect} onSkip={onClose} />
+          : <Choose onPersona={onPersona} />}
+      </div>
     </Modal>
   );
 }
@@ -78,10 +93,10 @@ function Step({ data, step, reload, onAccount, onConnect, onSkip }: {
     <VStack gap={5}>
       <VStack gap={2}>
         <Text type="supporting" size="sm" hasTabularNumbers>Step {Math.min(done + 1, total)} of {total}</Text>
-        <ProgressBar value={done} max={total} label="Setup progress" isLabelHidden />
+        <ProgressBar value={done} max={total} label="Setup progress" isLabelHidden style={track} />
       </VStack>
       <Text as="p">{step.why}</Text>
-      {step.action === "tell_agent" ? <Facts step={step} hint={data.persona ? factsPrompt[data.persona] : step.why} onSaved={reload} onSkip={onSkip} /> : <>
+      {step.action === "tell_agent" ? <Facts step={step} onSaved={reload} onSkip={onSkip} /> : <>
         {step.fix && <Text as="p" type="supporting">{step.fix}</Text>}
         <HStack gap={2} wrap="wrap">
           {step.action === "connect"
@@ -99,14 +114,15 @@ function Step({ data, step, reload, onAccount, onConnect, onSkip }: {
   );
 }
 
-/** A sentence or two for the agent's rules. Saving keeps the drafting switch as it is. */
-function Facts({ step, hint, onSaved, onSkip }: { step: SetupStep; hint: string; onSaved: () => Promise<void>; onSkip: () => void }) {
+/** A sentence or two for the agent's rules. Saving keeps the drafting switch as it is; Home and Settings read the new rules. */
+function Facts({ step, onSaved, onSkip }: { step: SetupStep; onSaved: () => Promise<void>; onSkip: () => void }) {
   const [text, setText] = useState("");
   const [error, setError] = useState("");
   const save = async () => {
     try {
       const home = await api.agent();
       await api.agentSettings(home.proactive, text.trim());
+      refetch("agent");
       await onSaved();
     } catch (cause) {
       setError(message(cause));
@@ -115,7 +131,7 @@ function Facts({ step, hint, onSaved, onSkip }: { step: SetupStep; hint: string;
   return (
     <VStack gap={4}>
       <TextArea label="About you" isLabelHidden value={text} onChange={v => { setText(v); setError(""); }} rows={3} maxLength={2000}
-        placeholder={hint} status={error ? { type: "error", message: error } : undefined} description="Your agent uses this when it drafts. Change it any time in Settings." />
+        status={error ? { type: "error", message: error } : undefined} description="Your agent uses this when it drafts. Change it any time in Settings." />
       <HStack gap={2} wrap="wrap">
         <Button variant="primary" label={step.button} isDisabled={!text.trim()} clickAction={save} />
         {step.optional && <Button variant="ghost" label="Skip for now" onClick={onSkip} />}

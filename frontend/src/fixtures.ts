@@ -155,7 +155,10 @@ export function localNext(me: Account & { persona?: Persona | null }, rules: str
   const steps: [passed: boolean, step: () => SetupStep][] = persona === "creator" ? [
     [on("instagram").length > 0, () => ({ id: "instagram_connect", app: "instagram", title: "Connect Instagram", why: "Stupid watches your Reels and reads your comments and DMs.", action: "connect", button: "Connect Instagram", optional: false })],
   ] : [
-    [on("whatsapp").length > 0, () => ({ id: "whatsapp_connect", app: "whatsapp", title: "Connect WhatsApp and your Facebook Page", why: "Stupid hears your customers' chats, voice notes and photos.", action: "connect", button: "Connect WhatsApp", optional: false })],
+    // Like the server: one step for both while the Page is missing too, its button naming both.
+    [on("whatsapp").length > 0, () => on("messenger").length > 0
+      ? { id: "whatsapp_connect", app: "whatsapp", title: "Connect WhatsApp", why: "Stupid hears your customers' chats, voice notes and photos.", action: "connect", button: "Connect WhatsApp", optional: false }
+      : { id: "whatsapp_connect", app: "whatsapp", title: "Connect WhatsApp and your Facebook Page", why: "Stupid hears your customers' chats, voice notes and photos.", action: "connect", button: "Connect WhatsApp and Page", optional: false }],
     [on("messenger").length > 0, () => ({ id: "page_connect", app: "messenger", title: "Connect your Facebook Page", why: "Stupid answers Messenger chats from your Page too.", action: "connect", button: "Connect your Page", optional: false })],
   ];
   steps.push(
