@@ -267,6 +267,9 @@ export function Result({ result, onLeave }: { result: AgentResult; onLeave: () =
           {w.drop_off_guesses?.map((n, i) => <Text key={`g${i}`} as="p" size="sm" type="supporting"><Token size="sm" label="Guess" /> <Text size="sm" hasTabularNumbers>{n.at}</Text> {n.what.replace(/^Guess:\s*/i, "")}</Text>)}
         </VStack>
       ))}
+      {result.skipped?.map((k, i) => (
+        <Text key={`s${i}`} as="p" size="sm" type="supporting">Didn't watch {k.permalink ? <Link hasUnderline href={k.permalink} isExternalLink>{k.caption?.split("\n")[0] || "a Reel"}</Link> : k.caption?.split("\n")[0] || "a Reel"}: {k.why}</Text>
+      ))}
       {items(result.scripts.map((sc, i) => (
         <VStack key={i} gap={2}>
           <Text weight="semibold">{sc.title}</Text>

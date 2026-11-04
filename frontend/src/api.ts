@@ -115,7 +115,7 @@ export type AgentResult =
   | { leads: { who: string; channel: string; said: string; why: string; next_step: string }[] }
   | { ideas: { hook: string; caption: string; format: "reel" | "carousel" | "photo" | "story"; why: string }[]; looked_at?: number; looked_at_posts?: { id: string; permalink?: string; caption?: string }[] }
   | { replies: { event_id: string; to: string; draft: string }[] }
-  | { scripts: ReelScript[]; watched: Watched[]; from_captions_only: boolean }
+  | { scripts: ReelScript[]; watched: Watched[]; from_captions_only: boolean; skipped?: { caption?: string; permalink?: string; why: string }[] }
   | { summary: string; actions: { campaign: string; do: "pause" | "keep" | "scale" | "fix"; why: string }[]; creative_pack?: Crop[] };
 export type AgentRun = {
   agent: AgentId; status: "running" | "done" | "failed"; result: AgentResult | null; error: string | null;
