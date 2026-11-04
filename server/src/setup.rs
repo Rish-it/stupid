@@ -30,7 +30,7 @@ fn fix_in_meta(app: &'static str, issue: &Issue) -> Step {
         "instagram" => "instagram_issue",
         "messenger" => "page_access",
         _ if issue.link.contains("billing_hub") => "whatsapp_payment",
-        _ if issue.text.contains("locked") => "whatsapp_locked",
+        _ if issue.text.contains("locked") || issue.link.contains("security_center") => "whatsapp_locked",
         _ if issue.text.contains("time zone") => "whatsapp_time_zone",
         _ if issue.link.contains("registration") => "whatsapp_number",
         _ if issue.link.contains("business_info") => "whatsapp_business_info",
@@ -152,6 +152,9 @@ mod tests {
         assert_eq!((unpaid["step"]["id"].clone(), unpaid["step"]["link"].clone(), unpaid["done"].clone()), (json!("whatsapp_payment"), json!(pay), json!(false)));
         let locked = plan(&person(Some("business"), &[("whatsapp", vec![issue("Meta has locked this WhatsApp account.", "https://business.facebook.com/business-support-home/")]), ("messenger", vec![])]), false);
         assert_eq!(locked["step"]["id"], "whatsapp_locked");
+        let center = "https://business.facebook.com/latest/settings/security_center?business_id=7";
+        let restricted = plan(&person(Some("business"), &[("whatsapp", vec![issue("Meta has restricted this WhatsApp account.", center)]), ("messenger", vec![])]), false);
+        assert_eq!((restricted["step"]["id"].clone(), restricted["step"]["link"].clone()), (json!("whatsapp_locked"), json!(center)));
         let ready = plan(&person(Some("business"), &[("whatsapp", vec![]), ("messenger", vec![])]), false);
         assert_eq!((ready["done"].clone(), ready["step"]["id"].clone(), ready["progress"].clone()), (json!(true), json!("agent_facts"), json!({ "done": 3, "total": 4 })));
         assert!(ready["step"]["title"].as_str().unwrap().contains("prices"));
