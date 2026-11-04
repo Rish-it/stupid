@@ -19,16 +19,16 @@ as a short noun phrase of one to three words that a segmentation model can find,
 Use \"product\" when the caption doesn't say. Return JSON {\"subjects\":[string]}.";
 
 /// The picture a post shows: its image, or a video's cover frame.
-fn picture(m: &Value) -> Option<&str> {
+pub fn picture(m: &Value) -> Option<&str> {
     if m["media_type"] == "VIDEO" { m["thumbnail_url"].as_str() } else { m["media_url"].as_str() }
 }
 
-/// The creator's best pictures by likes plus comments.
-fn best(ig: &Value) -> Vec<Value> {
+/// The creator's `n` best pictures by likes plus comments.
+pub fn best(ig: &Value, n: usize) -> Vec<Value> {
     let mut media: Vec<Value> = ig["accounts"].as_array().into_iter().flatten()
         .flat_map(|a| a["media"].as_array().cloned().unwrap_or_default()).filter(|m| picture(m).is_some()).collect();
     media.sort_by_key(|m| -(m["like_count"].as_i64().unwrap_or(0) + m["comments_count"].as_i64().unwrap_or(0)));
-    media.truncate(MAX_IMAGES);
+    media.truncate(n);
     media
 }
 
@@ -54,7 +54,7 @@ pub async fn find(s: &AppState, user_id: &str, image_url: &str, subject: &str) -
 
 /// The ad creative pack: for each of the best pictures, the subject and where it is. Returns it and the Baseten cost.
 pub async fn pack(s: &AppState, user_id: &str, ig: &Value, own_key: Option<&str>) -> (Vec<Value>, f64) {
-    let media = best(ig);
+    let media = best(ig, MAX_IMAGES);
     if media.is_empty() {
         return (Vec::new(), 0.0);
     }
@@ -119,7 +119,7 @@ mod tests {
             { "id": "d", "media_type": "CAROUSEL_ALBUM", "media_url": "https://cdn/d.jpg", "like_count": 7 },
             { "id": "e", "media_type": "IMAGE", "media_url": "https://cdn/e.jpg", "like_count": 0 },
         ] }] });
-        let ranked = best(&ig);
+        let ranked = best(&ig, 3);
         let ids: Vec<&str> = ranked.iter().map(|m| m["id"].as_str().unwrap()).collect();
         assert_eq!(ids, ["b", "d", "a"], "a video counts by its cover; one without a cover is skipped");
         assert_eq!(picture(&ranked[0]), Some("https://cdn/b.jpg"));

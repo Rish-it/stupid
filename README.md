@@ -36,7 +36,7 @@ data-deletion callback removes a person's data in one transaction. AI spend stop
 
 | What | Model | Where it runs |
 |---|---|---|
-| Lead finder, post ideas, reply drafts, ad watcher (`server/src/agents.rs`) | Muse Spark Open, `meta-models/muse-spark-open-1026` | Baseten Model APIs (`STUPID_MUSE_BASE_URL`) |
+| Lead finder, post ideas (which also look at your 6 best post pictures), reply drafts, ad watcher (`server/src/agents.rs`) | Muse Spark Open, `meta-models/muse-spark-open-1026` | Baseten Model APIs (`STUPID_MUSE_BASE_URL`) |
 | The agent on new messages: intake decision (`tickets.rs`) and a tool-calling executor that drafts replies or asks you one question (`executor.rs`, `tools.rs`) | Muse Spark Open, same model | Baseten Model APIs |
 | Reel director watches your best Reels (up to 3) and writes three new scripts with shot lists (`reels.rs`), plus the agent's `watch_video` tool | Muse Wonder, `muse-wonder-1.0` (preview) | Meta Model API, same key and cap |
 | Smart crops: the Ad watcher's creative pack finds the product or subject in your best post pictures and Reel covers, then the browser crops them to 1:1, 4:5 and 9:16 (`crops.rs`, `crop.ts`), plus the agent's `find_subject` tool | SAM 3.1, `sam-3.1` | Meta Model API, same key and cap |
@@ -82,7 +82,7 @@ Stupid sends Meta Platform Data to these model providers, only to do the work th
 | Meta Model API (Muse Wonder) | When the person runs Reel director: links to their own top Reels, and their captions and counts | Same terms as below | Same |
 | Meta Model API (SAM 3.1) | When the person runs Ad watcher with Instagram on: links to their own top post pictures and a short subject name. Stupid keeps only the boxes | Same terms as below | Same |
 | Meta Model API (Muse Voice Transcribe) | The audio of a customer's voice note, once, to turn it into words. The audio isn't stored by Stupid; only the words are, for 30 days | Standard tier: not used for training; Meta may keep requests for safety review | [Model API terms](https://dev.meta.ai/legal/terms-of-service) |
-| Baseten (model inference) | For the agent a person runs: message and comment text with the sender's first name, Instagram bio, captions and post counts, ad campaign totals. Never phone numbers, Meta IDs or tokens | Zero data retention on Model APIs; no training on customer data | [DPA](https://www.baseten.co/dpa/), [security practices](https://www.baseten.co/security-practices/) |
+| Baseten (model inference) | For the agent a person runs: message and comment text with the sender's first name, Instagram bio, captions and post counts, links to their own best post pictures (Post ideas), ad campaign totals. Never phone numbers, Meta IDs or tokens | Zero data retention on Model APIs; no training on customer data | [DPA](https://www.baseten.co/dpa/), [security practices](https://www.baseten.co/security-practices/) |
 | The person's own Baseten account | The same, only after they save their own Baseten API key in Settings and tick the consent box (the time is stored) | Their account's terms | Their own account |
 
 Meta tokens and the database stay on Stupid's server. The Cloudflare tunnel only carries the

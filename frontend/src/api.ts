@@ -77,7 +77,7 @@ export type Watched = { video: number; caption?: string; permalink?: string; wor
 export type AgentResult =
   | { empty: true }
   | { leads: { who: string; channel: string; said: string; why: string; next_step: string }[] }
-  | { ideas: { hook: string; caption: string; format: "reel" | "carousel" | "photo" | "story"; why: string }[] }
+  | { ideas: { hook: string; caption: string; format: "reel" | "carousel" | "photo" | "story"; why: string }[]; looked_at?: number }
   | { replies: { event_id: string; to: string; draft: string }[] }
   | { scripts: ReelScript[]; watched: Watched[]; from_captions_only: boolean }
   | { summary: string; actions: { campaign: string; do: "pause" | "keep" | "scale" | "fix"; why: string }[]; creative_pack?: Crop[] };
