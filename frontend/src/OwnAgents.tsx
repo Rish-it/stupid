@@ -73,6 +73,9 @@ function Own({ agent, run, ready, onStarted, onChange }: {
 }) {
   const [error, setError] = useState("");
   const fail = (cause: unknown) => setError(message(cause));
+  // A run that finishes after an error replaces it.
+  const [seen, setSeen] = useState(run?.finished);
+  if (run?.finished !== seen) { setSeen(run?.finished); setError(""); }
   const running = run?.status === "running";
   const result = run?.status === "done" ? run.result as unknown as CustomResult | null : null;
   return (
@@ -81,13 +84,13 @@ function Own({ agent, run, ready, onStarted, onChange }: {
         <Heading level={3} id={`own-${agent.id}`} className="agent-name">{agent.name}</Heading>
         <Text as="p" size="sm" type="supporting">{described(agent)}</Text>
       </VStack>
-      <div aria-live="polite">
+      <VStack gap={1} aria-live="polite">
         {error && <Text as="p" size="sm">{error}</Text>}
         {running && <Text as="p" size="sm" className="shimmer">Working on it. This usually takes under a minute.</Text>}
         {run?.status === "failed" && <Text as="p" size="sm">The last run didn't finish: {run.error ?? "no reason given"}</Text>}
         {result && <Text as="p" size="sm">{result.summary}{run?.finished ? ` (${ago(run.finished)})` : ""}</Text>}
         {result && result.drafts > 0 && <Text as="p" size="sm" type="supporting">{result.drafts === 1 ? "1 draft waits" : `${result.drafts} drafts wait`} in Needs you on Home.</Text>}
-      </div>
+      </VStack>
       <HStack gap={2} align="center" wrap="wrap">
         <Button variant="primary" size="sm" label={running ? "Working…" : "Run now"} isLoading={running} isDisabled={!ready}
           aria-label={running ? `${agent.name} is working` : `Run now: ${agent.name}`}
