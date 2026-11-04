@@ -5,6 +5,7 @@ import { Heading } from "@astryxdesign/core/Heading";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
+import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
 import { ago, api, drafts, jobNames, senderName, useLoad } from "./api";
 import type { AgentHome, AgentId, AgentResult, AgentRun, Connections, Need, Persona } from "./api";
 import { Result } from "./Agents";
@@ -35,7 +36,7 @@ export default function Home({ state, persona }: { state: Connections; persona: 
       <VStack gap={8}>
         <VStack as="header" gap={2} hAlign="center">
           {home.data && <Status data={home.data} />}
-          <Heading level={1} justify="center">{today}</Heading>
+          <Heading level={1} justify="center"><VisuallyHidden>Home, </VisuallyHidden>{today}</Heading>
         </VStack>
         <div className="home-panels">
           <Load state={home}>{data => <NeedsYou data={data} reload={home.reload} />}</Load>
@@ -183,6 +184,6 @@ function Preview({ result }: { result: Exclude<AgentResult, { empty: true }> }) 
   }
   if ("ideas" in result) return <VStack gap={1}>{result.ideas.slice(0, 2).map((idea, i) => <Text key={i} as="p">{idea.hook} <Text type="supporting" size="sm">· {idea.format}</Text></Text>)}</VStack>;
   if ("leads" in result) return result.leads.length ? <VStack gap={1}>{result.leads.slice(0, 2).map((l, i) => <Text key={i} as="p"><strong>{l.who}</strong> <Text type="supporting">said “{l.said}”</Text></Text>)}</VStack> : <Text as="p" type="supporting">No one ready to buy yet.</Text>;
-  if ("replies" in result) return <Text as="p">{result.replies.length} {result.replies.length === 1 ? "reply" : "replies"} drafted. Send them from Needs you or the Inbox.</Text>;
+  if ("replies" in result) return <Text as="p">{result.replies.length} {result.replies.length === 1 ? "reply" : "replies"} drafted. Send {result.replies.length === 1 ? "it" : "them"} from Needs you or the Inbox.</Text>;
   return <Text as="p">{result.summary}</Text>;
 }

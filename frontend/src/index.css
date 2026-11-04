@@ -1,12 +1,15 @@
 body { background: var(--color-background-body); }
 
-/* Dark only, after Rishit's references: near-black page, flat panels with hairline borders, white pill buttons
+/* Dark only, after Rishit's references: near-black page, flat borderless panels, white pill buttons
    with black text, and one warm colour (--live) for what is happening now. */
 [data-astryx-theme="neutral"] {
   --color-background-body: #0E0E0F; --color-background-card: #141416; --color-background-surface: #18181A;
   --color-background-muted: #1C1C1F; --color-background-popover: #1C1C1F;
   /* No borders or divider lines anywhere: things are separated by space, surface tone and weight. */
   --color-border: transparent; --color-border-emphasized: transparent;
+  /* The theme's dark shadows add a 1px white rim; keep only the drops. */
+  --shadow-low: 0 2px 4px #00000040, 0 4px 8px #00000066; --shadow-med: 0 2px 4px #00000059, 0 4px 12px #00000080;
+  --shadow-high: 0 4px 6px #00000080, 0 12px 24px #000000B3;
   --color-text-primary: #EDEDED; --color-text-secondary: #8E8E93; --color-icon-primary: #EDEDED; --color-icon-secondary: #8E8E93;
   --color-accent: #EDEDED; --color-on-accent: #0E0E0F; --color-accent-muted: #FFFFFF14;
   --color-text-accent: #EDEDED; --color-icon-accent: #EDEDED;
@@ -43,18 +46,15 @@ body { background: var(--color-background-body); }
 }
 .page { box-sizing: border-box; width: 100%; max-width: 1100px; margin-inline: auto; padding: 1.5rem 0 2rem; }
 @media (min-width: 48rem) { .page { padding: 3rem 1.5rem; } }
-.rail { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 56px; height: 100%; padding: 12px 0; box-sizing: border-box; }
+.rail { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 64px; height: 100%; padding: 12px 0; box-sizing: border-box; }
 .rail-logo { display: grid; place-items: center; width: 36px; height: 36px; margin-block-end: 16px; border-radius: 10px; }
-.rail-item { position: relative; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; color: var(--color-text-secondary); }
+/* Each place shows its name under the icon, on the rail and on the phone bar alike. */
+.rail-item {
+  display: grid; justify-items: center; gap: 2px; width: 56px; padding: 6px 0; border-radius: 10px;
+  color: var(--color-text-secondary); font-size: 11px; line-height: 1.2; text-decoration: none;
+}
 .rail-item:hover, .rail-item[aria-current="page"] { background: var(--color-background-muted); color: var(--color-text-primary); }
 .rail-logo:focus-visible, .rail-item:focus-visible { outline: 2px solid var(--color-text-primary); outline-offset: 2px; }
-.rail-item::after {
-  content: attr(data-label); position: absolute; inset-inline-start: calc(100% + 8px); top: 50%; translate: 0 -50%; z-index: 10;
-  padding: 4px 8px; border-radius: 8px; background: var(--color-background-popover);
-  color: var(--color-text-primary); font-size: 12px; white-space: nowrap; opacity: 0; pointer-events: none;
-}
-.rail-item:hover::after, .rail-item:focus-visible::after { opacity: 1; }
-@media (prefers-reduced-motion: no-preference) { .rail-item::after { transition: opacity .15s ease-out; } }
 .rail-me { margin-block-start: auto; }
 /* Phones: no hamburger; the rail becomes a bottom bar with the same three places and Settings. */
 @media (max-width: 47.99rem) {
@@ -64,7 +64,7 @@ body { background: var(--color-background-body); }
     position: fixed; inset-inline: 0; inset-block-end: 0; z-index: 30; flex-direction: row; justify-content: space-around;
     width: 100%; height: calc(56px + env(safe-area-inset-bottom)); padding: 0 8px env(safe-area-inset-bottom); background: var(--color-background-muted);
   }
-  .workspace .rail-logo, .workspace .rail-item::after { display: none; }
+  .workspace .rail-logo { display: none; }
   .workspace .rail-me { margin: 0; }
   .workspace .astryx-layout-content { padding-block-end: 72px; }
 }
@@ -101,10 +101,9 @@ body { background: var(--color-background-body); }
 .row { padding: 14px 16px; border-radius: 12px; background: var(--color-background-muted); outline: none; }
 .row:focus-visible { outline: 2px solid var(--color-text-primary); outline-offset: 2px; }
 .kind { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--color-text-secondary); }
-.kind::before { content: ""; width: 2px; height: 10px; border-radius: 1px; background: var(--live); }
 .bubble-out { align-self: flex-start; background: #232327; }
 
-/* Inbox, after the "Customers" reference: a grid of people, the app as a small tag with a coloured tick. */
+/* Inbox, after the "Customers" reference: a grid of people, the app as a small tag. */
 .people { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr)); gap: 12px; margin: 0; padding: 0; list-style: none; }
 .person {
   display: grid; grid-template-rows: auto 1fr auto; gap: 12px; width: 100%; height: 100%; min-height: 10.5rem; padding: 16px; box-sizing: border-box;
@@ -112,9 +111,6 @@ body { background: var(--color-background-body); }
 }
 .person:hover { background: var(--color-background-muted); }
 .person:focus-visible { outline: 2px solid var(--color-text-primary); outline-offset: 2px; }
-.person[data-app="whatsapp"] .kind::before { background: #25D366; }
-.person[data-app="instagram"] .kind::before { background: #E1306C; }
-.person[data-app="messenger"] .kind::before { background: #0A7CFF; }
 .person-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; color: var(--color-text-secondary); line-height: 1.45; overflow-wrap: anywhere; }
 .person-foot { display: grid; gap: 2px; }
 .person-meta { display: flex; flex-wrap: wrap; gap: 4px 8px; color: var(--color-text-secondary); font-size: .8125rem; font-variant-numeric: tabular-nums; }
