@@ -408,14 +408,22 @@ pub fn receive(db: &Connection, user_id: &str, kind: &str, asset_id: &str, sende
     if !links(text, &ch.link_code) {
         return Ok(Step::Ignore);
     }
+    // What the owner wrote before pairing was never a customer's: it leaves the Inbox with the agent's work on it,
+    // so nothing keeps pointing at an event id SQLite may hand to the next customer's message. Done first, so the
+    // seen marks below never sit above a draft id SQLite will reuse.
+    const MINE: &str = "SELECT id FROM events WHERE asset_id=?1 AND sender=?2";
+    db.execute(&format!("UPDATE tickets SET state='ended',ended=?3 WHERE state='open' AND trigger_id IN (SELECT id FROM triggers WHERE event_id IN ({MINE}))"),
+        params![asset_id, sender, now()])?;
+    for forget in [format!("UPDATE triggers SET event_id=NULL WHERE event_id IN ({MINE})"), format!("DELETE FROM drafts WHERE event_id IN ({MINE})"),
+        format!("DELETE FROM replies WHERE event_id IN ({MINE})"), "DELETE FROM events WHERE asset_id=?1 AND sender=?2".to_string()] {
+        db.execute(&forget, params![asset_id, sender])?;
+    }
     // The number or Messenger id the code came from is the owner's. Only needs from now on are pinged.
     db.execute("UPDATE owner_channel SET channel=?2,asset_id=?3,business_number=NULL,
           phone=CASE WHEN ?2='whatsapp' THEN ?4 ELSE phone END, psid=CASE WHEN ?2='messenger' THEN ?5 ELSE psid END,
-          seen_draft=CASE WHEN linked=1 THEN seen_draft ELSE (SELECT COALESCE(MAX(id),0) FROM drafts) END,
+          seen_draft=CASE WHEN linked=1 THEN MIN(seen_draft,(SELECT COALESCE(MAX(id),0) FROM drafts)) ELSE (SELECT COALESCE(MAX(id),0) FROM drafts) END,
           seen_report=CASE WHEN linked=1 THEN seen_report ELSE (SELECT COALESCE(MAX(id),0) FROM reports) END, linked=1 WHERE user_id=?1",
         params![user_id, kind, asset_id, format!("+{sender}"), sender])?;
-    // What the owner wrote before pairing was never a customer's.
-    db.execute("DELETE FROM events WHERE asset_id=?1 AND sender=?2", params![asset_id, sender])?;
     let place = if kind == "messenger" { "Messenger" } else { "WhatsApp" };
     tickets::note(db, user_id, None, "owner", "ready", &format!("Linked your {place}. Pings and your daily summary go there."))?;
     Ok(Step::Linked)
@@ -456,7 +464,10 @@ pub async fn act(s: &AppState, user_id: &str, step: Step) -> ApiResult<Option<St
             Err(e) => e.1,
         },
         (Command::Text(t), _) => {
-            tickets::note(&lock(&s.db), user_id, None, "owner", "answer", &format!("You wrote on WhatsApp: {}", t.chars().take(200).collect::<String>()))?;
+            {
+                let db = lock(&s.db);
+                tickets::note(&db, user_id, None, "owner", "answer", &format!("You wrote on {}: {}", on(&db, user_id)?, t.chars().take(200).collect::<String>()))?;
+            }
             let (reply, drafts) = chat(s, &u, t).await?;
             let said = say(s, user_id, None, &reply).await?;
             for d in drafts {
@@ -471,11 +482,14 @@ pub async fn act(s: &AppState, user_id: &str, step: Step) -> ApiResult<Option<St
         }
     };
     let event = ping.as_ref().map(|p| p.event_id);
-    tickets::note(&lock(&s.db), user_id, event, "owner", "answer", &format!("You wrote on WhatsApp: {}", text.chars().take(200).collect::<String>()))?;
+    {
+        let db = lock(&s.db);
+        tickets::note(&db, user_id, event, "owner", "answer", &format!("You wrote on {}: {}", on(&db, user_id)?, text.chars().take(200).collect::<String>()))?;
+    }
     say(s, user_id, event, &reply).await
 }
 
-const CHAT: &str = "You are the owner's assistant for their small business, and the owner is texting you on WhatsApp. \
+const CHAT: &str = "You are the owner's assistant for their small business, and the owner is texting you. \
 `owner_message` is what they wrote. Answer in plain words, short like a text message: under 600 characters, no markdown, no lists of ids. \
 Look things up before you answer: get_today for counts, list_inbox for messages not replied to, read_thread for one conversation, \
 list_drafts for drafts waiting, list_leads for leads. owner_facts are things the owner told you before. \
@@ -528,18 +542,25 @@ pub async fn chat(s: &AppState, u: &User, text: &str) -> ApiResult<(String, Vec<
         executor::End::Done(_) => "Done.".into(),
         _ => format!("I couldn't finish that: {report}"),
     };
-    let mut stmt = db.prepare("SELECT d.id,d.event_id,e.kind,COALESCE(e.sender_name,e.sender),e.text,d.text FROM drafts d JOIN events e ON e.id=d.event_id WHERE d.ticket_id=?1 ORDER BY d.id")?;
+    let mut stmt = db.prepare("SELECT d.id,d.event_id,e.kind,COALESCE(NULLIF(e.sender_name,''),CASE WHEN e.kind='whatsapp' THEN e.sender END,'your customer'),e.text,d.text FROM drafts d JOIN events e ON e.id=d.event_id WHERE d.ticket_id=?1 ORDER BY d.id")?;
     let drafts = stmt.query_map([ticket], |r| Ok(Need { kind: "draft", ref_id: r.get(0)?, event_id: r.get(1)?, app: r.get(2)?, name: r.get(3)?, message: r.get(4)?,
         draft: r.get(5)?, question: None }))?.collect::<Result<Vec<_>, _>>()?;
     Ok((reply, drafts))
 }
 
+/// Where the owner talks to Stupid now, in words.
+fn on(db: &Connection, user_id: &str) -> rusqlite::Result<&'static str> {
+    Ok(if channel(db, user_id)?.channel == "messenger" { "Messenger" } else { "WhatsApp" })
+}
+
 /// Send a line to the owner and log it for Recent work.
 async fn say(s: &AppState, user_id: &str, event: Option<i64>, text: &str) -> ApiResult<Option<String>> {
-    let (kind, logged) = match tell(s, user_id, text).await {
-        Ok(Ok(())) => ("ready", format!("Told you on WhatsApp: {text}")),
-        Ok(Err(needs)) => ("blocked", format!("Couldn't tell you on WhatsApp ({needs}): {text}")),
-        Err(e) => ("failed", format!("Couldn't tell you on WhatsApp: {}", e.1)),
+    let sent = tell(s, user_id, text).await;
+    let place = on(&lock(&s.db), user_id)?;
+    let (kind, logged) = match sent {
+        Ok(Ok(())) => ("ready", format!("Told you on {place}: {text}")),
+        Ok(Err(needs)) => ("blocked", format!("Couldn't tell you on {place} ({needs}): {text}")),
+        Err(e) => ("failed", format!("Couldn't tell you on {place}: {}", e.1)),
     };
     tickets::note(&lock(&s.db), user_id, event, "owner", kind, &logged.chars().take(600).collect::<String>())?;
     Ok(Some(text.to_string()))
@@ -559,7 +580,7 @@ pub struct Ping {
 
 /// The newest ping still waiting for the owner's word.
 fn latest_ping(db: &Connection, user_id: &str) -> rusqlite::Result<Option<Ping>> {
-    db.query_row("SELECT p.id,p.kind,p.ref_id,p.event_id,COALESCE(e.sender_name,e.sender,'your customer'),d.text FROM owner_pings p
+    db.query_row("SELECT p.id,p.kind,p.ref_id,p.event_id,COALESCE(NULLIF(e.sender_name,''),CASE WHEN e.kind='whatsapp' THEN e.sender END,'your customer'),d.text FROM owner_pings p
         LEFT JOIN events e ON e.id=p.event_id LEFT JOIN drafts d ON p.kind='draft' AND d.id=p.ref_id
         WHERE p.user_id=?1 AND p.state='sent' ORDER BY p.sent DESC, p.id DESC LIMIT 1", [user_id], |r| Ok(Ping {
             id: r.get(0)?, kind: r.get(1)?, ref_id: r.get(2)?, event_id: r.get(3)?, name: r.get(4)?, draft: r.get(5)? })).optional()
@@ -593,13 +614,13 @@ pub struct Need {
 pub fn new_needs(db: &Connection, u: &User) -> rusqlite::Result<Vec<Need>> {
     let (seen_draft, seen_report): (i64, i64) = db.query_row("SELECT seen_draft,seen_report FROM owner_channel WHERE user_id=?1", [&u.id], |r| Ok((r.get(0)?, r.get(1)?)))?;
     let ids: Vec<String> = u.assets.iter().filter(|a| u.selected.contains(&a.key)).map(|a| a.id.clone()).collect();
-    let mut stmt = db.prepare("SELECT d.id,d.event_id,e.kind,COALESCE(e.sender_name,e.sender),e.text,d.text,e.asset_id FROM drafts d JOIN events e ON e.id=d.event_id
+    let mut stmt = db.prepare("SELECT d.id,d.event_id,e.kind,COALESCE(NULLIF(e.sender_name,''),CASE WHEN e.kind='whatsapp' THEN e.sender END,'your customer'),e.text,d.text,e.asset_id FROM drafts d JOIN events e ON e.id=d.event_id
         WHERE d.user_id=?1 AND d.id>?2 AND d.id IN (SELECT MAX(id) FROM drafts WHERE user_id=?1 GROUP BY event_id)
           AND NOT EXISTS (SELECT 1 FROM replies r WHERE r.event_id=d.event_id AND r.error IS NULL)
           AND (e.kind='instagram_comment' OR e.created>?3) ORDER BY d.id")?;
     let drafts = stmt.query_map(params![u.id, seen_draft, now() - WINDOW], |r| Ok((r.get::<_, String>(6)?, Need { kind: "draft", ref_id: r.get(0)?, event_id: r.get(1)?, app: r.get(2)?,
         name: r.get(3)?, message: r.get(4)?, draft: r.get(5)?, question: None })))?.collect::<Result<Vec<_>, _>>()?;
-    let mut stmt = db.prepare("SELECT k.id,e.id,e.kind,COALESCE(e.sender_name,e.sender),e.text,q.text,e.asset_id FROM tickets k
+    let mut stmt = db.prepare("SELECT k.id,e.id,e.kind,COALESCE(NULLIF(e.sender_name,''),CASE WHEN e.kind='whatsapp' THEN e.sender END,'your customer'),e.text,q.text,e.asset_id FROM tickets k
         JOIN reports q ON q.id=(SELECT MAX(id) FROM reports WHERE ticket_id=k.id AND kind='question')
         JOIN triggers t ON t.id=k.trigger_id JOIN events e ON e.id=t.event_id
         WHERE k.user_id=?1 AND k.state='open' AND q.id>?2 AND (SELECT kind FROM reports WHERE ticket_id=k.id ORDER BY id DESC LIMIT 1)='waiting' ORDER BY q.id")?;
@@ -653,7 +674,7 @@ async fn deliver(s: &AppState, user_id: &str, ping: i64, event: i64, text: &str)
     db.execute("UPDATE owner_pings SET state=?2,sent=CASE WHEN ?2='sent' THEN ?3 END WHERE id=?1", params![ping, state, now()])?;
     if state == "sent" {
         db.execute("UPDATE owner_channel SET last_ping=?2 WHERE user_id=?1", params![user_id, now()])?;
-        tickets::note(&db, user_id, Some(event), "owner", "ready", &format!("Pinged you on WhatsApp: {}", text.lines().next().unwrap_or_default()))?;
+        tickets::note(&db, user_id, Some(event), "owner", "ready", &format!("Pinged you on {}: {}", on(&db, user_id)?, text.lines().next().unwrap_or_default()))?;
     }
     Ok(())
 }
@@ -733,7 +754,8 @@ async fn send_digest(s: &AppState, user_id: &str, day: i64, tz: &str) -> ApiResu
     let text = crate::digest::build(&lock(&s.db), user_id, midnight(day, tz), now())?.text;
     if let Ok(Ok(())) = tell(s, user_id, &text).await {
         lock(&s.db).execute("UPDATE owner_channel SET digest_held=0,digest_since=?2 WHERE user_id=?1", params![user_id, now()])?;
-        tickets::note(&lock(&s.db), user_id, None, "owner", "ready", "Sent your summary on WhatsApp.")?;
+        let db = lock(&s.db);
+        tickets::note(&db, user_id, None, "owner", "ready", &format!("Sent your summary on {}.", on(&db, user_id)?))?;
     }
     Ok(())
 }
@@ -969,6 +991,10 @@ mod tests {
         // What the owner wrote to the Page before pairing sits in the Inbox as if a customer wrote it.
         post_hook(&s, &page_hook("555", "Hi")).await;
         assert_eq!(crate::meta::inbox_rows(&s, &crate::user_by_id(&s, "u").unwrap()).unwrap().len(), 1);
+        // The agent took it up as a customer's: a trigger, an open ticket and a draft on it.
+        lock(&s.db).execute_batch("INSERT INTO triggers (id,user_id,thread_id,source,ref,event_id,created) SELECT 70,'u',1,'inbox','x',id,0 FROM events WHERE sender='555';
+            INSERT INTO tickets (id,user_id,thread_id,trigger_id,job,created,state) VALUES (70,'u',1,70,'reply',0,'open');
+            INSERT INTO drafts (user_id,ticket_id,event_id,text,source,created) SELECT 'u',70,id,'Hello!','agent',0 FROM events WHERE sender='555';").unwrap();
         post_hook(&s, &page_hook("777", &format!("hi {code}x"))).await;
         assert!(!channel(&lock(&s.db), "u").unwrap().linked, "only that exact code");
 
@@ -980,6 +1006,9 @@ mod tests {
         assert!(seen.lock().unwrap().iter().any(|(p, _)| p == "/me/messages"), "sent with the Page's Messenger send path");
         let inbox = crate::meta::inbox_rows(&s, &crate::user_by_id(&s, "u").unwrap()).unwrap();
         assert_eq!(inbox.iter().map(|r| r["sender"].as_str().unwrap()).collect::<Vec<_>>(), ["777"], "the owner's own Messenger messages are gone from the Inbox");
+        let left: (String, Option<i64>, i64) = lock(&s.db).query_row("SELECT k.state,t.event_id,(SELECT COUNT(*) FROM drafts WHERE ticket_id=70) FROM tickets k JOIN triggers t ON t.id=k.trigger_id WHERE k.id=70",
+            [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap();
+        assert_eq!(left, ("ended".to_string(), None, 0), "the agent's work on them goes too, so a reused event id can't inherit it");
 
         // An urgent need pings over Messenger, and "1" there sends the draft to the customer the same way the tap does.
         customer_draft(&s, "Can you do 40 boxes by Friday?");
