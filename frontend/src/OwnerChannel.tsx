@@ -47,7 +47,7 @@ function Channel({ oc, blocked, onSaved }: { oc: OwnerChannel; blocked?: Issue; 
   const test = () => api.testOwnerChannel().then(() => setNote({ at: "test", text: `Sent. Check your ${place}.` }), (cause: unknown) => {
     const needs = cause instanceof ApiError ? (cause.body as { needs?: string } | undefined)?.needs : undefined;
     setNote({ at: "test", bad: true, text: needs === "link" ? "Pair your WhatsApp first: send the code above to your agent."
-      : needs === "window" ? `${place} only lets me message you within 24 hours of your last message. Send me any message there, then try again.`
+      : needs === "window" ? `${place} only lets me message you within 24 hours of your last message. Send any message to ${place === "Messenger" ? "your Page" : "the business number"}, then try again.`
       : message(cause) });
   });
   // A tick shows at once; a failed save puts the list back as the server has it.
