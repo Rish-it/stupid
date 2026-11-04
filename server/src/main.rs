@@ -346,13 +346,19 @@ pub fn user_by_id(state: &AppState, id: &str) -> ApiResult<User> {
         .optional()?;
     let (name, token_blob, assets, selected, permissions, problems, persona) = row.ok_or_else(|| AppError::new(401, "Your session ended. Sign in again."))?;
     let mut assets: Vec<meta::Asset> = serde_json::from_str(&assets).unwrap_or_default();
+    // Sign-ins before discovery skipped repeats could store a number twice.
+    let mut seen = std::collections::HashSet::new();
+    assets.retain(|a| seen.insert(a.key.clone()));
+    let mut selected: Vec<String> = serde_json::from_str(&selected).unwrap_or_default();
+    let mut seen = std::collections::HashSet::new();
+    selected.retain(|k| seen.insert(k.clone()));
     meta::add_refusals(&lock(&state.db), &mut assets)?;
     Ok(User {
         id: id.to_string(),
         name,
         token_blob,
         assets,
-        selected: serde_json::from_str(&selected).unwrap_or_default(),
+        selected,
         permissions: serde_json::from_str(&permissions).unwrap_or_default(),
         problems: serde_json::from_str(&problems).unwrap_or_default(),
         persona,
@@ -926,6 +932,15 @@ mod tests {
         conn.execute("INSERT INTO users (id,meta_user_id,name,token_blob,token_expires,assets_json) VALUES ('a','1','n','b',0,'[]')", []).unwrap();
         let p: String = conn.query_row("SELECT permissions_json FROM users", [], |r| r.get(0)).unwrap();
         assert_eq!(p, "[]");
+    }
+
+    #[test]
+    fn a_number_stored_twice_is_read_once() {
+        let (state, _) = tests_support::state_with_user();
+        let twice = r#"[{"key":"whatsapp:p1","kind":"whatsapp","id":"p1","name":"Shop"},{"key":"whatsapp:p1","kind":"whatsapp","id":"p1","name":"Shop"}]"#;
+        lock(&state.db).execute("UPDATE users SET assets_json=?1,selected_json='[\"whatsapp:p1\",\"whatsapp:p1\"]'", [twice]).unwrap();
+        let u = user_by_id(&state, "u").unwrap();
+        assert_eq!((u.assets.len(), u.selected.len()), (1, 1));
     }
 
     #[test]
