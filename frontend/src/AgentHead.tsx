@@ -1,13 +1,10 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { Button } from "@astryxdesign/core/Button";
-import { HStack, VStack } from "@astryxdesign/core/Stack";
-import { Text } from "@astryxdesign/core/Text";
 import { api, oauthStartUrl, useLoad, whatsappBlock } from "./api";
 import type { Account } from "./api";
-import { Check } from "./Icons";
+import type { Item } from "./AgentCard";
 
 const Mascot = lazy(() => import("./Mascot"));
-type Item = { key: string; text: string; label: string; href?: string; external?: boolean; onClick?: () => void };
+const AgentCard = lazy(() => import("./AgentCard"));
 
 /**
  * The agent's head, bottom right on every signed-in page. What's left to fix or finish lives here, not in the page:
@@ -38,17 +35,7 @@ export default function AgentHead({ account, onSetup }: { account: Account; onSe
 
   return (
     <div ref={box} className="agent-head-wrap">
-      {open && <div role="dialog" aria-label={items.length ? "A few things to finish" : "All set"} className="agent-card">
-        {items.length ? <VStack gap={3}>
-          <Text weight="semibold">A few things to finish</Text>
-          <VStack gap={3} as="ul">{items.map(i => (
-            <HStack key={i.key} as="li" gap={3} align="center" justify="between">
-              <Text size="sm" className="agent-card-text">{i.text}</Text>
-              <Button size="sm" label={i.label} href={i.href} onClick={i.onClick} {...(i.external ? { target: "_blank", rel: "noopener noreferrer" } : {})} />
-            </HStack>
-          ))}</VStack>
-        </VStack> : <HStack gap={2} align="center"><Check /><Text weight="semibold">All set</Text></HStack>}
-      </div>}
+      {open && <Suspense fallback={null}><AgentCard items={items} /></Suspense>}
       <button type="button" className="agent-head" aria-expanded={open} aria-haspopup="dialog"
         aria-label={items.length ? `Your agent: ${items.length} ${items.length === 1 ? "thing" : "things"} to finish` : "Your agent: all set"} onClick={() => setOpen(o => !o)}>
         <Suspense fallback={<span className="agent-head-face" />}><Mascot busy={false} size="44px" /></Suspense>
