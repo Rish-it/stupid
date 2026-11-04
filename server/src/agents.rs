@@ -21,6 +21,8 @@ const PRICE: (f64, f64) = (1.25, 4.25);
 // Reasoning tokens count toward this limit, so it leaves room for low-effort thinking plus the answer.
 const MAX_TOKENS: u32 = 4000;
 const MAX_INPUT_CHARS: usize = 12_000;
+/// Post ideas look at up to this many of the best post pictures.
+const IDEA_PICTURES: usize = 6;
 
 /// The person's own key for the provider at `muse_base` (Baseten by default), decrypted, if they saved one.
 pub fn own_key(s: &AppState, user_id: &str) -> ApiResult<Option<String>> {
@@ -116,10 +118,15 @@ pub async fn start(s: &AppState, u: User, agent: &str) -> ApiResult<Value> {
     }
     // Checked again below under the same lock as the insert; this only avoids Meta calls for a refused run.
     busy(&lock(&s.db), &u.id, name)?;
+    let mut pictures_for_ideas: Vec<String> = Vec::new();
     let context = match name {
         // The inbox already holds Instagram comments next to messages.
         "leads" => json!({ "messages": for_model(meta::fresh_inbox(s, &u).await?) }),
-        "ideas" => instagram_context(&meta::instagram_data(s, &u).await?),
+        "ideas" => {
+            let ig = meta::instagram_data(s, &u).await?;
+            pictures_for_ideas = crops::best(&ig, IDEA_PICTURES).iter().filter_map(|m| crops::picture(m).map(str::to_owned)).collect();
+            instagram_context(&ig)
+        }
         "reels" => reels::context(&meta::instagram_data(s, &u).await?),
         "replies" => json!({ "messages": for_model(meta::fresh_inbox(s, &u).await?.into_iter().filter(|m| m["kind"] != "instagram_comment").take(20).collect()) }),
         _ => meta::ads_data(s, &u).await?,
@@ -143,7 +150,11 @@ pub async fn start(s: &AppState, u: User, agent: &str) -> ApiResult<Value> {
     let state = s.clone();
     let inbox: Vec<String> = u.assets.iter().filter(|a| u.selected.contains(&a.key)).map(|a| a.id.clone()).collect();
     tokio::spawn(async move {
-        let mut outcome = if name == "reels" { reels::direct(&state, &u.id, &context, own.as_deref()).await } else { muse(&state, name, system, &context, own.as_deref()).await };
+        let mut outcome = match name {
+            "reels" => reels::direct(&state, &u.id, &context, own.as_deref()).await,
+            "ideas" => ideas(&state, system, &context, &pictures_for_ideas, own.as_deref()).await,
+            _ => muse(&state, name, system, &context, own.as_deref()).await,
+        };
         if let (Ok((result, cost)), Some(ig)) = (&mut outcome, &pictures) {
             let (pack, more) = crops::pack(&state, &u.id, ig, own.as_deref()).await;
             result["creative_pack"] = json!(pack);
@@ -162,6 +173,23 @@ pub async fn start(s: &AppState, u: User, agent: &str) -> ApiResult<Value> {
         }
     });
     Ok(json!({ "agent": name, "status": "running" }))
+}
+
+/// Post ideas that look at the creator's best pictures too. If a picture can't be fetched, it tries once more on text alone.
+async fn ideas(s: &AppState, system: &str, context: &Value, pictures: &[String], own_key: Option<&str>) -> ApiResult<(Value, f64)> {
+    if !pictures.is_empty() {
+        let seeing = format!("{system} You also see the pictures of their best posts, best first. Use what is in them (the product, setting, light, colours, people or not) in \"why\", and say which picture you mean.");
+        match muse_seeing(s, "ideas", &seeing, context, pictures, own_key).await {
+            Ok((mut result, cost)) => {
+                result["looked_at"] = json!(pictures.len());
+                return Ok((result, cost));
+            }
+            Err(e) => tracing::warn!("ideas with pictures: {}; trying on text alone", e.1),
+        }
+    }
+    let (mut result, cost) = muse(s, "ideas", system, context, own_key).await?;
+    result["looked_at"] = json!(0);
+    Ok((result, cost))
 }
 
 /// What the model may see of Instagram: bio, followers, and each recent post's caption and counts.
@@ -207,11 +235,19 @@ fn busy(db: &rusqlite::Connection, user_id: &str, agent: &str) -> ApiResult<()> 
 /// One Muse call with a JSON answer, under the workspace spend cap unless the person brought their own key.
 /// Returns the parsed JSON answer and its cost in USD.
 pub async fn muse(s: &AppState, agent: &str, system: &str, context: &Value, own_key: Option<&str>) -> ApiResult<(Value, f64)> {
+    muse_seeing(s, agent, system, context, &[], own_key).await
+}
+
+/// Like `muse`, with pictures the model looks at after the text (Muse Spark Open on Baseten reads `image_url` parts).
+pub async fn muse_seeing(s: &AppState, agent: &str, system: &str, context: &Value, images: &[String], own_key: Option<&str>) -> ApiResult<(Value, f64)> {
     let mut input = context.to_string();
     if input.len() > MAX_INPUT_CHARS {
         input = input.chars().take(MAX_INPUT_CHARS).collect();
     }
-    let messages = [json!({ "role": "system", "content": format!("{system} Reply with the JSON object only.") }), json!({ "role": "user", "content": input })];
+    let content = if images.is_empty() { json!(input) } else {
+        json!([json!({ "type": "text", "text": input })].into_iter().chain(images.iter().map(|url| json!({ "type": "image_url", "image_url": { "url": url } }))).collect::<Vec<_>>())
+    };
+    let messages = [json!({ "role": "system", "content": format!("{system} Reply with the JSON object only.") }), json!({ "role": "user", "content": content })];
     let (data, cost) = chat(s, agent, &messages, None, own_key).await?;
     Ok((extract_json(answer(&data)?).ok_or_else(|| AppError::new(502, "Muse answered without the expected format."))?, cost))
 }
@@ -241,8 +277,9 @@ pub async fn chat(s: &AppState, agent: &str, messages: &[Value], tools: Option<&
         .map_err(|e| if e.is_timeout() { AppError::new(504, refusal(504, None)) } else { AppError::new(502, "Muse could not be reached.") })?;
     let status = response.status();
     if !status.is_success() {
-        tracing::warn!(agent, model = %s.cfg.muse_model, %status, "muse refused");
         let retry_after = response.headers().get("retry-after").and_then(|v| v.to_str().ok()).map(str::to_owned);
+        let detail: String = response.text().await.unwrap_or_default().chars().take(300).collect();
+        tracing::warn!(agent, model = %s.cfg.muse_model, %status, detail, "muse refused");
         return Err(AppError::new(502, refusal(status.as_u16(), retry_after.as_deref())));
     }
     let data: Value = response.json().await.map_err(|_| AppError::new(502, "Muse sent an unreadable answer."))?;
@@ -290,6 +327,41 @@ pub fn extract_json(text: &str) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Does Muse Spark Open on Baseten see images? `STUPID_MUSE_API_KEY` set; `cargo test live_image_input -- --ignored --nocapture`.
+    #[tokio::test]
+    #[ignore]
+    async fn live_image_input() {
+        let _ = tracing_subscriber::fmt().try_init();
+        let (s, _) = crate::tests_support::state_with_user();
+        let mut cfg = crate::Config::load();
+        cfg.muse_budget_usd = 1.0;
+        let s = AppState { cfg: std::sync::Arc::new(cfg), ..s };
+        let messages = [json!({ "role": "user", "content": [
+            { "type": "text", "text": "In five words or fewer, what is in this picture?" },
+            { "type": "image_url", "image_url": { "url": "https://raw.githubusercontent.com/github/explore/main/topics/rust/rust.png" } },
+        ] })];
+        match chat(&s, "image-test", &messages, None, None).await {
+            Ok((data, cost)) => println!("IMAGE ok ${cost:.4} tokens={} answer={}", data["usage"]["prompt_tokens"], answer(&data).unwrap_or("?")),
+            Err(e) => println!("IMAGE refused: {}", e.1),
+        }
+    }
+
+    /// Post ideas with a picture, and the text-only retry when a picture can't be fetched. `cargo test live_ideas_pictures -- --ignored --nocapture`.
+    #[tokio::test]
+    #[ignore]
+    async fn live_ideas_pictures() {
+        let (s, _) = crate::tests_support::state_with_user();
+        let mut cfg = crate::Config::load();
+        cfg.muse_budget_usd = 1.0;
+        let s = AppState { cfg: std::sync::Arc::new(cfg), ..s };
+        let system = AGENTS.iter().find(|(n, _)| *n == "ideas").unwrap().1;
+        let context = json!({ "accounts": [{ "bio": "Rust stickers and tees", "followers": 120, "posts": [{ "caption": "New Rust crab sticker drop", "likes": 40, "comments": 6 }] }] });
+        for picture in ["https://raw.githubusercontent.com/github/explore/main/topics/rust/rust.png", "https://upload.wikimedia.org/wikipedia/commons/4/45/A_small_cup_of_coffee.JPG"] {
+            let (result, cost) = ideas(&s, system, &context, &[picture.to_string()], None).await.unwrap();
+            println!("IDEAS looked_at={} ${cost:.4} first why: {}", result["looked_at"], result["ideas"][0]["why"]);
+        }
+    }
 
     #[test]
     fn json_from_model_text() {
