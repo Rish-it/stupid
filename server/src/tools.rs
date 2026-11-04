@@ -82,6 +82,18 @@ fn rows(s: &AppState, sql: &str, args: impl rusqlite::Params, map: impl Fn(&rusq
     out
 }
 
+/// Drafts that still wait for the owner, by the same rules as Home's Needs you: the newest per message, on a number
+/// or Page switched on now, not answered, and still answerable (comments any time, messages for 24 hours).
+fn waiting_drafts(s: &AppState, u: &User) -> Result<Vec<Value>, String> {
+    rows(s, "SELECT d.event_id,d.text,d.source,d.created FROM drafts d JOIN events e ON e.id=d.event_id
+        WHERE d.id IN (SELECT MAX(id) FROM drafts WHERE user_id=?1 GROUP BY event_id)
+          AND e.asset_id IN (SELECT value FROM json_each(?2))
+          AND NOT EXISTS (SELECT 1 FROM replies r WHERE r.event_id=d.event_id AND r.error IS NULL)
+          AND (e.kind='instagram_comment' OR e.created>?3)
+        ORDER BY d.id DESC LIMIT 20", params![u.id, serde_json::to_string(&selected_ids(u)).unwrap_or_default(), now() - 86_400],
+        |r| Ok(json!({ "event_id": r.get::<_, i64>(0)?, "text": r.get::<_, String>(1)?, "source": r.get::<_, String>(2)?, "created": r.get::<_, i64>(3)? })))
+}
+
 /// Run one tool for the person. `ticket` is the task it works for, when there is one.
 /// Errors come back in plain words, for the model or the person to read.
 pub async fn call(s: &AppState, u: &User, ticket: Option<i64>, name: &str, args: &Value) -> Result<Value, String> {
@@ -96,7 +108,7 @@ pub async fn call(s: &AppState, u: &User, ticket: Option<i64>, name: &str, args:
             values.push((now() - 86_400).into());
             let waiting = rows(s, &format!("SELECT COUNT(*) FROM events e WHERE asset_id IN ({marks}) AND created>?{} AND NOT EXISTS(SELECT 1 FROM replies r WHERE r.event_id=e.id AND r.error IS NULL)", values.len()),
                 rusqlite::params_from_iter(values), |r| Ok(json!(r.get::<_, i64>(0)?)))?;
-            let drafts = rows(s, "SELECT COUNT(*) FROM drafts d WHERE user_id=?1 AND NOT EXISTS(SELECT 1 FROM replies r WHERE r.event_id=d.event_id AND r.error IS NULL)", [&u.id], |r| Ok(json!(r.get::<_, i64>(0)?)))?;
+            let drafts = [json!(waiting_drafts(s, u)?.len())];
             let open = rows(s, "SELECT COUNT(*) FROM tickets WHERE user_id=?1 AND state='open'", [&u.id], |r| Ok(json!(r.get::<_, i64>(0)?)))?;
             let apps: Vec<&str> = ["whatsapp", "messenger", "instagram", "ads"].into_iter().filter(|k| !u.selected_assets(k).is_empty()).collect();
             json!({ "connected": apps, "unreplied_last_24h": waiting[0], "drafts_waiting": drafts[0], "open_tasks": open[0],
@@ -165,8 +177,7 @@ pub async fn call(s: &AppState, u: &User, ticket: Option<i64>, name: &str, args:
             }
             latest
         }
-        "list_drafts" => json!(rows(s, "SELECT event_id,text,source,created FROM drafts WHERE user_id=?1 ORDER BY id DESC LIMIT 20", [&u.id],
-            |r| Ok(json!({ "event_id": r.get::<_, i64>(0)?, "text": r.get::<_, String>(1)?, "source": r.get::<_, String>(2)?, "created": r.get::<_, i64>(3)? })))?),
+        "list_drafts" => json!(waiting_drafts(s, u)?),
         "save_reply_draft" => {
             let id = args["event_id"].as_i64().ok_or("`event_id` must be a number.")?;
             let text = text_arg(args, "text", 1000)?;
@@ -236,6 +247,24 @@ pub fn for_model(result: &Value) -> String {
 mod tests {
     use super::*;
     use crate::tests_support::state_with_user;
+
+    #[tokio::test]
+    async fn the_agent_counts_only_drafts_home_shows() {
+        let (s, u) = state_with_user();
+        {
+            let db = lock(&s.db);
+            for (asset, age) in [("p1", 0), ("old-number", 0), ("p1", 0), ("p1", 2 * 86_400)] {
+                db.execute("INSERT INTO events (kind,asset_id,sender,text,created) VALUES ('whatsapp',?1,'91','price?',?2)", params![asset, now() - age]).unwrap();
+                db.execute("INSERT INTO drafts (user_id,event_id,text,source,created) VALUES ('u',last_insert_rowid(),'Rs 420','agent',?1)", [now()]).unwrap();
+            }
+            db.execute("INSERT INTO replies (event_id,user_id,text,created) VALUES (3,'u','sent',?1)", [now()]).unwrap();
+        }
+        let listed = call(&s, &u, None, "list_drafts", &json!({})).await.unwrap();
+        assert_eq!(listed.as_array().unwrap().iter().map(|d| d["event_id"].as_i64().unwrap()).collect::<Vec<_>>(), [1],
+            "not an old number's, not an answered one, not one past the 24-hour window");
+        let today = call(&s, &u, None, "get_today", &json!({})).await.unwrap();
+        assert_eq!(today["drafts_waiting"], 1);
+    }
 
     #[tokio::test]
     async fn prepare_tools_write_drafts_and_send_nothing() {
