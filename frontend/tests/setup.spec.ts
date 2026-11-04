@@ -119,14 +119,18 @@ test("a failed tutorial refresh leaves the issue and progress in place", async (
 test("Before you start explains the account requirements before sign-in", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json({ signed_in: false })));
   await page.goto("/");
+  // In the hero, as on the original welcome page (QA 4-2).
+  await page.locator(".hero").getByText("Before you start", { exact: true }).click();
+  await expect(page.locator(".hero").getByText(/For Instagram, have a public Professional account/)).toBeVisible();
   await page.getByRole("button", { name: "I run a business" }).first().click();
-  await page.getByText("Before you start", { exact: true }).click();
-  await expect(page.getByText(/For Instagram, have a public Professional account/)).toBeVisible();
-  await expect(page.getByText(/Business verification is needed only when Meta asks/)).toBeVisible();
+  const window = page.getByRole("dialog");
+  await window.getByText("Before you start", { exact: true }).click();
+  await expect(window.getByText(/For Instagram, have a public Professional account/)).toBeVisible();
+  await expect(window.getByText(/Business verification is needed only when Meta asks/)).toBeVisible();
   await page.keyboard.press("Escape");
   await page.getByRole("button", { name: "I create content" }).first().click();
-  await page.getByText("Before you start", { exact: true }).click();
-  await expect(page.getByText(/For WhatsApp/)).toHaveCount(0);
+  await window.getByText("Before you start", { exact: true }).click();
+  await expect(window.getByText(/For WhatsApp/)).toHaveCount(0);
 });
 
 test("tutorial progress only fills after Meta confirms the change", async ({ page }) => {

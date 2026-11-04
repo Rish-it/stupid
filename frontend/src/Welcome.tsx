@@ -4,6 +4,7 @@ import { Button } from "@astryxdesign/core/Button";
 import { Grid } from "@astryxdesign/core/Grid";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Icon } from "@astryxdesign/core/Icon";
+import { Link } from "@astryxdesign/core/Link";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
@@ -93,6 +94,11 @@ export default function Welcome({ onDoor, onPassed }: { onDoor: (persona: Person
         <VStack ref={signIn} gap={2} hAlign="center" maxWidth={408} width="100%" paddingBlockStart={2}>
           <p className="hero-ask">For creators and small businesses on Meta. Which are you?</p>
           {buttons}
+          <details className="before-start">
+            <summary>Before you start</summary>
+            <Text as="p" type="supporting" size="sm">Use the Facebook profile that manages your business Page. For Instagram, have a public Professional account (Creator or Business) linked to that Page. For WhatsApp, use a Business Platform account and registered number, or Meta's test number. Ads needs an ad account you can view. You can connect one app now and add the rest later.</Text>
+            <Text as="p" type="supporting" size="sm">A business portfolio groups these accounts. In <Link hasUnderline isExternalLink href="https://business.facebook.com/">Meta Business Suite</Link>, use the dropdown below Home → Create a business portfolio. Enter the business name, your name and business email → Create or Create portfolio, then confirm your email. Business verification is needed only when Meta asks for it; it is separate from the paid Meta Verified badge. Stupid walks you through each app after sign-in.</Text>
+          </details>
           <Text as="p" type="supporting" size="sm" justify="center">Next, you sign in with Facebook. The window says what Meta will ask you to pick for your path.</Text>
         </VStack>
         <div className="hero-more"><Button label="Learn more" variant="secondary" size="lg" elevation="low" endContent={<Icon icon="arrowDown" size="sm" />} onClick={more} /></div>
