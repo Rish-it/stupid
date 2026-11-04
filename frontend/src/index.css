@@ -164,7 +164,7 @@ body { background: var(--color-background-body); }
 @media (prefers-reduced-motion: no-preference) { .person { transition: background-color .15s ease-out; } }
 
 /* Agents, after the Images library reference: tall colour tiles, name bottom-left, the work on the tile. */
-.library { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 13rem), 1fr)); gap: 8px; }
+.library { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr)); gap: 8px; }
 .agent-tile {
   display: flex; flex-direction: column; justify-content: space-between; gap: 16px; min-height: 18rem; padding: 14px; border-radius: 12px;
   background: linear-gradient(to top, #0006, transparent 60%), var(--field); color: #fff;
@@ -177,6 +177,11 @@ body { background: var(--color-background-body); }
 .agent-tile[data-agent="leads"] { --field: #2F4A5C; }
 .agent-tile[data-agent="replies"] { --field: #1F4D47; }
 .agent-tile[data-agent="ads"] { --field: #4A4466; }
+/* Off: the tile stays, in grey, so it reads as resting rather than gone. */
+.agent-tile[data-mode="off"] { --field: #2A2A2D; --color-text-secondary: #ffffffb3; }
+.agent-tile[data-mode="off"] .agent-name { color: #ffffffcc; }
+.agent-control .astryx-segmented-control { max-width: 100%; }
+.agent-control .astryx-segmented-control-item { min-width: 0; height: auto; white-space: normal; text-align: center; }
 
 /* Loading words: a light sweeps across, then rests. */
 @media (prefers-reduced-motion: no-preference) {

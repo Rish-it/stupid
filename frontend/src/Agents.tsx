@@ -3,12 +3,15 @@ import type { ReactNode } from "react";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { Link } from "@astryxdesign/core/Link";
+import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
+import { TextArea } from "@astryxdesign/core/TextArea";
+import { characterCount } from "@astryxdesign/core/utils";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { Token } from "@astryxdesign/core/Token";
 import { Heading } from "@astryxdesign/core/Heading";
 import { ago, api, drafts, jobNames, lastReport, senderName, useLoad } from "./api";
-import type { AgentId, AgentResult, AgentRun, AssetKind, Connections, ReelScript, Ticket } from "./api";
+import type { AgentControl, AgentId, AgentMode, AgentResult, AgentRun, AssetKind, Connections, ReelScript, Ticket } from "./api";
 import { objectPosition, ratios, savePng } from "./crop";
 import type { Crop } from "./crop";
 import { Load } from "./Load";
@@ -77,7 +80,8 @@ export default function Agents({ state }: { state: Connections }) {
           {!data.ai_ready && <Banner status="info" title="Agents need AI access" description="Add an AI key in Settings to start running agents." endContent={<Button size="sm" label="Open Settings" href="#settings" />} />}
           <div className="library">
             {data.order.map(id => agents.find(a => a.id === id)).filter(a => a !== undefined).map(agent => (
-              <Agent key={agent.id} agent={agent} run={data.runs.find(r => r.agent === agent.id)} model={plannedModel(agent.id, data.model)} ready={data.ai_ready} connected={on(agent.needs)}
+              <Agent key={agent.id} agent={agent} run={data.runs.find(r => r.agent === agent.id)} control={data.controls?.[agent.id]}
+                onControl={next => list.setData(d => d && { ...d, controls: { ...d.controls, [agent.id]: next } })} model={plannedModel(agent.id, data.model)} ready={data.ai_ready} connected={on(agent.needs)}
                 onOpen={() => setOpen(agent.id)}
                 onStarted={() => {
                   setWaiting(agent.id);
@@ -100,7 +104,10 @@ export default function Agents({ state }: { state: Connections }) {
   );
 }
 
-function Agent({ agent, run, model, ready, connected, onStarted, onOpen }: { agent: (typeof agents)[number]; run?: AgentRun; model: string; ready: boolean; connected: boolean; onStarted: () => void; onOpen: () => void }) {
+function Agent({ agent, run, control, onControl, model, ready, connected, onStarted, onOpen }: {
+  agent: (typeof agents)[number]; run?: AgentRun; control?: AgentControl; onControl: (next: AgentControl) => void;
+  model: string; ready: boolean; connected: boolean; onStarted: () => void; onOpen: () => void;
+}) {
   const [error, setError] = useState("");
   const start = async () => {
     try {
@@ -113,7 +120,7 @@ function Agent({ agent, run, model, ready, connected, onStarted, onOpen }: { age
   };
   const running = run?.status === "running";
   return (
-    <article className="agent-tile" data-agent={agent.id} aria-labelledby={`agent-${agent.id}`}>
+    <article className="agent-tile" data-agent={agent.id} data-mode={control?.mode} aria-labelledby={`agent-${agent.id}`}>
       <HStack gap={2} align="center" wrap="wrap" className="agent-top">
         <SourceIcon source={agent.needs[0]} size={16} />
         {run?.models.length ? <span className="kind">{run.models.join(" · ")}</span> : model ? <span className="kind">{model}</span> : null}
@@ -129,13 +136,36 @@ function Agent({ agent, run, model, ready, connected, onStarted, onOpen }: { age
         <Heading level={2} id={`agent-${agent.id}`} className="agent-name">{agent.name}</Heading>
         <HStack gap={2} wrap="wrap">
           {connected
-            ? <Button variant="primary" size="sm" label={running ? "Working…" : run ? "Run again" : "Run"} isLoading={running} isDisabled={!ready} clickAction={start}
+            ? <Button variant="primary" size="sm" label={running ? "Working…" : run ? "Run again" : "Run"} isLoading={running} isDisabled={!ready || control?.mode === "off"} clickAction={start}
               aria-label={running ? `${agent.name} is working` : run ? `Run again: ${agent.name}` : `Run ${agent.name}`} />
             : <Button size="sm" label={`Connect ${appNames[agent.needs[0]]}`} href="#setup" />}
           {run?.status === "done" && run.result && <Button size="sm" label="See results" aria-label={`See results: ${agent.name}`} onClick={onOpen} />}
         </HStack>
+        {control && <Control agent={agent} control={control} onSaved={onControl} />}
       </VStack>
     </article>
+  );
+}
+
+/** How far this agent goes on its own, and one sentence for it. Each change saves at once; the sentence saves when you leave it. */
+function Control({ agent, control, onSaved }: { agent: (typeof agents)[number]; control: AgentControl; onSaved: (next: AgentControl) => void }) {
+  const [note, setNote] = useState(control.note);
+  const [status, setStatus] = useState("");
+  const long = characterCount(note) > 280;
+  const save = (mode: AgentMode, text: string) => api.control(agent.id, mode, text.trim())
+    .then(({ mode, note }) => { onSaved({ mode, note }); setStatus("Saved"); }, (cause: unknown) => setStatus(cause instanceof Error ? cause.message : String(cause)));
+  return (
+    <VStack gap={2} className="agent-control">
+      <SegmentedControl label={`What ${agent.name} does on its own`} size="sm" layout="fill" value={control.mode} onChange={v => void save(v as AgentMode, long ? control.note : note)}>
+        <SegmentedControlItem value="off" label="Off" />
+        <SegmentedControlItem value="ask" label="Ask me first" />
+        <SegmentedControlItem value="draft" label="Draft for me" />
+      </SegmentedControl>
+      <TextArea label={`Tell ${agent.name}`} isLabelHidden placeholder="Tell this agent…" rows={2} maxLength={280} value={note}
+        status={long ? { type: "error", message: "Keep it to 280 characters." } : undefined}
+        onChange={v => { setNote(v); setStatus(""); }} onBlur={() => { if (!long && note.trim() !== control.note) void save(control.mode, note); }} />
+      <Text as="p" size="sm" type="supporting" aria-live="polite">{status}</Text>
+    </VStack>
   );
 }
 

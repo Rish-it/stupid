@@ -725,3 +725,50 @@ test("the production build opens a sample desk from the welcome page, sends noth
   await expect(page.getByRole("link", { name: "See the business desk" })).toBeVisible();
   expect(calls).toEqual([]);
 });
+
+for (const [persona, off] of [["business", "Reel director"], ["creator", "Ad watcher"]] as const) {
+  test(`each ${persona} agent tile sets how far it goes and takes one sentence`, async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`http://127.0.0.1:8032/?fixtures=1&persona=${persona}&stage=ready#agents`);
+    // Off stays on the page, quiet.
+    const resting = page.locator("article", { has: page.getByRole("heading", { name: off }) });
+    await expect(resting).toHaveAttribute("data-mode", "off");
+    await expect(resting.getByRole("radio", { name: "Off" })).toBeChecked();
+    // An off agent doesn't run (the server answers 409).
+    await expect(resting.getByRole("button", { name: `Run ${off}`, disabled: false })).toHaveCount(0);
+    const leads = page.locator("article", { has: page.getByRole("heading", { name: "Lead finder" }) });
+    const modes = leads.getByRole("radiogroup", { name: "What Lead finder does on its own" });
+    await modes.getByRole("radio", { name: "Ask me first" }).focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(modes.getByRole("radio", { name: "Draft for me" })).toBeChecked();
+    await expect(leads).toHaveAttribute("data-mode", "draft");
+    await expect(leads.getByText("Saved")).toBeVisible();
+    const note = leads.getByRole("textbox", { name: "Tell Lead finder" });
+    await note.fill("x".repeat(281));
+    await page.keyboard.press("Tab");
+    await expect(leads.getByText("Keep it to 280 characters.")).toBeVisible();
+    await note.fill("Only flag people who ask about price.");
+    await expect(leads.getByText("37/280")).toBeVisible();
+    await page.keyboard.press("Tab");
+    await expect(leads.getByText("Saved")).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    // Both survive leaving the page and coming back.
+    await page.getByRole("link", { name: "Home" }).click();
+    await page.getByRole("link", { name: "Agents" }).click();
+    await expect(note).toHaveValue("Only flag people who ask about price.");
+    await expect(modes.getByRole("radio", { name: "Draft for me" })).toBeChecked();
+  });
+}
+
+test("Home asks before drafting for an Ask me first agent, and says what a draft drew on", async ({ page }) => {
+  await page.goto("http://127.0.0.1:8032/?fixtures=1&persona=business&stage=busy#home");
+  const ask = page.getByRole("listitem").filter({ hasText: "Sample neighbour" }).filter({ hasText: "Shall I draft a reply to this message?" });
+  await expect(ask.getByRole("button", { name: "Skip" })).toBeVisible();
+  await expect(ask.getByRole("textbox")).toHaveCount(0);
+  await ask.getByRole("button", { name: "Draft it" }).click();
+  await expect(ask).toHaveCount(0);
+  const draft = page.getByRole("listitem").filter({ hasText: "Sample draft: yes, the chocolate cake" });
+  await expect(draft.getByText("Written in your style")).toBeVisible();
+  const told = await page.evaluate(() => new Date(Date.now() - 86400e3).toLocaleDateString(undefined, { day: "numeric", month: "short" }));
+  await expect(draft.getByText(`Used what you told me on ${told}: Sample answer: the chocolate cake is ₹650.`)).toBeVisible();
+});
