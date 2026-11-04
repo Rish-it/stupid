@@ -323,6 +323,8 @@ pub fn receive(db: &Connection, user_id: &str, asset_id: &str, sender: &str, tex
     db.execute("UPDATE owner_channel SET window_until=?2 WHERE user_id=?1", params![user_id, now() + WINDOW])?;
     let ch = channel(db, user_id)?;
     if ch.linked {
+        // Replies and pings go out from the business number the owner last wrote to; its number is read again.
+        db.execute("UPDATE owner_channel SET asset_id=?2,business_number=CASE WHEN asset_id=?2 THEN business_number END WHERE user_id=?1", params![user_id, asset_id])?;
         return Ok(Step::Command(text.to_string()));
     }
     if !links(text, &ch.link_code) {
@@ -835,6 +837,24 @@ mod tests {
         assert_eq!(replies, 0);
         assert_eq!(inbound(&s, "u", "p1", OWNER, "1").await.unwrap().as_deref(), Some("Sent to Priya ✓"));
         assert_eq!(sends(&seen)[2], ("9198".to_string(), "Yes, ₹450 each.".to_string()), "sent only on the owner's 1");
+    }
+
+    #[tokio::test]
+    async fn replies_go_out_from_the_number_the_owner_last_wrote_to() {
+        let (s, seen) = setup("{}").await;
+        {
+            let db = lock(&s.db);
+            let assets = r#"[{"key":"whatsapp:p1","kind":"whatsapp","id":"p1","name":"Locked test number"},{"key":"whatsapp:p2","kind":"whatsapp","id":"p2","name":"Shop"}]"#;
+            db.execute("UPDATE users SET assets_json=?1,selected_json='[\"whatsapp:p1\",\"whatsapp:p2\"]' WHERE id='u'", [assets]).unwrap();
+        }
+        linked(&s, now() + WINDOW);
+        lock(&s.db).execute("UPDATE owner_channel SET business_number='+15550001234' WHERE user_id='u'", []).unwrap();
+        inbound(&s, "u", "p2", OWNER, "help").await.unwrap();
+        assert_eq!(seen.lock().unwrap().iter().filter(|(p, _)| p.ends_with("/messages")).map(|(p, _)| p.as_str()).collect::<Vec<_>>(), ["/p2/messages"]);
+        let ch = channel(&lock(&s.db), "u").unwrap();
+        assert_eq!((ch.asset_id.as_deref(), ch.business_number), (Some("p2"), None), "the old number's display number is dropped, to be read for p2");
+        inbound(&s, "u", "p2", OWNER, "help").await.unwrap();
+        assert_eq!(seen.lock().unwrap().iter().filter(|(p, _)| p == "/p2/messages").count(), 2);
     }
 
     #[tokio::test]
