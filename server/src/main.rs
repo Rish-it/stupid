@@ -1,6 +1,7 @@
 //! Stupid server: Meta sign-in, connections, Meta data, webhooks and background agents.
 mod agents;
 mod attention;
+mod control;
 mod crops;
 mod executor;
 mod meta;
@@ -230,6 +231,9 @@ ALTER TABLE users ADD COLUMN agent_rules TEXT NOT NULL DEFAULT '';
     // What the owner told the agent once, kept until they delete it; a draft names the fact it used.
     "CREATE TABLE learned (id INTEGER PRIMARY KEY, user_id TEXT NOT NULL, question TEXT NOT NULL, answer TEXT NOT NULL, created INTEGER NOT NULL, UNIQUE(user_id, question));
      ALTER TABLE drafts ADD COLUMN learned_id INTEGER;",
+    // Each agent's mode (off, ask or draft) and the owner's one-sentence note for it.
+    "CREATE TABLE agent_controls (user_id TEXT NOT NULL, agent TEXT NOT NULL, mode TEXT NOT NULL CHECK (mode IN ('off','ask','draft')),
+     note TEXT NOT NULL DEFAULT '', PRIMARY KEY (user_id, agent));",
 ];
 
 fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
@@ -492,7 +496,7 @@ fn delete_user(s: &AppState, id: &str) -> rusqlite::Result<()> {
         tx.execute("DELETE FROM sessions WHERE user_id=?1", [id])?;
         tx.execute("DELETE FROM agent_runs WHERE user_id=?1", [id])?;
         tx.execute("DELETE FROM reports WHERE ticket_id IN (SELECT id FROM tickets WHERE user_id=?1)", [id])?;
-        for table in ["drafts", "tickets", "evals", "triggers", "threads", "learned"] {
+        for table in ["drafts", "tickets", "evals", "triggers", "threads", "learned", "agent_controls"] {
             tx.execute(&format!("DELETE FROM {table} WHERE user_id=?1"), [id])?;
         }
         tx.execute("DELETE FROM access_keys WHERE user_id=?1", [id])?;
@@ -715,6 +719,7 @@ async fn main() {
         .route("/api/settings/ai/brain", put(agents::save_brain))
         .route("/api/agents", get(agents::list))
         .route("/api/agents/{agent}/run", post(agents::run))
+        .route("/api/agents/{agent}/control", put(control::save))
         .route("/api/agent", get(attention::home))
         .route("/api/agent/settings", put(attention::settings))
         .route("/api/agent/tickets/{id}/answer", post(attention::answer))

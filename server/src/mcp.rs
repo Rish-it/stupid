@@ -1,7 +1,7 @@
 //! Stupid as an MCP server for Muse custom connectors: JSON-RPC 2.0 over streamable HTTP, one JSON answer per
 //! request, behind a Bearer access key the person creates in Settings. It exposes the agent's own tool registry,
 //! read and prepare only. Muse can queue a reply draft or start a job; it can never send, post or spend.
-use crate::{agents, digest, lock, now, random_token, tickets, tools, user, user_by_id, ApiResult, AppError, AppState, User};
+use crate::{agents, control, digest, lock, now, random_token, tickets, tools, user, user_by_id, ApiResult, AppError, AppState, User};
 use axum::{
     body::Bytes,
     extract::State,
@@ -55,7 +55,7 @@ fn tool_list() -> Vec<Value> {
     list
 }
 
-async fn call_tool(s: &AppState, u: User, name: &str, args: &Value) -> Result<Value, String> {
+pub(crate) async fn call_tool(s: &AppState, u: User, name: &str, args: &Value) -> Result<Value, String> {
     match name {
         "queue_reply_draft" => {
             let id = args["item_id"].as_i64().ok_or("`item_id` must be a number.")?;
@@ -71,6 +71,10 @@ async fn call_tool(s: &AppState, u: User, name: &str, args: &Value) -> Result<Va
         }
         "run_agent" => {
             let job = args["name"].as_str().ok_or("`name` is required.")?;
+            // Ask mode means the owner starts it themselves; Muse may not start it for them.
+            if control::get(&lock(&s.db), &u.id, job).map_err(|_| "Storage failed.".to_string())?.0 == "ask" {
+                return Err("The owner asked to be asked first for this agent. Ask them to run it in Stupid.".into());
+            }
             agents::start(s, u, job).await.map_err(|e| e.1).map(|v| json!({ "status": v["status"], "message": "Started. The result shows in Stupid's Agents screen." }))
         }
         _ if READS.contains(&name) => tools::call(s, &u, None, name, args).await,

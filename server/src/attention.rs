@@ -1,6 +1,6 @@
 //! What the agent needs from the person, and what it did. "Needs you" holds only ready drafts and open
 //! questions; a healthy state is empty. Answering a question resumes its ticket; nothing here sends.
-use crate::{executor, lock, now, user, ApiResult, AppError, AppState, User};
+use crate::{control, executor, lock, now, user, ApiResult, AppError, AppState, User};
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
@@ -37,6 +37,7 @@ pub async fn home(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Js
          WHERE k.user_id=?1 AND k.state='open' AND (SELECT kind FROM reports WHERE ticket_id=k.id ORDER BY id DESC LIMIT 1)='waiting'
          ORDER BY k.id DESC LIMIT 10")?;
     let questions = stmt.query_map([&u.id], |r| Ok(json!({ "type": "question", "id": r.get::<_, i64>(0)?, "question": r.get::<_, String>(1)?, "created": r.get::<_, i64>(2)?,
+        "ask_first": r.get::<_, String>(1)? == control::ASK_FIRST,
         "message": r.get::<_, Option<String>>(3)?.map(|kind| -> rusqlite::Result<Value> { Ok(json!({ "kind": kind, "sender": r.get::<_, String>(4)?, "sender_name": r.get::<_, Option<String>>(5)?, "text": r.get::<_, String>(6)? })) }).transpose()? })))?
         .collect::<Result<Vec<_>, _>>()?;
     let mut stmt = db.prepare(
@@ -128,7 +129,7 @@ pub async fn answer(State(s): State<AppState>, headers: HeaderMap, Path(id): Pat
         db.execute("INSERT INTO reports (ticket_id,kind,text,created) VALUES (?1,'answer',?2,?3)", params![id, text, now()])?;
         // Remembered past this ticket, so the agent asks once.
         let question: Option<String> = db.query_row("SELECT text FROM reports WHERE ticket_id=?1 AND kind='question' ORDER BY id DESC LIMIT 1", [id], |r| r.get(0)).optional()?;
-        if let Some(q) = question {
+        if let Some(q) = question.filter(|q| q != control::ASK_FIRST) {
             learn(&db, &u.id, &q, text)?;
         }
         db.execute("INSERT INTO reports (ticket_id,kind,text,created) VALUES (?1,'progress','Working with your answer.',?2)", params![id, now()])?;
