@@ -114,11 +114,13 @@ const ask: Record<Persona, AgentHome["needs"]> = {
 };
 const messages: Record<Persona, InboxItem[]> = {
   creator: [
-    { id: "c1", kind: "instagram_comment", asset_id: "1", sender: "17841400000000003", sender_name: "Sample fan", text: "Sample: where is the jacket from?", created: now() - 900, replied: false },
+    { id: "c1", kind: "instagram_comment", asset_id: "1", sender: "17841400000000003", sender_name: "Sample fan", text: "Sample: where is the jacket from?", created: now() - 900, replied: false,
+      draft: { text: "Sample draft: thank you! The jacket is from a small shop, link in bio.", source: "agent" } },
     { id: "c2", kind: "instagram", asset_id: "1", sender: "17841400000000009", sender_name: "Sample Shoe Co", text: "Sample: what are your rates for a Reel?", created: now() - 1800, replied: false },
   ],
   business: [
-    { id: "b1", kind: "whatsapp", asset_id: "1", sender: "15550000001", sender_name: "Sample customer", text: "Sample: how much is this cake?\n(Photo: a chocolate cake with berries.)", created: now() - 600, replied: false },
+    { id: "b1", kind: "whatsapp", asset_id: "1", sender: "15550000001", sender_name: "Sample customer", text: "Sample: how much is this cake?\n(Photo: a chocolate cake with berries.)", created: now() - 600, replied: false,
+      draft: { text: "Sample draft: yes, the chocolate cake is ₹650 and we deliver in Bandra.", source: "agent" } },
     { id: "b2", kind: "whatsapp", asset_id: "1", sender: "15550000002", sender_name: "Sample buyer", text: "Sample voice note: hi, can you deliver to Andheri tomorrow?", created: now() - 900, replied: false, voice: true },
     { id: "b3", kind: "messenger", asset_id: "1", sender: "24000000000000001", sender_name: "Sample neighbour", text: "Sample: are you open on Sunday?", created: now() - 7200, replied: false },
   ],
@@ -192,7 +194,13 @@ export async function answer(method: string, path: string, body: unknown): Promi
     insights: [{ name: "reach", value: 6400 }, { name: "views", value: 9100 }, { name: "accounts_engaged", value: 380 }, { name: "total_interactions", value: 512 }],
     insights_error: null }] };
   if (route === "GET /api/inbox") return { items: inbox() };
-  if (/^POST \/api\/inbox\/[^/]+\/reply$/.test(route)) return { sent: true };
+  const reply = route.match(/^POST \/api\/inbox\/([^/]+)\/reply$/);
+  if (reply) {
+    // As on the server: a sent reply clears its draft from "Needs you" and marks the message replied.
+    home = { ...home, needs: home.needs.filter(n => n.type !== "draft" || n.event_id !== reply[1]) };
+    for (const item of inbox()) if (item.id === reply[1]) Object.assign(item, { replied: true, draft: null });
+    return { sent: true };
+  }
   if (route === "GET /api/agents") {
     for (const [id, run] of runs) if (run.status === "running" && now() - run.created >= 4) runs.set(id, { ...run, status: "done", result: results[id], cost_usd: 0.004, finished: now(), models: ["Muse Spark Open"] });
     const path: AgentId[] = me.signed_in && me.persona ? order[me.persona] : ["leads", "ideas", "replies", "reels", "ads"];

@@ -219,6 +219,19 @@ test("Agents run, poll to a result and hand a reply draft to the Inbox", async (
   await page.getByRole("link", { name: "Use this reply" }).click();
   await expect(page.getByLabel("Reply to Ana")).toHaveValue("We're open until 7.");
   await expect(page.getByText("Drafted by AI · check before sending")).toBeVisible();
+  // Closing the thread lands on its card, not on the page (QA 3-5); the h1 names the page (QA 3-6).
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: /Are you open\?/ })).toBeFocused();
+  await page.goto("/#home");
+  await expect(page.getByRole("heading", { level: 1, name: /^Home, / })).toBeAttached();
+});
+
+test("Inbox offers app filters only when messages come from more than one app", async ({ page }) => {
+  await page.route("**/api/me", route => route.fulfill(json(signedIn)));
+  await page.route("**/api/inbox", route => route.fulfill(json({ items: [inbox.items[0]] })));
+  await page.goto("/#inbox");
+  await expect(page.getByText("Are you open?")).toBeVisible();
+  await expect(page.getByRole("radiogroup", { name: "Show messages from" })).toHaveCount(0);
 });
 
 test("Agents point to Settings when there is no AI access", async ({ page }) => {

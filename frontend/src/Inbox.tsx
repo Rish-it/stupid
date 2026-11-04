@@ -34,14 +34,21 @@ export default function Inbox() {
     return next;
   });
   const current = items?.find(i => i.id === open);
+  // Only the apps this inbox actually has messages from get a filter.
+  const apps = (Object.keys(filters) as (keyof typeof filters)[]).filter(k => k === "all" || items?.some(i => i.kind.startsWith(k)));
+  // Closing a thread puts focus back on its card, even when it was opened from Home.
+  const close = (id: string) => {
+    setOpen(undefined);
+    requestAnimationFrame(() => document.querySelector<HTMLElement>(`.person[data-id="${id}"]`)?.focus());
+  };
 
   return (
     <Page title="Inbox" description="Every message and comment, newest first. Open one to reply."
-      actions={
+      actions={apps.length > 2 &&
         <SegmentedControl label="Show messages from" value={filter} onChange={v => setFilter(v as keyof typeof filters)}>
-          {Object.entries(filters).map(([value, label]) => value === "all"
-            ? <SegmentedControlItem key={value} value={value} label={label} />
-            : <SegmentedControlItem key={value} value={value} label={label} isLabelHidden icon={<SourceIcon source={value} size={16} />} />)}
+          {apps.map(value => value === "all"
+            ? <SegmentedControlItem key={value} value={value} label={filters[value]} />
+            : <SegmentedControlItem key={value} value={value} label={filters[value]} isLabelHidden icon={<SourceIcon source={value} size={16} />} />)}
         </SegmentedControl>
       }>
       <Load state={inbox}>{({ items }) => {
@@ -58,7 +65,7 @@ export default function Inbox() {
               const note = noteLabel(item);
               return (
                 <li key={item.id}>
-                  <button type="button" className="person" data-app={item.kind.startsWith("instagram") ? "instagram" : item.kind} onClick={() => setOpen(item.id)}>
+                  <button type="button" className="person" data-id={item.id} onClick={() => setOpen(item.id)}>
                     <span className="kind">{where[item.kind]}</span>
                     <span className="person-text">{item.transcribing ? working[item.transcribing] : item.text}</span>
                     <span className="person-foot">
@@ -72,8 +79,8 @@ export default function Inbox() {
           </ul>
         );
       }}</Load>
-      {current && <Conversation key={current.id} item={current} mark={mark(current)} onClose={() => setOpen(undefined)}
-        onStatus={label => { setMark(current.id, label); if (label === "Sent") setOpen(undefined); }} />}
+      {current && <Conversation key={current.id} item={current} mark={mark(current)} onClose={() => close(current.id)}
+        onStatus={label => { setMark(current.id, label); if (label === "Sent") close(current.id); }} />}
     </Page>
   );
 }
