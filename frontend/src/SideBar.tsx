@@ -18,7 +18,7 @@ export default function SideBar({ page, setup }: { page: string; setup: boolean 
           <HStack as="nav" aria-label="Legal" gap={3} wrap="wrap">
             {legal.map(([label, href]) => <Link key={href} href={href} type="supporting" size="sm">{label}</Link>)}
           </HStack>
-          <Text as="p" type="supporting" size="sm">Built for Meta's platform. Not an official Meta product.</Text>
+          <Text as="p" type="supporting" size="sm">Built with Muse Spark Open, for Meta's platform. Not an official Meta product.</Text>
         </VStack>
       </VStack>
     }>
