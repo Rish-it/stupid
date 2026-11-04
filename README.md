@@ -21,6 +21,42 @@ Built with Muse Spark Open. Stupid is built for Meta's platform. It is not an of
 Live at [app.secndai.com](https://app.secndai.com), served from the owner's machine through a
 Cloudflare tunnel.
 
+## Getting started
+
+For a person signing in at [app.secndai.com](https://app.secndai.com). Stupid stores everything
+itself; nobody has to touch the database.
+
+1. **Sign in with Facebook** using the profile that manages your Page, Instagram and WhatsApp.
+   While the Meta app is in Development mode, only people with a role on it can sign in, so the
+   operator first adds you under App Dashboard → **App roles → Roles → Add People → Tester**, and
+   you accept at [developers.facebook.com/requests](https://developers.facebook.com/requests/).
+   Once Meta's App Review grants Advanced Access and the app is Live, anyone can sign in.
+2. In Meta's window, choose your business and the Page, Instagram account and WhatsApp account
+   you want, and allow everything it asks for. You can change this later in Facebook
+   **Settings → Business Integrations → Stupid → View and Edit**.
+3. Choose **creator** or **business**. Setup then shows one thing left to do at a time, with a
+   button to the exact Meta screen. Stupid connects the accounts and subscribes them to new
+   messages itself. When Setup says you're set, the agent works on every new message.
+4. Optional: in Settings, send the code shown there to your own business number or Page
+   (`hi <code>` on WhatsApp or Messenger). The agent then pings you there, and you can answer with
+   `1` to send a draft, `2 <your text>` to send your version or `3` to skip. You can also ask it
+   things like "what's pending?".
+
+What Stupid can't do for you in Meta (Setup links each one when it applies):
+
+- **Verify your business** in Security Center when Meta asks for it, for example when WhatsApp
+  says your account is restricted. This is not the paid Meta Verified badge. Once Meta lifts a
+  restriction, sending works again without changing anything in Stupid.
+- **Instagram:** make the account Professional (Creator or Business) and link it to your
+  Facebook Page. In the Instagram app, turn on **Settings → Messages and story replies → Message
+  controls → Connected tools → Allow access to messages**, or DMs won't come through.
+- **Facebook Page:** let people message the Page.
+- **WhatsApp:** register your own number in WhatsApp Manager and get its display name approved,
+  add a payment method and set a time zone. With Meta's test number, add each person who will
+  write to it under **API Setup → To**.
+- Meta allows replies only within 24 hours of the customer's last message (comments have no
+  window). Stupid never sends templates, so a customer has to write first.
+
 ## How it works
 
 - `server/`: Rust (axum, tokio, SQLite). Facebook Login for Business, Graph API v25.0 with
