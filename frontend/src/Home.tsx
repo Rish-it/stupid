@@ -5,6 +5,7 @@ import { Heading } from "@astryxdesign/core/Heading";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
+import { Token } from "@astryxdesign/core/Token";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
 import { ago, api, drafts, jobNames, sample, sampleSend, senderName, useLoad } from "./api";
 import type { AgentHome, AgentId, AgentResult, AgentRun, Connections, Need, Persona } from "./api";
@@ -115,12 +116,26 @@ function Who({ message: m, label, when }: { message: Need["message"]; label: str
 function Question({ need, onDone }: { need: Extract<Need, { type: "question" }>; onDone: () => void }) {
   const [text, setText] = useState("");
   const [error, setError] = useState("");
-  const send = (skip: boolean) => api.answer(need.id, text.trim(), skip).then(onDone, (cause: unknown) => setError(message(cause)));
+  const send = (skip: boolean, answer = text.trim()) => api.answer(need.id, answer, skip).then(onDone, (cause: unknown) => setError(message(cause)));
+  const head = <>
+    <Who message={need.message} label="Question" when={need.created} />
+    {need.message?.text && <Text as="p" type="supporting" size="sm">“{need.message.text}”</Text>}
+    <Text as="p" weight="semibold">{need.question}</Text>
+  </>;
+  // An agent set to "Ask me first" asks before drafting: a yes or a skip, nothing to type.
+  if (need.ask_first) return (
+    <VStack gap={3}>
+      {head}
+      <HStack gap={2}>
+        <Button variant="primary" size="sm" label="Draft it" clickAction={() => send(false, "Yes, draft a reply.")} />
+        <Button variant="ghost" size="sm" label="Skip" clickAction={() => send(true)} />
+      </HStack>
+      <div aria-live="polite">{error && <Text as="p" size="sm">{error}</Text>}</div>
+    </VStack>
+  );
   return (
     <VStack gap={3}>
-      <Who message={need.message} label="Question" when={need.created} />
-      {need.message?.text && <Text as="p" type="supporting" size="sm">“{need.message.text}”</Text>}
-      <Text as="p" weight="semibold">{need.question}</Text>
+      {head}
       <TextArea label="Your answer" isLabelHidden placeholder="Your answer" value={text} onChange={v => { setText(v); setError(""); }} rows={2} maxLength={1000}
         status={error ? { type: "error", message: error } : undefined} />
       <HStack gap={2}>
@@ -130,6 +145,9 @@ function Question({ need, onDone }: { need: Extract<Need, { type: "question" }>;
     </VStack>
   );
 }
+
+/** The local day a fact was told, as "4 Nov" or "Nov 4" by the reader's locale. */
+const toldOn = (unix: number) => new Date(unix * 1000).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 
 function Draft({ need, onDone }: { need: Extract<Need, { type: "draft" }>; onDone: () => void }) {
   const [error, setError] = useState("");
@@ -141,6 +159,10 @@ function Draft({ need, onDone }: { need: Extract<Need, { type: "draft" }>; onDon
       <Who message={need.message} label={need.source === "muse" ? "From Muse" : "Drafted by AI"} when={need.created} />
       {need.message.text && <Text as="p" type="supporting" size="sm">“{need.message.text}”</Text>}
       <div className="bubble bubble-out"><Text as="p">{need.text}</Text></div>
+      {(need.styled || need.used) && <VStack gap={2} hAlign="start">
+        {need.styled && <Token size="sm" label="Written in your style" />}
+        {need.used && <Text as="p" type="supporting" size="sm">Used what you told me on {toldOn(need.used.told)}: {need.used.answer}</Text>}
+      </VStack>}
       <HStack gap={2}>
         <Button variant="primary" size="sm" label={sample ? sampleSend : "Send"} isDisabled={sample} clickAction={send} />
         <Button variant="ghost" size="sm" label="Edit" onClick={edit} />

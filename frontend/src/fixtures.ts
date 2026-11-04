@@ -1,6 +1,6 @@
 // Sample data for ?fixtures=1, loaded only then. Every name says "Sample"; nothing here is real.
 import { ApiError, appStatus, factsPrompt } from "./api";
-import type { Account, AgentHome, AgentId, AgentRun, Asset, AssetKind, InboxItem, McpKey, Me, Persona, SetupNext, SetupStep, Style } from "./api";
+import type { Account, AgentControl, AgentHome, AgentId, AgentRun, Asset, AssetKind, InboxItem, McpKey, Me, Persona, SetupNext, SetupStep, Style } from "./api";
 
 const now = () => Math.floor(Date.now() / 1000);
 const assets: Asset[] = [
@@ -108,11 +108,14 @@ const found: Record<Persona, Partial<Record<AgentId, AgentRun["result"]>>> = {
 const ask: Record<Persona, AgentHome["needs"]> = {
   creator: [
     { type: "question", id: 12, question: "Sample question: what's your rate for one Reel?", created: now() - 240, message: { kind: "instagram", sender: "17841400000000009", sender_name: "Sample Shoe Co", text: "Sample: what are your rates for a Reel?" } },
-    { type: "draft", id: 11, event_id: "c1", text: "Sample draft: thank you! The jacket is from a small shop, link in bio.", source: "agent", created: now() - 600, message: { kind: "instagram_comment", sender: "17841400000000003", sender_name: "Sample fan", text: "Sample: where is the jacket from?" } },
+    { type: "draft", id: 11, event_id: "c1", text: "Sample draft: thank you! The jacket is from a small shop, link in bio.", source: "agent", created: now() - 600, message: { kind: "instagram_comment", sender: "17841400000000003", sender_name: "Sample fan", text: "Sample: where is the jacket from?" }, styled: true, used: null },
+    { type: "question", id: 13, question: "Shall I draft a reply to this message?", ask_first: true, created: now() - 700, message: { kind: "instagram", sender: "17841400000000011", sender_name: "Sample follower", text: "Sample: do you do collabs?" } },
   ],
   business: [
     { type: "question", id: 22, question: "Sample question: do you deliver to Andheri, and what does it cost?", created: now() - 180, message: { kind: "whatsapp", sender: "15550000002", sender_name: "Sample buyer", text: "Sample voice note: hi, can you deliver to Andheri tomorrow?" } },
-    { type: "draft", id: 21, event_id: "b1", text: "Sample draft: yes, the chocolate cake is ₹650 and we deliver in Bandra.", source: "agent", created: now() - 420, message: { kind: "whatsapp", sender: "15550000001", sender_name: "Sample customer", text: "Sample: how much is this cake? (Photo: a chocolate cake)" } },
+    { type: "draft", id: 21, event_id: "b1", text: "Sample draft: yes, the chocolate cake is ₹650 and we deliver in Bandra.", source: "agent", created: now() - 420, message: { kind: "whatsapp", sender: "15550000001", sender_name: "Sample customer", text: "Sample: how much is this cake? (Photo: a chocolate cake)" },
+      styled: true, used: { answer: "Sample answer: the chocolate cake is ₹650.", told: now() - 86400 } },
+    { type: "question", id: 23, question: "Shall I draft a reply to this message?", ask_first: true, created: now() - 500, message: { kind: "messenger", sender: "15550000003", sender_name: "Sample neighbour", text: "Sample: are you open on Sunday?" } },
   ],
 };
 const messages: Record<Persona, InboxItem[]> = {
@@ -172,6 +175,11 @@ export function localNext(me: Account & { persona?: Persona | null }, rules: str
   return { persona, done: left.length === 0 || (left.length === 1 && next?.optional === true), progress: { done: steps.length - left.length, total: steps.length }, step: next };
 }
 
+// Each path starts with one agent switched off, so the quiet tile shows.
+const controls: Record<AgentId, AgentControl> = Object.fromEntries((["leads", "ideas", "reels", "replies", "ads"] as const).map(name => [name, {
+  mode: name === (persona === "business" ? "reels" : "ads") ? "off" : name === "replies" ? "draft" : "ask",
+  note: name === "replies" ? "Sample note: keep replies short and friendly." : "" }])) as Record<AgentId, AgentControl>;
+
 export async function answer(method: string, path: string, body: unknown): Promise<unknown> {
   await new Promise(done => setTimeout(done, 300));
   const route = `${method} ${path}`;
@@ -210,11 +218,18 @@ export async function answer(method: string, path: string, body: unknown): Promi
   if (route === "GET /api/agents") {
     for (const [id, run] of runs) if (run.status === "running" && now() - run.created >= 4) runs.set(id, { ...run, status: "done", result: results[id], cost_usd: 0.004, finished: now(), models: ["Muse Spark Open"] });
     const path: AgentId[] = me.signed_in && me.persona ? order[me.persona] : ["leads", "ideas", "replies", "reels", "ads"];
-    return { runs: [...runs.values()], ai_ready: true, own_key: hasKey, model: "sample-model", order: path };
+    return { runs: [...runs.values()], ai_ready: true, own_key: hasKey, model: "sample-model", order: path, controls };
+  }
+  const control = route.match(/^PUT \/api\/agents\/(leads|ideas|reels|replies|ads)\/control$/);
+  if (control) {
+    const agent = control[1] as AgentId;
+    controls[agent] = body as AgentControl;
+    return { agent, ...controls[agent] };
   }
   const run = route.match(/^POST \/api\/agents\/(leads|ideas|reels|replies|ads)\/run$/);
   if (run) {
     const agent = run[1] as AgentId;
+    if (controls[agent].mode === "off") throw new ApiError(409, "This agent is off. Switch it on to run it.");
     if (runs.get(agent)?.status === "running") throw new ApiError(409, "That agent is already running.");
     runs.set(agent, { agent, status: "running", result: null, error: null, cost_usd: null, created: now(), finished: null, models: [] });
     return { agent, status: "running" };
@@ -228,7 +243,8 @@ export async function answer(method: string, path: string, body: unknown): Promi
   if (route === "DELETE /api/agent/style") { style = { style: null, built: null, from: 0, sent: style.sent, message: "Your agent learns how you write once a day. Check back tomorrow." }; return { style: null, message: "Forgotten." }; }
   const fact = /^DELETE \/api\/agent\/facts\/(\d+)$/.exec(route);
   if (fact) { home = { ...home, facts: home.facts.filter(f => f.id !== Number(fact[1])) }; return { facts: home.facts }; }
-  if (/^POST \/api\/agent\/tickets\/\d+\/answer$/.test(route)) { home = { ...home, needs: home.needs.filter(n => n.type !== "question") }; return { state: "open" }; }
+  const ticket = /^POST \/api\/agent\/tickets\/(\d+)\/answer$/.exec(route);
+  if (ticket) { home = { ...home, needs: home.needs.filter(n => n.type !== "question" || n.id !== Number(ticket[1])) }; return { state: "open" }; }
   if (route === "GET /api/settings/ai" || route === "PUT /api/settings/ai/brain") {
     if (route.startsWith("PUT")) brain = (body as { brain: "open" | "meta" }).brain;
     return { has_key: hasKey, model: brain === "meta" ? "muse-spark-1.3" : "sample-model", workspace_ai: true, brain, meta_brain: true, open_model: "sample-model", meta_model: "muse-spark-1.3" };

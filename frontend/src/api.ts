@@ -118,7 +118,10 @@ export type AgentRun = {
   models: string[];
 };
 /** `order` lists agents in the order this person's path shows them. */
-export type Agents = { runs: AgentRun[]; ai_ready: boolean; own_key: boolean; model: string; order: AgentId[] };
+export type Agents = { runs: AgentRun[]; ai_ready: boolean; own_key: boolean; model: string; order: AgentId[]; controls?: Partial<Record<AgentId, AgentControl>> };
+/** How far one agent goes on its own: off (never runs), ask before preparing anything, or draft for review. `note` is one sentence from the person. */
+export type AgentMode = "off" | "ask" | "draft";
+export type AgentControl = { mode: AgentMode; note: string };
 export type AiSettings = { has_key: boolean; key_saved_at?: number | null; model: string; workspace_ai: boolean; brain: "open" | "meta"; meta_brain: boolean; open_model: string; meta_model: string };
 
 /** The customer message a piece of agent work is about. */
@@ -126,7 +129,7 @@ export type AgentMessage = { kind: InboxKind; sender: string; sender_name: strin
 /** What waits for the person: a ready reply draft, or the agent's one question. */
 export type Need =
   | { type: "draft"; id: number; event_id: string; text: string; source: string; created: number; message: AgentMessage; used?: { answer: string; told: number } | null; styled?: boolean }
-  | { type: "question"; id: number; question: string; created: number; message: AgentMessage | null };
+  | { type: "question"; id: number; question: string; created: number; message: AgentMessage | null; ask_first?: boolean };
 export type ReportKind = "progress" | "waiting" | "ready" | "blocked" | "failed" | "dropped" | "question" | "answer" | "idea" | "advice";
 export type Ticket = { id: number; job: string; state: "open" | "ended"; created: number; message: AgentMessage | null; reports: { kind: ReportKind; text: string; created: number }[] };
 /** How the owner writes, learned from their sent replies. `message` says why there is none yet. */
@@ -202,6 +205,7 @@ export const api = {
   inbox: () => call<{ items: InboxItem[] }>("GET", "/api/inbox"),
   reply: (id: string, text: string) => call<{ sent: true }>("POST", `/api/inbox/${encodeURIComponent(id)}/reply`, { text }),
   agents: () => call<Agents>("GET", "/api/agents"),
+  control: (agent: AgentId, mode: AgentMode, note: string) => call<AgentControl & { agent: AgentId }>("PUT", `/api/agents/${agent}/control`, { mode, note }),
   run: (agent: AgentId) => call<{ agent: AgentId; status: string }>("POST", `/api/agents/${agent}/run`),
   aiSettings: () => call<AiSettings>("GET", "/api/settings/ai"),
   setAiKey: (api_key: string, consent = false) => call<Omit<AiSettings, "workspace_ai">>("PUT", "/api/settings/ai", { api_key, consent }),
