@@ -94,7 +94,7 @@ export default function Inbox() {
                   onMouseEnter={look} onMouseLeave={() => setPeek(p => p?.pinned ? p : undefined)} onBlur={leave}>
                   <button type="button" className="person" data-id={item.id} onClick={() => setOpen(item.id)} onFocus={look}
                     aria-describedby={peeking ? `history-${item.id}` : undefined}>
-                    <span className="kind">{where[item.kind]}{thread.length > 1 ? ` · ${thread.length} messages` : ""}</span>
+                    <span className="kind">{item.post_picture && <img className="trace-thumb" src={item.post_picture} alt="" width={20} height={20} loading="lazy" />}{where[item.kind]}{thread.length > 1 ? ` · ${thread.length} messages` : ""}</span>
                     <span className="person-text">{item.transcribing ? working[item.transcribing] : item.text}</span>
                     <span className="person-foot">
                       <strong>{name}</strong>
@@ -181,6 +181,7 @@ function Conversation({ item, mark, onClose, onStatus }: { item: InboxItem; mark
         <Button variant="primary" label={sample ? sampleSend : "Send"} isDisabled={sample || !text.trim()} isLoading={sending} onClick={() => void send()} />
       </> : <Button label="Close" onClick={close} />}>
       {noteLabel(item) && <HStack><Token size="sm" label={noteLabel(item)!} /></HStack>}
+      {item.post_picture && <HStack gap={2} align="center"><img className="match-thumb" src={item.post_picture} alt="Your post" width={40} height={40} loading="lazy" /><Text size="sm" type="supporting">Commented on this post of yours</Text></HStack>}
       <div className="bubble"><Text as="p">{item.transcribing ? working[item.transcribing] : item.text}</Text></div>
       {sample && item.photo && <Suspense fallback={null}><SamplePhoto id={item.id} /></Suspense>}
       {canReply && draft ? <Trace voice={item.voice ? kept?.models?.described_by ?? null : undefined} photo={item.photo ? kept?.models?.described_by ?? null : undefined}

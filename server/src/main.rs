@@ -267,6 +267,8 @@ ALTER TABLE users ADD COLUMN agent_rules TEXT NOT NULL DEFAULT '';
     // And the Page the owner's Messenger id belongs to, so pings can move there while WhatsApp is refused.
     "CREATE TABLE wa_blocks (asset_id TEXT PRIMARY KEY, reason TEXT NOT NULL, at INTEGER NOT NULL);
      ALTER TABLE owner_channel ADD COLUMN psid_page TEXT; UPDATE owner_channel SET psid_page=asset_id WHERE channel='messenger';",
+    // The owner's Instagram post a comment is on, for its picture in the Inbox.
+    "ALTER TABLE events ADD COLUMN post_id TEXT;",
 ];
 
 /// The built app. A missing hashed asset answers 404, so a stale page fails loudly instead of loading
@@ -632,14 +634,16 @@ async fn webhook(State(s): State<AppState>, headers: HeaderMap, body: Bytes) -> 
                 continue;
             }
             if db.execute(
-                "INSERT OR IGNORE INTO events (kind,asset_id,sender,sender_name,text,created,dedupe,media) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
-                params![e.kind, e.asset_id, e.sender, e.sender_name, e.text, now(), e.dedupe, e.media],
+                "INSERT OR IGNORE INTO events (kind,asset_id,sender,sender_name,text,created,dedupe,media,post_id) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+                params![e.kind, e.asset_id, e.sender, e.sender_name, e.text, now(), e.dedupe, e.media, e.post_id],
             )? == 1 {
                 added.push(db.last_insert_rowid());
             }
         }
         (added, from_owner)
     };
+    let named = (s.clone(), added.clone());
+    tokio::spawn(async move { meta::name_senders(&named.0, &named.1).await });
     voice::arrived(&s, &added);
     // Answered before Meta hears back, one message after another, so replies keep the owner's order.
     for (owner, step) in from_owner {
