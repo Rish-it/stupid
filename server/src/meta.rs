@@ -97,6 +97,30 @@ fn page_issues(page: &Value) -> Vec<Issue> {
     }]
 }
 
+/// Graph shows a Page's Instagram only when it is a professional account linked to that Page, so a Page
+/// without one gets both snags. They don't block the Page's own messages.
+pub const NO_INSTAGRAM: &str = "No Instagram account is linked to this Page.";
+pub const NOT_PROFESSIONAL: &str = "Only a professional Instagram account (Creator or Business) can be linked.";
+fn instagram_issues(page: &Value) -> Vec<Issue> {
+    if page["instagram_business_account"].is_object() {
+        return Vec::new();
+    }
+    vec![
+        Issue {
+            blocking: false,
+            text: NOT_PROFESSIONAL.into(),
+            fix: "If your Instagram is a personal account, switch it to Creator or Business in the Instagram app; it's free. Then link it to this Page and connect again.".into(),
+            link: "https://help.instagram.com/502981923235522".into(),
+        },
+        Issue {
+            blocking: false,
+            text: NO_INSTAGRAM.into(),
+            fix: "Link your professional Instagram to this Page from the Page's linked accounts, then connect again in Stupid.".into(),
+            link: "https://www.facebook.com/business/help/898752960195806".into(),
+        },
+    ]
+}
+
 #[derive(Serialize, Deserialize, Default)]
 pub struct Tokens {
     pub user: String,
@@ -202,7 +226,7 @@ async fn discover(state: &AppState, token: &str) -> Grant {
     }
     for page in &pages {
         if let Some(id) = page["id"].as_str() {
-            issues.insert(format!("messenger:{id}"), page_issues(page));
+            issues.insert(format!("messenger:{id}"), [page_issues(page), instagram_issues(page)].concat());
         }
     }
     for (waba, b) in &wabas {
@@ -825,6 +849,16 @@ mod tests {
         for page in [json!({"tasks":["MESSAGING"]}), json!({"tasks":["MANAGE"]}), Value::Null] {
             assert!(page_issues(&page).is_empty());
         }
+    }
+
+    #[test]
+    fn a_page_without_a_professional_instagram_says_how_to_link_one() {
+        let issues = instagram_issues(&json!({ "id": "1", "tasks": ["MANAGE"] }));
+        assert_eq!(issues.iter().map(|i| i.text.as_str()).collect::<Vec<_>>(), [NOT_PROFESSIONAL, NO_INSTAGRAM]);
+        assert!(issues.iter().all(|i| !i.blocking));
+        assert_eq!(issues[0].link, "https://help.instagram.com/502981923235522");
+        assert_eq!(issues[1].link, "https://www.facebook.com/business/help/898752960195806");
+        assert!(instagram_issues(&json!({ "instagram_business_account": { "id": "9", "username": "me" } })).is_empty());
     }
 
     #[test]
