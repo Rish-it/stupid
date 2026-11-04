@@ -342,3 +342,16 @@ test("Settings turns drafting off and saves the agent's rules", async ({ page })
   await expect(page.getByText("Saved.")).toBeVisible();
   expect(saved).toEqual([{ proactive: false, rules: "" }, { proactive: false, rules: "Open 10 to 7, closed Sundays." }]);
 });
+
+test("a voice note shows its transcript, marked as one", async ({ page }) => {
+  await page.route("**/api/me", route => route.fulfill(json(signedIn)));
+  await page.route("**/api/inbox", route => route.fulfill(json({ items: [
+    { id: "v1", kind: "whatsapp", asset_id: "1", sender: "15550003", sender_name: "Priya", text: "Hi, how much is the blue mug?", created: 1, replied: false, voice: true },
+    { id: "v2", kind: "whatsapp", asset_id: "1", sender: "15550004", sender_name: "Dev", text: "", created: 1, replied: false, transcribing: true },
+  ] })));
+  await page.goto("/#inbox");
+  await expect(page.getByText("Voice note · transcript")).toBeVisible();
+  await expect(page.getByText("Transcribing the voice note…")).toBeVisible();
+  await page.getByText("Hi, how much is the blue mug?").click();
+  await expect(page.getByRole("dialog").getByText("Voice note · transcript")).toBeVisible();
+});

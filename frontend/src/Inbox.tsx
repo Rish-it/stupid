@@ -64,8 +64,8 @@ export default function Inbox() {
                 return (
                   <ListItem key={item.id} align="start" isSelected={open === item.id} onClick={() => setOpen(item.id)}
                     startContent={<Avatar name={senderName(item)} size="md" tooltip={false} aria-hidden status={<SourceIcon source={item.kind} size={14} />} />}
-                    label={<HStack gap={2} align="center" wrap="wrap"><Text weight="semibold">{senderName(item)}</Text><Text type="supporting" size="sm">{where[item.kind]}</Text></HStack>}
-                    description={<Text type="supporting" maxLines={1}>{item.text}</Text>}
+                    label={<HStack gap={2} align="center" wrap="wrap"><Text weight="semibold">{senderName(item)}</Text><Text type="supporting" size="sm">{where[item.kind]}</Text><VoiceMark item={item} /></HStack>}
+                    description={<Text type="supporting" maxLines={1}>{item.transcribing ? "Transcribing the voice note…" : item.text}</Text>}
                     endContent={<VStack gap={1} hAlign="end"><Timestamp value={item.created} format="relative" type="supporting" size="sm" />{tag}</VStack>} />
                 );
               })}
@@ -77,6 +77,12 @@ export default function Inbox() {
         onStatus={label => { setMark(current.id, label); if (label === "Sent") setOpen(undefined); }} />}
     </Page>
   );
+}
+
+/** Voice notes say so, since their text is a transcript by Muse Voice Transcribe. */
+function VoiceMark({ item }: { item: InboxItem }) {
+  if (!item.voice && !item.transcribing) return null;
+  return <HStack><Token size="sm" label={item.transcribing ? "Voice note · transcribing" : "Voice note · transcript"} /></HStack>;
 }
 
 function Conversation({ item, mark, onClose, onStatus }: { item: InboxItem; mark?: Mark; onClose: () => void; onStatus: (label?: Mark) => void }) {
@@ -108,7 +114,8 @@ function Conversation({ item, mark, onClose, onStatus }: { item: InboxItem; mark
         <Button variant="ghost" label="Close" onClick={close} />
         <Button variant="primary" label="Send" isDisabled={!text.trim()} isLoading={sending} onClick={() => void send()} />
       </> : <Button label="Close" onClick={close} />}>
-      <div className="bubble"><Text as="p">{item.text}</Text></div>
+      <VoiceMark item={item} />
+      <div className="bubble"><Text as="p">{item.transcribing ? "Transcribing the voice note…" : item.text}</Text></div>
       {item.replied && <Text as="p" type="supporting">You've replied to this one.</Text>}
       {failed && <Banner status="warning" title="Your reply didn't arrive" description={`${failed} You can try again below.`} />}
       {canReply && draft?.source === "agent" && <HStack><Token size="sm" label="Drafted by AI · check before sending" /></HStack>}
