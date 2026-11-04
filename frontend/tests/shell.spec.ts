@@ -250,6 +250,7 @@ test("Settings switches the agents to Muse Spark 1.3 on Meta's Model API", async
   await page.route("**/api/settings/ai", route => route.fulfill(json(settings("open"))));
   await page.route("**/api/settings/ai/brain", route => { picked = route.request().postDataJSON().brain; route.fulfill(json(settings(picked))); });
   await page.goto("/#settings");
+  await page.getByRole("tab", { name: "AI model" }).click();
   await expect(page.getByText("Agents run on open-model using Stupid's shared allowance.", { exact: false })).toBeVisible();
   await page.getByRole("radio", { name: "Muse Spark 1.3 · Meta API" }).click();
   await expect(page.getByText("Agents run on muse-spark-1.3 through Meta's Model API, using Stupid's shared allowance.")).toBeVisible();
@@ -258,6 +259,28 @@ test("Settings switches the agents to Muse Spark 1.3 on Meta's Model API", async
   await expect(page.getByLabel("Your own Baseten API key")).toBeHidden();
   await page.getByText("Use your own Baseten key").click();
   await expect(page.getByLabel("Your own Baseten API key")).toBeVisible();
+});
+
+test("Settings opens over the page, swaps sections in place and closes back to it", async ({ page }) => {
+  await page.route("**/api/me", route => route.fulfill(json(signedIn)));
+  await page.route("**/api/inbox", route => route.fulfill(json(inbox)));
+  await page.goto("/#inbox");
+  await page.getByRole("link", { name: "Settings" }).click();
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  await expect(settings.getByRole("heading", { name: "Your work", exact: true })).toBeVisible();
+  await expect(page.getByText("Are you open?")).toBeAttached();
+  await settings.getByRole("tab", { name: "Your work" }).press("ArrowDown");
+  await expect(settings.getByRole("tab", { name: "Connections" })).toBeFocused();
+  await expect(settings.getByRole("tab", { name: "Connections" })).toHaveAttribute("aria-selected", "true");
+  // One window, no page scroll, at desktop and phone sizes.
+  for (const size of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(size);
+    expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
+  }
+  await page.keyboard.press("Escape");
+  await expect(settings).toBeHidden();
+  await expect(page).toHaveURL(/#inbox$/);
+  await expect(page.getByRole("link", { name: "Settings" })).toBeFocused();
 });
 
 test("Settings changes the path between creator and business", async ({ page }) => {
@@ -282,8 +305,10 @@ test("Settings saves an AI key, confirms before deleting and signs out", async (
   let deleted = false;
   await page.route("**/api/connections", route => { deleted = route.request().method() === "DELETE"; route.fulfill(json({})); });
   await page.goto("/#settings");
+  await page.getByRole("tab", { name: "Connections" }).click();
   await expect(page.getByRole("link", { name: "Open setup" })).toHaveAttribute("href", "#setup");
 
+  await page.getByRole("tab", { name: "AI model" }).click();
   await page.getByText("Use your own Baseten key").click();
   const key = page.getByLabel("Your own Baseten API key");
   await key.fill("bad");
@@ -299,6 +324,7 @@ test("Settings saves an AI key, confirms before deleting and signs out", async (
   await expect(page.getByLabel("Replace your own Baseten API key")).toHaveValue("");
   await expect(page.getByLabel("Send the messages agents read to my own AI account")).not.toBeChecked();
 
+  await page.getByRole("tab", { name: "Account" }).click();
   await page.getByRole("button", { name: "Disconnect and delete my data" }).click();
   await page.getByRole("button", { name: "Cancel" }).click();
   expect(deleted).toBe(false);
@@ -429,6 +455,7 @@ test("Settings turns drafting off and saves the agent's rules", async ({ page })
   await page.route("**/api/agent", route => route.fulfill(json({ proactive: true, rules: "", needs: [], tickets: [], watching: [], last_checked: null })));
   await page.route("**/api/agent/settings", route => { const body = route.request().postDataJSON(); saved.push(body); return route.fulfill(json(body)); });
   await page.goto("/#settings");
+  await page.getByRole("tab", { name: "Your agent" }).click();
   await page.getByLabel("Draft replies when new messages arrive").click();
   await expect.poll(() => saved.length).toBe(1);
   await page.getByLabel("Rules for your agent").fill("Open 10 to 7, closed Sundays.");
@@ -508,6 +535,7 @@ test("Settings makes a key for Muse, shows it once, and revokes it", async ({ pa
     return route.fulfill(json({ ...key, url: "https://app.example.com/mcp" }));
   });
   await page.goto("/#settings");
+  await page.getByRole("tab", { name: "Muse" }).click();
   await expect(page.getByLabel("MCP server URL")).toHaveValue("https://app.example.com/mcp");
   await expect(page.getByLabel("Ask Muse to add Stupid")).toHaveValue(/MCP server URL: https:\/\/app\.example\.com\/mcp/);
   await page.getByText("Use it from Muse Code").click();

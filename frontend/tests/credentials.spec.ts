@@ -12,6 +12,7 @@ test("Settings explains optional key creation, charges and revocation before sav
     return route.fulfill(json({ has_key: false, workspace_ai: true, model: "test-model" }));
   });
   await page.goto("/#settings");
+  await page.getByRole("tab", { name: "AI model" }).click();
   await page.getByText("Use your own Baseten key", { exact: true }).click();
   await page.getByText("How to get, pay for and revoke a key", { exact: true }).click();
   await expect(page.getByText(/including the small call that checks a key/)).toBeVisible();

@@ -1,7 +1,9 @@
-import { useState } from "react";
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import { AlertDialog } from "@astryxdesign/core/AlertDialog";
 import { Button } from "@astryxdesign/core/Button";
+import { Dialog } from "@astryxdesign/core/Dialog";
+import { Icon } from "@astryxdesign/core/Icon";
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Link } from "@astryxdesign/core/Link";
@@ -15,16 +17,15 @@ import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { api, useLoad } from "./api";
 import type { AiSettings, Persona } from "./api";
 import { Load } from "./Load";
-import { Page } from "./Surface";
 
 const message = (cause: unknown) => cause instanceof Error ? cause.message : String(cause);
 
-/** One settings row: what it is on the left, its controls on the right (stacked on phones). */
+/** One part of a section: what it is, then its controls. */
 function Row({ id, title, description, children }: { id: string; title: string; description?: string; children: ReactNode }) {
   return (
     <section aria-labelledby={id} className="settings-row">
       <VStack gap={1}>
-        <Heading level={2} id={id}>{title}</Heading>
+        <Heading level={3} id={id}>{title}</Heading>
         {description && <Text as="p" type="supporting" size="sm">{description}</Text>}
       </VStack>
       <VStack gap={3}>{children}</VStack>
@@ -32,22 +33,57 @@ function Row({ id, title, description, children }: { id: string; title: string; 
   );
 }
 
-export default function Settings({ name, persona, onPersona, onSignedOut }: {
-  name: string; persona: Persona | null; onPersona: (persona: Persona) => Promise<void>; onSignedOut: () => void;
+const sections = ["Your work", "Connections", "Your agent", "AI model", "Muse", "Account"] as const;
+type Section = typeof sections[number];
+
+/** Settings is a window over the app: sections on the left, the chosen one on the right. Nothing scrolls the page. */
+export default function Settings({ name, persona, onPersona, onSignedOut, onClose }: {
+  name: string; persona: Persona | null; onPersona: (persona: Persona) => Promise<void>; onSignedOut: () => void; onClose: () => void;
 }) {
+  const [section, setSection] = useState<Section>("Your work");
+  // Closing hands focus back to the rail's Settings link, which opened it.
+  useEffect(() => () => void requestAnimationFrame(() => document.querySelector<HTMLElement>(".rail-me")?.focus()), []);
+  const tabs = useRef<HTMLDivElement>(null);
+  // Arrow keys move between sections, as in any tab list.
+  const move = (event: KeyboardEvent<HTMLDivElement>) => {
+    const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[event.key];
+    if (!step) return;
+    event.preventDefault();
+    const next = sections[(sections.indexOf(section) + step + sections.length) % sections.length];
+    setSection(next);
+    tabs.current?.querySelector<HTMLElement>(`[data-section="${next}"]`)?.focus();
+  };
+  const change = (open: boolean) => { if (!open) onClose(); };
   return (
-    <Page title="Settings">
-      <VStack gap={4} maxWidth={960}>
-        <Path persona={persona} onPersona={onPersona} />
-        <Row id="setup-heading" title="Connections" description="Which accounts Stupid reads, and anything Meta still needs.">
-          <HStack><Button label="Open setup" href="#setup" /></HStack>
-        </Row>
-        <AgentRules />
-        <AiAccess />
-        <UseFromMuse />
-        <Account name={name} onSignedOut={onSignedOut} />
-      </VStack>
-    </Page>
+    <Dialog isOpen onOpenChange={change} width="min(880px, calc(100vw - 16px))" maxHeight="none" padding={0} aria-label="Settings">
+      <div className="prefs">
+        <div className="prefs-side">
+          <Heading level={2} className="prefs-title">Settings</Heading>
+          <div ref={tabs} role="tablist" aria-label="Settings sections" aria-orientation="vertical" className="prefs-tabs" onKeyDown={move}>
+            {sections.map(s => (
+              <button key={s} type="button" role="tab" id={`tab-${s}`} data-section={s} aria-selected={s === section} aria-controls="prefs-panel"
+                tabIndex={s === section ? 0 : -1} className="prefs-tab" onClick={() => setSection(s)}>{s}</button>
+            ))}
+          </div>
+        </div>
+        <div className="prefs-main">
+          <HStack align="center" justify="between" gap={2} className="prefs-head">
+            <Heading level={2}>{section}</Heading>
+            <Button variant="ghost" label="Close settings" isIconOnly icon={<Icon icon="close" />} onClick={onClose} />
+          </HStack>
+          <div id="prefs-panel" role="tabpanel" aria-labelledby={`tab-${section}`} className="prefs-panel">
+            {section === "Your work" && <Path persona={persona} onPersona={onPersona} />}
+            {section === "Connections" && <Row id="setup-heading" title="Apps and accounts" description="Which accounts Stupid reads, and anything Meta still needs.">
+              <HStack><Button label="Open setup" href="#setup" /></HStack>
+            </Row>}
+            {section === "Your agent" && <AgentRules />}
+            {section === "AI model" && <AiAccess />}
+            {section === "Muse" && <UseFromMuse />}
+            {section === "Account" && <Account name={name} onSignedOut={onSignedOut} />}
+          </div>
+        </div>
+      </div>
+    </Dialog>
   );
 }
 

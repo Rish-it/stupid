@@ -88,8 +88,31 @@ body { background: var(--color-background-body); }
 .crop { display: block; height: 9rem; width: auto; object-fit: cover; border-radius: 12px; background: var(--color-background-muted); }
 .bubble { align-self: flex-start; max-width: 100%; padding: .75rem 1rem; border-radius: 1rem 1rem 1rem .25rem; background: var(--color-background-muted, var(--color-background-surface)); overflow-wrap: anywhere; }
 .steps { display: grid; gap: .5rem; margin: 0; padding-inline-start: 1.25rem; list-style: decimal; }
-.settings-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; padding: 1.25rem; border-radius: 12px; background: var(--color-background-muted); }
-@media (min-width: 48rem) { .settings-row { grid-template-columns: minmax(0, 18rem) minmax(0, 1fr); gap: 2.5rem; } }
+/* Settings, after Rishit's menu reference: one window, sections on the left, the chosen one on the right.
+   Fixed height, so the page never scrolls; only a long section scrolls inside its panel. */
+.prefs { display: grid; grid-template-rows: auto minmax(0, 1fr); height: min(600px, 85dvh); }
+.prefs-side { display: grid; gap: 8px; padding: 16px 16px 8px; background: var(--color-background-body); }
+.prefs-title { font-size: 1.125rem; font-weight: 600; padding-inline: 8px; }
+.prefs-tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+.prefs-tab {
+  flex: none; padding: 8px 12px; border: 0; border-radius: 10px; background: none; color: var(--color-text-secondary);
+  font: inherit; font-size: .9375rem; text-align: start; white-space: nowrap; cursor: pointer;
+}
+.prefs-tab:hover, .prefs-tab[aria-selected="true"] { background: var(--color-background-muted); color: var(--color-text-primary); }
+.prefs-tab:focus-visible { outline: 2px solid var(--color-text-primary); outline-offset: -2px; }
+.prefs-main { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
+.prefs-head { padding: 16px 16px 12px 24px; }
+.prefs-panel { overflow-y: auto; padding: 0 24px 24px; }
+@media (min-width: 48rem) {
+  .prefs { grid-template-columns: 220px minmax(0, 1fr); grid-template-rows: none; }
+  .prefs-side { align-content: start; padding: 20px 12px; }
+  .prefs-title { padding-block-end: 8px; }
+  .prefs-tabs { flex-direction: column; overflow: visible; }
+  .prefs-head { padding: 20px 20px 16px 32px; }
+  .prefs-panel { padding: 0 32px 32px; }
+}
+.settings-row { display: grid; gap: 1rem; }
+.settings-row + .settings-row { margin-block-start: 2rem; }
 
 /* Home, after the "Today" reference: a centred status line and date, then two quiet panels. */
 .home { max-width: 1040px; }
