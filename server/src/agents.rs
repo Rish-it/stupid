@@ -1,5 +1,5 @@
 //! Background agents on Muse Spark Open. Each run prepares work for the person; nothing is sent or changed.
-use crate::{crops, lock, meta, now, reels, tickets, user, ApiResult, AppError, AppState};
+use crate::{crops, lock, meta, now, reels, tickets, user, ApiResult, AppError, AppState, User};
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
@@ -104,8 +104,13 @@ pub async fn list(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Js
 
 pub async fn run(State(s): State<AppState>, headers: HeaderMap, Path(agent): Path<String>) -> ApiResult<Json<Value>> {
     let u = user(&s, &headers)?;
+    start(&s, u, &agent).await.map(Json)
+}
+
+/// Start one job for the person, from a Run tap or from Muse over MCP: same spend cap and daily limit.
+pub async fn start(s: &AppState, u: User, agent: &str) -> ApiResult<Value> {
     let (name, system) = AGENTS.iter().find(|(n, _)| *n == agent).copied().ok_or_else(|| AppError::new(404, "Unknown agent."))?;
-    let own = own_key(&s, &u.id)?;
+    let own = own_key(s, &u.id)?;
     if own.is_none() && s.cfg.muse_key.is_empty() {
         return Err(AppError::new(503, "Add an AI key in Settings to run agents."));
     }
@@ -113,15 +118,15 @@ pub async fn run(State(s): State<AppState>, headers: HeaderMap, Path(agent): Pat
     busy(&lock(&s.db), &u.id, name)?;
     let context = match name {
         // The inbox already holds Instagram comments next to messages.
-        "leads" => json!({ "messages": for_model(meta::fresh_inbox(&s, &u).await?) }),
-        "ideas" => instagram_context(&meta::instagram_data(&s, &u).await?),
-        "reels" => reels::context(&meta::instagram_data(&s, &u).await?),
-        "replies" => json!({ "messages": for_model(meta::fresh_inbox(&s, &u).await?.into_iter().filter(|m| m["kind"] != "instagram_comment").take(20).collect()) }),
-        _ => meta::ads_data(&s, &u).await?,
+        "leads" => json!({ "messages": for_model(meta::fresh_inbox(s, &u).await?) }),
+        "ideas" => instagram_context(&meta::instagram_data(s, &u).await?),
+        "reels" => reels::context(&meta::instagram_data(s, &u).await?),
+        "replies" => json!({ "messages": for_model(meta::fresh_inbox(s, &u).await?.into_iter().filter(|m| m["kind"] != "instagram_comment").take(20).collect()) }),
+        _ => meta::ads_data(s, &u).await?,
     };
     let empty = context.as_object().is_some_and(|o| o.values().all(|v| v.as_array().is_some_and(|a| a.is_empty())));
     // Ad watcher also brings an ad creative pack cut from the creator's own best pictures.
-    let pictures = if name == "ads" && !u.selected_assets("instagram").is_empty() { meta::instagram_data(&s, &u).await.ok() } else { None };
+    let pictures = if name == "ads" && !u.selected_assets("instagram").is_empty() { meta::instagram_data(s, &u).await.ok() } else { None };
     let (id, ticket) = {
         let db = lock(&s.db);
         busy(&db, &u.id, name)?;
@@ -129,7 +134,7 @@ pub async fn run(State(s): State<AppState>, headers: HeaderMap, Path(agent): Pat
             db.execute("INSERT INTO agent_runs (user_id,agent,status,result_json,created,finished) VALUES (?1,?2,'done','{\"empty\":true}',?3,?3)", params![u.id, name, now()])?;
             let ticket = tickets::open_job(&db, &u.id, name, db.last_insert_rowid())?;
             tickets::close_job(&db, ticket, "dropped", "Nothing to read yet.")?;
-            return Ok(Json(json!({ "agent": name, "status": "done", "result": { "empty": true } })));
+            return Ok(json!({ "agent": name, "status": "done", "result": { "empty": true } }));
         }
         db.execute("INSERT INTO agent_runs (user_id,agent,status,created) VALUES (?1,?2,'running',?3)", params![u.id, name, now()])?;
         let id = db.last_insert_rowid();
@@ -156,7 +161,7 @@ pub async fn run(State(s): State<AppState>, headers: HeaderMap, Path(agent): Pat
             tracing::error!("agent run {id}: {e}");
         }
     });
-    Ok(Json(json!({ "agent": name, "status": "running" })))
+    Ok(json!({ "agent": name, "status": "running" }))
 }
 
 /// What the model may see of Instagram: bio, followers, and each recent post's caption and counts.

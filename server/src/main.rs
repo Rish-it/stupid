@@ -4,6 +4,7 @@ mod attention;
 mod crops;
 mod executor;
 mod meta;
+mod mcp;
 mod meta_ai;
 mod reels;
 mod tickets;
@@ -217,6 +218,8 @@ ALTER TABLE users ADD COLUMN agent_rules TEXT NOT NULL DEFAULT '';
 ",
     // A voice note: `media` points at the audio until it is transcribed, then the words replace it.
     "ALTER TABLE events ADD COLUMN voice INTEGER NOT NULL DEFAULT 0; ALTER TABLE events ADD COLUMN media TEXT;",
+    // Keys Muse uses to reach Stupid over MCP, stored as hashes like sessions.
+    "CREATE TABLE access_keys (id INTEGER PRIMARY KEY, user_id TEXT NOT NULL, hash TEXT UNIQUE NOT NULL, created INTEGER NOT NULL, last_used INTEGER, revoked INTEGER);",
 ];
 
 fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
@@ -466,6 +469,7 @@ fn delete_user(s: &AppState, id: &str) -> rusqlite::Result<()> {
         for table in ["drafts", "tickets", "evals", "triggers", "threads"] {
             tx.execute(&format!("DELETE FROM {table} WHERE user_id=?1"), [id])?;
         }
+        tx.execute("DELETE FROM access_keys WHERE user_id=?1", [id])?;
         tx.execute("DELETE FROM users WHERE id=?1", [id])?;
         tx.commit()?;
     }
@@ -685,6 +689,8 @@ async fn main() {
         .route("/api/agent", get(attention::home))
         .route("/api/agent/settings", put(attention::settings))
         .route("/api/agent/tickets/{id}/answer", post(attention::answer))
+        .route("/api/mcp/key", get(mcp::key_status).post(mcp::create_key).delete(mcp::revoke_key))
+        .route("/mcp", post(mcp::handle))
         .route("/webhooks/meta", get(webhook_verify).post(webhook))
         // Unknown API paths answer JSON 404, never the app's index.html.
         .route("/api/{*rest}", any(|| async { AppError::new(404, "Not found.") }))
@@ -719,7 +725,7 @@ pub mod tests_support {
 
     /// Request headers signed in as that person.
     pub fn signed_in(state: &AppState) -> HeaderMap {
-        lock(&state.db).execute("INSERT INTO sessions VALUES (?1,'u',?2)", params![digest("t"), now() + 3600]).unwrap();
+        lock(&state.db).execute("INSERT OR REPLACE INTO sessions VALUES (?1,'u',?2)", params![digest("t"), now() + 3600]).unwrap();
         let mut h = HeaderMap::new();
         h.insert(header::COOKIE, HeaderValue::from_static("stupid_session=t"));
         h

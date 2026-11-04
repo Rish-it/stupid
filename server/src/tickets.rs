@@ -274,8 +274,13 @@ async fn eval_thread(s: &AppState, user_id: &str, thread_id: i64) -> ApiResult<(
 
 /// A tap on Run is an explicit request: no gate or eval, straight to a ticket for that job.
 pub fn open_job(db: &Connection, user_id: &str, job: &str, run_id: i64) -> rusqlite::Result<i64> {
-    let thread_id = thread(db, user_id, &format!("job:{job}"))?;
-    db.execute("INSERT INTO triggers (user_id,thread_id,source,ref,created,disposition) VALUES (?1,?2,'run',?3,?4,'accept')", params![user_id, thread_id, format!("run:{run_id}"), now()])?;
+    open_explicit(db, user_id, &format!("job:{job}"), "run", &format!("run:{run_id}"), None, job)
+}
+
+/// An explicit request from the person or from Muse: an accepted trigger and a ticket, with no eval.
+pub fn open_explicit(db: &Connection, user_id: &str, key: &str, source: &str, reference: &str, event_id: Option<i64>, job: &str) -> rusqlite::Result<i64> {
+    let thread_id = thread(db, user_id, key)?;
+    db.execute("INSERT INTO triggers (user_id,thread_id,source,ref,event_id,created,disposition) VALUES (?1,?2,?3,?4,?5,?6,'accept')", params![user_id, thread_id, source, reference, event_id, now()])?;
     db.execute("INSERT INTO tickets (user_id,thread_id,trigger_id,job,created) VALUES (?1,?2,?3,?4,?5)", params![user_id, thread_id, db.last_insert_rowid(), job, now()])?;
     let ticket = db.last_insert_rowid();
     db.execute("INSERT INTO reports (ticket_id,kind,text,created) VALUES (?1,'progress','Working on it.',?2)", params![ticket, now()])?;
@@ -413,7 +418,7 @@ mod tests {
     fn no_send_path_is_reachable_from_the_agent() {
         // The agent's code may read and prepare; the only send is meta::reply, behind the person's tap.
         let banned = [["meta::", "reply("].concat(), ["reply_", "request"].concat(), ["/mess", "ages"].concat(), ["send_", "message"].concat()];
-        let files = [("tickets.rs", include_str!("tickets.rs")), ("agents.rs", include_str!("agents.rs")), ("executor.rs", include_str!("executor.rs")), ("tools.rs", include_str!("tools.rs"))];
+        let files = [("tickets.rs", include_str!("tickets.rs")), ("agents.rs", include_str!("agents.rs")), ("executor.rs", include_str!("executor.rs")), ("tools.rs", include_str!("tools.rs")), ("mcp.rs", include_str!("mcp.rs"))];
         for (file, source) in files {
             for word in &banned {
                 assert!(!source.contains(word.as_str()), "{file} mentions {word}");
