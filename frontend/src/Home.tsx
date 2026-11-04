@@ -30,6 +30,9 @@ const nudges: Record<AgentId, string> = {
   replies: "When a message arrives, I'll draft the answer here.",
   ads: "Run an ad and I'll say what to keep, grow or pause.",
 };
+const workingOn: Record<AgentId, string> = {
+  reels: "is watching your Reels…", ideas: "is looking at your posts…", leads: "is reading your messages…", replies: "is drafting replies…", ads: "is checking your ads…",
+};
 const message = (cause: unknown) => cause instanceof Error ? cause.message : String(cause);
 
 /** The agent's desk: what it's watching, what needs the person, and what it made. Not a dashboard. */
@@ -211,10 +214,14 @@ function ReadyForYou({ runs, order, persona }: { runs: AgentRun[]; order: AgentI
   const [open, setOpen] = useState<AgentRun>();
   const done = order.map(id => runs.find(r => r.agent === id && r.status === "done" && r.result && !("empty" in r.result))).filter(r => r !== undefined);
   const own = runs.filter(r => r.agent.startsWith("custom:") && r.status === "done" && r.result).sort((a, b) => (b.finished ?? 0) - (a.finished ?? 0));
+  const working = order.filter(id => runs.some(r => r.agent === id && r.status === "running"));
   // The path's first three agents nudge when they have nothing yet.
-  const quiet = order.slice(0, persona === "business" ? 2 : 3).filter(id => !done.some(r => r.agent === id));
+  const quiet = order.slice(0, persona === "business" ? 2 : 3).filter(id => !done.some(r => r.agent === id) && !working.includes(id));
   return (
     <Panel id="ready-heading" title="Ready for you" count={done.length + own.length}>
+      {working.length > 0 && <ul className="rows">{working.map(id => <li key={id} className="row">
+        <Text as="p" size="sm"><Text weight="semibold" size="sm">{jobNames[id]}</Text> <span className="shimmer">{workingOn[id]}</span></Text>
+      </li>)}</ul>}
       {done.length + own.length > 0 && <ul className="rows">
         {own.map(r => <li key={r.agent} className="row"><Own run={r} /></li>)}
         {done.map(r => <li key={r.agent} className="row"><Made run={r} onOpen={() => setOpen(r)} /></li>)}
