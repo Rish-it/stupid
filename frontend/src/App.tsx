@@ -25,6 +25,7 @@ const Settings = lazy(() => import("./Settings"));
 const SideBar = lazy(() => import("./SideBar"));
 const Onboarding = lazy(() => import("./Onboarding"));
 const Toasts = lazy(() => import("./Toasts"));
+const AgentHead = lazy(() => import("./AgentHead"));
 // Closing the onboarding card (or skipping its optional step) holds it back for the rest of this visit.
 const later = { get: () => { try { return sessionStorage.getItem("stupid.onboarding") === "later"; } catch { return false; } },
   set: () => { try { sessionStorage.setItem("stupid.onboarding", "later"); } catch { /* private mode: it just shows again */ } },
@@ -112,7 +113,7 @@ export default function App() {
   const welcome = !user && Boolean(me.data || me.error?.status === 401);
   let body;
   if (user && shown === "setup") body = <Suspense fallback={loading}><Setup state={user} persona={user.persona} onChange={next => me.setData({ ...user, ...next })} onConnect={connect} /></Suspense>;
-  else if (user && shown === "home") body = <Suspense fallback={loading}><Home state={user} persona={user.persona} onSetup={() => setHeld(false)} /></Suspense>;
+  else if (user && shown === "home") body = <Suspense fallback={loading}><Home state={user} persona={user.persona} /></Suspense>;
   else if (user && shown === "inbox") body = <Suspense fallback={loading}><Inbox on={user.assets.filter(a => user.selected.includes(a.key))} /></Suspense>;
   else if (user) body = <Suspense fallback={loading}><Agents state={user} /></Suspense>;
   else if (welcome) body = <Welcome onDoor={setSignIn} onPassed={setPassed} />;
@@ -138,6 +139,7 @@ export default function App() {
             endContent={<Button size="sm" label="Try again" href={oauthStartUrl} onClick={connect} />} />
         </VStack>}
         {user && !sample && <Suspense fallback={null}><Toasts /></Suspense>}
+        {user && <Suspense fallback={null}><AgentHead account={user} onSetup={() => { later.clear(); setHeld(false); }} /></Suspense>}
         {reconnecting && <Text className="shimmer reconnecting" type="supporting" size="sm" role="status">Reconnecting…</Text>}
         {body}
         {user && page === "settings" && <Suspense><Settings name={user.name} persona={user.persona} onPersona={setPersona} onSignedOut={signOut}

@@ -2,7 +2,6 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Button } from "@astryxdesign/core/Button";
 import { Heading } from "@astryxdesign/core/Heading";
-import { Link } from "@astryxdesign/core/Link";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
@@ -36,31 +35,24 @@ const workingOn: Record<AgentId, string> = {
 const message = (cause: unknown) => cause instanceof Error ? cause.message : String(cause);
 
 /** The agent's desk: what it's watching, what needs the person, and what it made. Not a dashboard. */
-export default function Home({ state, persona, onSetup }: { state: Connections; persona: Persona | null; onSetup: () => void }) {
+export default function Home({ state, persona }: { state: Connections; persona: Persona | null }) {
   const home = useLoad("agent", api.agent);
   const runs = useLoad("agents", api.agents);
-  // Shared with the onboarding card, so a closed card still leaves a way back while a required step is left.
-  const setup = useLoad("setup-next", api.setupNext);
-  const unfinished = setup.data?.persona && !setup.data.done && setup.data.step;
   const [today] = useState(() => new Intl.DateTimeFormat(undefined, { weekday: "short", day: "numeric", month: "short" }).format(new Date()));
   return (
     <div className="page home">
       <VStack gap={8}>
         <VStack as="header" gap={2} hAlign="center">
           {/* The status line's space is kept while it loads, so the date below never moves. */}
-          {home.data ? <Status data={home.data} state={state} /> : <Text as="p" type="supporting" size="sm" className="status-line status-wait" aria-hidden><span className="live-dot" />{"\u00a0"}</Text>}
+          {home.data ? <Status data={home.data} state={state} /> : <Text as="p" type="supporting" size="sm" className="status-line status-wait" aria-hidden>{"\u00a0"}</Text>}
           <Heading level={1} justify="center" tabIndex={-1}><VisuallyHidden>Home, </VisuallyHidden>{today}</Heading>
-          {unfinished && <HStack gap={2} align="center" wrap="wrap" justify="center">
-            <Text type="supporting" size="sm">{`Setup isn't finished: ${unfinished.title}`}</Text>
-            <Button size="sm" variant="ghost" label="Finish setup" onClick={onSetup} />
-          </HStack>}
         </VStack>
         <div className="home-panels">
           <Load state={home}>{data => <NeedsYou data={data} reload={home.reload} />}</Load>
           <Load state={runs}>{data => <ReadyForYou runs={data.runs} order={data.order} persona={persona} />}</Load>
           {sample && persona && <Suspense fallback={null}><SamplePhone persona={persona} /></Suspense>}
         </div>
-        {home.data && <AgentChat needs={home.data.needs} state={state} />}
+        {home.data && <AgentChat needs={home.data.needs} />}
         <Suspense fallback={null}><Numbers state={state} /></Suspense>
       </VStack>
     </div>
@@ -72,24 +64,20 @@ function Status({ data, state }: { data: AgentHome; state: Connections }) {
   // The owner's own WhatsApp: say so while the agent can ping them there, else one quiet tap to set it up.
   const owner = useLoad("owner-channel", api.ownerChannel).data;
   const pinging = owner?.linked && owner.window_until !== null && owner.window_until > Date.now() / 1000;
-  // Pings on WhatsApp can't arrive while Meta refuses the number; say so instead of "Pinging you".
-  const blocked = owner?.channel !== "messenger" ? whatsappBlock(state, owner?.asset_id) : undefined;
+  // Calm on purpose: anything to fix or finish sits with the agent's head, bottom right.
+  const blocked = owner?.channel !== "messenger" && whatsappBlock(state, owner?.asset_id);
   return (
     <Text as="p" type="supporting" size="sm" className="status-line">
-      <span className="live-dot" data-on={watching.length > 0 || undefined} aria-hidden />
       {watching.length ? `Watching ${list(watching)}` : "Not watching any messages yet"}
-      {data.last_checked ? ` · last checked ${ago(data.last_checked)}` : ""}
-      {owner && (blocked ? <> · Meta is blocking sends from your WhatsApp number · <Link href={blocked.link ?? "#settings"} target="_blank" rel="noopener noreferrer" type="supporting" size="sm" hasUnderline>Fix in Meta</Link></>
-        : pinging ? ` · Pinging you on ${ownerPlace(owner)}` : owner.business_number && <> · <Link href="#settings" type="supporting" size="sm" hasUnderline>
-        {owner.linked ? "Message your business number to get pings" : "Get pinged on your WhatsApp"}</Link></>)}
+      {data.last_checked ? ` · checked ${ago(data.last_checked)}` : ""}
+      {owner && pinging && !blocked ? ` · Pinging you on ${ownerPlace(owner)}` : ""}
     </Text>
   );
 }
 
 /** Once paired: the agent is one WhatsApp message away, for the same things this desk does. */
-function AgentChat({ needs, state }: { needs: Need[]; state: Connections }) {
+function AgentChat({ needs }: { needs: Need[] }) {
   const owner = useLoad("owner-channel", api.ownerChannel).data;
-  const blocked = whatsappBlock(state, owner?.asset_id);
   if (!owner?.linked || !owner.business_number) return null;
   // The example names someone actually waiting, when someone is.
   const waiting = needs.find(n => n.message)?.message;
@@ -98,7 +86,6 @@ function AgentChat({ needs, state }: { needs: Need[]; state: Connections }) {
       <VStack gap={1}>
         <Heading level={2} id="agent-chat" className="panel-title">Your agent on WhatsApp</Heading>
         <Text type="supporting" size="sm">{`Message your agent anytime: "what's pending?" or "reply to ${waiting ? senderName(waiting).split(" ")[0] : "a customer"}…"`}</Text>
-        {blocked && <Text type="supporting" size="sm">{`Its answers may not arrive: ${blocked.text}`} {blocked.link && <Link href={blocked.link} target="_blank" rel="noopener noreferrer" type="supporting" size="sm" hasUnderline>Fix in Meta</Link>}</Text>}
       </VStack>
       <Button label="Open the chat" href={chatUrl(owner.business_number)} target="_blank" rel="noopener noreferrer" />
     </section>
