@@ -1045,7 +1045,7 @@ test("Settings opens on your own WhatsApp: linked with the window open, and ever
   await page.goto("http://127.0.0.1:8032/?fixtures=1&persona=business&stage=ready#settings");
   const panel = page.getByRole("dialog", { name: "Settings" }).getByRole("tabpanel");
   await expect(page.getByRole("tab").first()).toHaveText("On your WhatsApp");
-  await expect(panel.getByText(/^Linked · I can message you until \d\d:\d\d$/)).toBeVisible();
+  await expect(panel.getByText(/^Linked · I can message you until (tomorrow )?\d\d:\d\d$/)).toBeVisible();
   // Paired and open reads as "all good", in the success colour.
   await expect(panel.locator(".status-line .live-dot[data-ok]")).toHaveCount(1);
   // Only the last four digits show.

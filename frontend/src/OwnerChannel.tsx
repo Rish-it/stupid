@@ -19,7 +19,12 @@ const urgent: [Urgent, string][] = [["big_order", "Big orders"], ["complaint", "
 const masked = (phone: string) => `•••• ${phone.slice(-4)}`;
 /** Whether the agent can message the owner right now: linked, and inside the 24 hours since their last message. */
 const open = (oc: OwnerChannel) => oc.linked && oc.window_until !== null && oc.window_until > Date.now() / 1000;
-const until = (oc: OwnerChannel) => new Date(oc.window_until! * 1000).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: oc.tz });
+const until = (oc: OwnerChannel) => {
+  const end = new Date(oc.window_until! * 1000);
+  const day = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: oc.tz });
+  // The window runs 24 hours, so its end is usually tomorrow; say so, or "until 02:42" reads as already past.
+  return `${day(end) === day(new Date()) ? "" : "tomorrow "}${end.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: oc.tz })}`;
+};
 /** One line: linked and open until when, closed and how to reopen, or not linked. */
 const status = (oc: OwnerChannel) => !oc.linked ? "Not linked" : open(oc) ? `Linked · I can message you until ${until(oc)}` : "Window closed: send any message to reopen";
 
