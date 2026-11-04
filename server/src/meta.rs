@@ -524,8 +524,21 @@ fn graph_time(t: &str) -> Option<i64> {
 /// Unpublished Meta apps get no real webhooks, so the inbox also reads recent Messenger and
 /// Instagram conversations and Instagram comments directly, at most every 15 seconds per account.
 /// Rows share the webhook de-duplication keys, so a message never appears twice.
-/// kind, sender, sender name, text, created, de-duplication key, voice-note audio.
-type Pulled = (String, String, String, String, i64, String, Option<String>);
+/// kind, sender, sender name, text, created, de-duplication key, voice-note audio, the post a comment is on.
+type Pulled = (String, String, String, String, i64, String, Option<String>, Option<String>);
+
+/// What an Instagram DM carries besides words, said in front of them: a story reply, a shared post or Reel,
+/// a story mention. Meta's links to those are kept out; they need the person's own Instagram to open.
+fn with_notes(notes: &[&str], text: &str) -> String {
+    let mut notes: Vec<&str> = notes.to_vec();
+    notes.dedup();
+    notes.into_iter().chain(Some(text).filter(|t| !t.is_empty())).collect::<Vec<_>>().join(" ")
+}
+
+const STORY_REPLY: &str = "(Replied to your story)";
+const STORY_MENTION: &str = "(Mentioned you in their story)";
+const SHARED_POST: &str = "(Shared a post)";
+const SHARED_REEL: &str = "(Shared a Reel)";
 
 pub async fn pull(state: &AppState, u: &User) -> ApiResult<()> {
     let t = tokens(state, u)?;
@@ -534,13 +547,18 @@ pub async fn pull(state: &AppState, u: &User) -> ApiResult<()> {
         let token = t.for_asset(&a.key).to_string();
         let fetched = cached(state, format!("{}:pull:{}", u.id, a.key), Duration::from_secs(15), || async {
             let mut rows: Vec<Pulled> = Vec::new();
-            let fields = "messages.limit(10){id,message,from,created_time,attachments{mime_type,file_url,image_data,video_data}}".to_string();
+            let fields = "messages.limit(10){id,message,from,created_time,shares{link},story,attachments{mime_type,file_url,image_data,video_data}}".to_string();
             let conversations = get(state, "me/conversations", &[("platform", a.kind.clone()), ("fields", fields), ("limit", "20".into())], &token).await?;
             for conv in conversations["data"].as_array().into_iter().flatten() {
                 for m in conv["messages"]["data"].as_array().into_iter().flatten() {
                     let from = &m["from"];
                     let (id, handle) = (from["id"].as_str().unwrap_or_default(), from["username"].as_str().or(from["name"].as_str()).unwrap_or_default());
-                    let text = m["message"].as_str().unwrap_or_default();
+                    let notes: Vec<&str> = [
+                        (m["story"]["reply_to"].is_object(), STORY_REPLY),
+                        (m["story"]["mention"].is_object(), STORY_MENTION),
+                        (m["shares"]["data"].as_array().is_some_and(|d| !d.is_empty()), SHARED_POST),
+                    ].into_iter().filter(|(on, _)| *on).map(|(_, n)| n).collect();
+                    let text = &with_notes(&notes, m["message"].as_str().unwrap_or_default());
                     // A voice note, photo or video comes as an attachment; it is put into words after it is stored.
                     let audio = m["attachments"]["data"].as_array().into_iter().flatten().find_map(|x| {
                         let mime = x["mime_type"].as_str()?;
@@ -552,7 +570,7 @@ pub async fn pull(state: &AppState, u: &User) -> ApiResult<()> {
                     if (text.is_empty() && audio.is_none()) || id.is_empty() || id == a.id || handle == a.name || created < oldest {
                         continue;
                     }
-                    rows.push((a.kind.clone(), id.into(), handle.into(), text.chars().take(4000).collect(), created, format!("{}:{}", a.kind, m["id"].as_str().unwrap_or_default()), audio));
+                    rows.push((a.kind.clone(), id.into(), handle.into(), text.chars().take(4000).collect(), created, format!("{}:{}", a.kind, m["id"].as_str().unwrap_or_default()), audio, None));
                 }
             }
             if a.kind == "instagram" {
@@ -565,22 +583,23 @@ pub async fn pull(state: &AppState, u: &User) -> ApiResult<()> {
                         if text.is_empty() || who.is_empty() || who == a.name || created < oldest {
                             continue;
                         }
-                        rows.push(("instagram_comment".into(), who.into(), who.into(), text.chars().take(4000).collect(), created, format!("igc:{}", c["id"].as_str().unwrap_or_default()), None));
+                        rows.push(("instagram_comment".into(), who.into(), who.into(), text.chars().take(4000).collect(), created, format!("igc:{}", c["id"].as_str().unwrap_or_default()), None,
+                            post["id"].as_str().map(str::to_owned)));
                     }
                 }
             }
             let mut added = Vec::new();
             let mut from_owner = Vec::new();
             let db = lock(&state.db);
-            for (kind, sender, name, text, created, dedupe, media) in &rows {
+            for (kind, sender, name, text, created, dedupe, media, post_id) in &rows {
                 // The owner writing to their own Page on Messenger is talking to their agent, never a customer.
                 if let Some(owned) = crate::owner::take_owner(&db, kind, &a.id, sender, text, dedupe, *created)? {
                     from_owner.push(owned);
                     continue;
                 }
                 if db.execute(
-                    "INSERT OR IGNORE INTO events (kind,asset_id,sender,sender_name,text,created,dedupe,media) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
-                    params![kind, a.id, sender, name, text, created, dedupe, media],
+                    "INSERT OR IGNORE INTO events (kind,asset_id,sender,sender_name,text,created,dedupe,media,post_id) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+                    params![kind, a.id, sender, name, text, created, dedupe, media, post_id],
                 )? == 1 {
                     added.push(db.last_insert_rowid());
                 }
@@ -618,7 +637,7 @@ pub fn inbox_rows(state: &AppState, u: &User) -> ApiResult<Vec<Value>> {
     let marks = (1..=ids.len()).map(|i| format!("?{i}")).collect::<Vec<_>>().join(",");
     let db = lock(&state.db);
     let mut stmt = db.prepare(&format!("SELECT events.id,kind,asset_id,sender,events.text,events.created,EXISTS(SELECT 1 FROM replies r WHERE r.event_id=events.id AND r.error IS NULL),sender_name,
-          (SELECT error FROM replies r WHERE r.event_id=events.id),voice,media,d.text,d.source,matched_json,heard_json,d.model,d.styled,l.answer,l.created
+          (SELECT error FROM replies r WHERE r.event_id=events.id),voice,media,d.text,d.source,matched_json,heard_json,d.model,d.styled,l.answer,l.created,post_id
           FROM events LEFT JOIN drafts d ON d.id=(SELECT MAX(id) FROM drafts WHERE event_id=events.id AND user_id=?{u})
           LEFT JOIN learned l ON l.id=d.learned_id AND l.user_id=d.user_id
           WHERE asset_id IN ({marks}) ORDER BY events.created DESC, events.id DESC LIMIT 100", u = ids.len() + 1))?;
@@ -633,7 +652,9 @@ pub fn inbox_rows(state: &AppState, u: &User) -> ApiResult<Vec<Value>> {
             "draft": r.get::<_, Option<String>>(11)?.map(|text| -> rusqlite::Result<Value> { Ok(json!({ "text": text, "source": r.get::<_, String>(12)?,
                 "models": crate::tools::models(described_by.clone(), r.get(15)?), "styled": r.get::<_, bool>(16)?,
                 "used": r.get::<_, Option<String>>(17)?.map(|a| -> rusqlite::Result<Value> { Ok(json!({ "answer": a, "told": r.get::<_, i64>(18)? })) }).transpose()? })) }).transpose()?,
-            "matched_post": crate::tools::matched(r.get(13)?, &u.id) }))
+            "matched_post": crate::tools::matched(r.get(13)?, &u.id),
+            // The owner's post a comment is on, as Stupid's own copy of its picture.
+            "post_picture": r.get::<_, Option<String>>(19)?.map(|id| format!("/api/instagram/media/{id}/image")) }))
     })?;
     Ok(rows.collect::<Result<_, _>>()?)
 }
@@ -775,6 +796,8 @@ pub struct Event {
     /// A voice note, photo or video waiting to be put into words: `wa:<media id>` or `url:<attachment url>`,
     /// after `photo:` or `video:` for those.
     pub media: Option<String>,
+    /// The owner's post an Instagram comment is on.
+    pub post_id: Option<String>,
 }
 
 /// One log line about a webhook's shape: per change its field, business number id and how many messages and
@@ -813,20 +836,25 @@ pub fn parse_webhook(payload: &Value) -> Vec<Event> {
                     if !text.is_empty() || media.is_some() {
                         let sender = clip(&m["from"]);
                         let sender_name = contacts.iter().find(|c| clip(&c["wa_id"]) == sender).map(|c| clip(&c["profile"]["name"])).unwrap_or_default();
-                        out.push(Event { kind: "whatsapp".into(), asset_id: phone.clone(), sender, sender_name, text, dedupe: format!("wa:{}", clip(&m["id"])), media });
+                        out.push(Event { kind: "whatsapp".into(), asset_id: phone.clone(), sender, sender_name, text, dedupe: format!("wa:{}", clip(&m["id"])), media, post_id: None });
                     }
                 }
             } else if object == "instagram" && change["field"] == "comments" && clip(&v["from"]["id"]) != entry_id {
                 // The account's own comments, such as a reply sent from Stupid, are not someone writing in.
                 let sender = Some(clip(&v["from"]["username"])).filter(|s| !s.is_empty()).unwrap_or_else(|| clip(&v["from"]["id"]));
-                out.push(Event { kind: "instagram_comment".into(), asset_id: entry_id.clone(), sender_name: clip(&v["from"]["username"]), sender, text: clip(&v["text"]), dedupe: format!("igc:{}", clip(&v["id"])), media: None });
+                out.push(Event { kind: "instagram_comment".into(), asset_id: entry_id.clone(), sender_name: clip(&v["from"]["username"]), sender, text: clip(&v["text"]), dedupe: format!("igc:{}", clip(&v["id"])), media: None,
+                    post_id: Some(clip(&v["media"]["id"])).filter(|m| numeric(m)) });
             }
         }
         // Instagram DMs come as `messaging`, or as a `messages` change (Meta's dashboard test, Instagram Login), same shape.
         let as_changes = entry["changes"].as_array().into_iter().flatten().filter(|c| object == "instagram" && c["field"] == "messages").map(|c| &c["value"]);
         for m in entry["messaging"].as_array().into_iter().flatten().chain(as_changes) {
             let message = &m["message"];
-            let text = clip(&message["text"]);
+            let kinds: Vec<&str> = message["attachments"].as_array().into_iter().flatten().filter_map(|x| x["type"].as_str()).collect();
+            let notes: Vec<&str> = std::iter::once((message["reply_to"]["story"].is_object(), STORY_REPLY))
+                .chain(kinds.iter().map(|k| (true, match *k { "story_mention" => STORY_MENTION, "share" | "ig_post" => SHARED_POST, "ig_reel" | "reel" => SHARED_REEL, _ => "" })))
+                .filter(|(on, n)| *on && !n.is_empty()).map(|(_, n)| n).collect();
+            let text = with_notes(&notes, &clip(&message["text"]));
             let media = message["attachments"].as_array().into_iter().flatten().find_map(|x| {
                 let prefix = match x["type"].as_str()? { "audio" => "", "image" => "photo:", "video" => "video:", _ => return None };
                 Some(clip(&x["payload"]["url"])).filter(|u| !u.is_empty()).map(|u| format!("{prefix}url:{u}"))
@@ -835,10 +863,30 @@ pub fn parse_webhook(payload: &Value) -> Vec<Event> {
                 continue;
             }
             let kind = if object == "instagram" { "instagram" } else { "messenger" };
-            out.push(Event { kind: kind.into(), asset_id: entry_id.clone(), sender: clip(&m["sender"]["id"]), sender_name: String::new(), text, dedupe: format!("{kind}:{}", clip(&message["mid"])), media });
+            out.push(Event { kind: kind.into(), asset_id: entry_id.clone(), sender: clip(&m["sender"]["id"]), sender_name: String::new(), text, dedupe: format!("{kind}:{}", clip(&message["mid"])), media, post_id: None });
         }
     }
     out
+}
+
+/// Webhook DMs carry only the person's id; Graph gives their @handle or name, so the Inbox says who wrote.
+pub async fn name_senders(s: &AppState, ids: &[i64]) {
+    for id in ids {
+        let found = lock(&s.db).query_row(
+            "SELECT kind,asset_id,sender FROM events WHERE id=?1 AND IFNULL(sender_name,'')='' AND kind IN ('instagram','messenger')", [id],
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?))).optional();
+        let Ok(Some((kind, asset, sender))) = found else { continue };
+        let owner = crate::tickets::owners(&lock(&s.db), &asset).ok().and_then(|o| o.into_iter().next());
+        let (Some(u), true) = (owner.and_then(|o| crate::user_by_id(s, &o).ok()), numeric(&sender)) else { continue };
+        let Ok(t) = tokens(s, &u) else { continue };
+        let fields = if kind == "instagram" { "username,name" } else { "name" };
+        match get(s, &sender, &[("fields", fields.into())], t.for_asset(&format!("{kind}:{asset}"))).await {
+            Ok(p) => if let Some(name) = p["username"].as_str().or(p["name"].as_str()) {
+                let _ = lock(&s.db).execute("UPDATE events SET sender_name=?2 WHERE id=?1", params![id, name.chars().take(200).collect::<String>()]);
+            },
+            Err(e) => tracing::warn!(event = id, "sender name: {}", e.1),
+        }
+    }
 }
 
 /// WhatsApp delivery failures, which Meta reports only through the webhook after accepting a send.
@@ -929,6 +977,19 @@ mod tests {
         let e = parse_webhook(&comments);
         assert_eq!(e.len(), 1);
         assert_eq!((e[0].kind.as_str(), e[0].asset_id.as_str(), e[0].sender.as_str(), e[0].dedupe.as_str()), ("instagram_comment", "77", "brandco", "igc:17865799348089039"));
+        assert_eq!(e[0].post_id.as_deref(), Some("123"), "the post it is on, for its picture in the Inbox");
+        // Story replies, shared posts and Reels, and story mentions, as Meta's Instagram messaging webhook sends them.
+        let dms = json!({"object":"instagram","entry":[{"id":"77","messaging":[
+            {"sender":{"id":"9"},"message":{"mid":"s1","text":"so pretty!","reply_to":{"story":{"url":"https://lookaside/s","id":"55"}}}},
+            {"sender":{"id":"9"},"message":{"mid":"s2","attachments":[{"type":"share","payload":{"url":"https://lookaside/p"}}]}},
+            {"sender":{"id":"9"},"message":{"mid":"s3","attachments":[{"type":"ig_reel","payload":{"reel_video_id":"1","title":"t","url":"https://lookaside/r"}}],"text":"look"}},
+            {"sender":{"id":"9"},"message":{"mid":"s4","attachments":[{"type":"story_mention","payload":{"url":"https://lookaside/m"}}]}},
+            {"sender":{"id":"9"},"message":{"mid":"s5","attachments":[{"type":"audio","payload":{"url":"https://lookaside/v.mp4"}}]}}]}]});
+        let e = parse_webhook(&dms);
+        let said: Vec<&str> = e.iter().map(|e| e.text.as_str()).collect();
+        assert_eq!(said, ["(Replied to your story) so pretty!", "(Shared a post)", "(Shared a Reel) look", "(Mentioned you in their story)", ""]);
+        assert_eq!(e[4].media.as_deref(), Some("url:https://lookaside/v.mp4"), "a voice note goes to transcription");
+        assert!(!said.concat().contains("lookaside"));
         // A DM as a `messages` change, as Meta's dashboard test and Instagram Login send it.
         let changed = json!({"object":"instagram","entry":[{"id":"77","time":1730700000,"changes":[{"field":"messages","value":{"sender":{"id":"12334"},"recipient":{"id":"77"},"timestamp":"1527459824","message":{"mid":"random_mid","text":"random_text"}}}]}]});
         let e = parse_webhook(&changed);
