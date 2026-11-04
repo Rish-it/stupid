@@ -395,6 +395,9 @@ pub async fn start(s: &AppState, u: User, agent: &str) -> ApiResult<Value> {
             "ideas" => ideas(&state, &u.id, &system, &context, pictures_for_ideas, &ai).await,
             _ => muse(&state, name, &system, &context, &ai).await,
         };
+        if let (Ok((result, _)), "leads") = (&mut outcome, name) {
+            keep_quoted(result, &context["messages"]);
+        }
         if let (Ok((result, cost)), Some(ig)) = (&mut outcome, &pictures) {
             let (pack, more) = crops::pack(&state, &u.id, ig, &ai).await;
             result["creative_pack"] = json!(pack);
@@ -416,6 +419,19 @@ pub async fn start(s: &AppState, u: User, agent: &str) -> ApiResult<Value> {
         }
     });
     Ok(json!({ "agent": name, "status": "running" }))
+}
+
+/// A lead stands on what the person actually wrote: one whose quote isn't in any of the messages it read is
+/// dropped, not shown with words they never said. Quotes, case and spacing don't count.
+fn keep_quoted(result: &mut Value, messages: &Value) {
+    let plain = |t: &str| t.to_lowercase().split_whitespace().collect::<Vec<_>>().join(" ");
+    let texts: Vec<String> = messages.as_array().into_iter().flatten().filter_map(|m| m["text"].as_str()).map(plain).collect();
+    if let Some(leads) = result["leads"].as_array_mut() {
+        leads.retain(|l| {
+            let said = plain(l["said"].as_str().unwrap_or_default().trim_matches(|c: char| "\"'“”‘’ ".contains(c)));
+            !said.is_empty() && texts.iter().any(|t| t.contains(&said))
+        });
+    }
 }
 
 /// Ideas and the Reel director learn from the creator's own posts; a connected Instagram with none says so instead of guessing.
@@ -644,6 +660,18 @@ mod tests {
         ] })];
         let (data, cost) = chat(&s, "meta-test", &messages, Some(&tools), &Ai::Meta(META_MODEL.into())).await.unwrap();
         println!("META ${cost:.4} {}", data["choices"][0]["message"]);
+    }
+
+    #[test]
+    fn a_lead_quotes_the_exact_words() {
+        let messages = json!([{ "text": "Love this!  Are you open to a PAID collab for our skincare brand?" }, { "text": "price?" }]);
+        let mut result = json!({ "leads": [
+            { "who": "glowco", "said": "\u{201c}Are you open to a paid collab for our skincare brand?\u{201d}" },
+            { "who": "made up", "said": "We'd pay $500 for a Reel" },
+            { "who": "empty", "said": "" }] });
+        keep_quoted(&mut result, &messages);
+        let who: Vec<&str> = result["leads"].as_array().unwrap().iter().map(|l| l["who"].as_str().unwrap()).collect();
+        assert_eq!(who, ["glowco"]);
     }
 
     #[test]
