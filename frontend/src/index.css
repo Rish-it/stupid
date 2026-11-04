@@ -117,6 +117,21 @@ body { background: var(--color-background-body); }
 .person-meta [data-status="Not delivered"] { color: var(--live); }
 @media (prefers-reduced-motion: no-preference) { .person { transition: background-color .15s ease-out; } }
 
+/* Agents, after the Images library reference: tall colour tiles, name bottom-left, the work on the tile. */
+.library { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 13rem), 1fr)); gap: 8px; }
+.agent-tile {
+  display: flex; flex-direction: column; justify-content: space-between; gap: 16px; min-height: 18rem; padding: 14px; border-radius: 12px;
+  background: linear-gradient(to top, #0006, transparent 60%), var(--field); color: #fff;
+  --color-text-primary: #fff; --color-text-secondary: #ffffffd9; --color-icon-primary: #fff;
+}
+.agent-tile .kind { color: #ffffffd9; }
+.agent-name { font-size: 1.0625rem; font-weight: 600; }
+.agent-tile[data-agent="reels"] { --field: #7A3E22; }
+.agent-tile[data-agent="ideas"] { --field: #5B3A63; }
+.agent-tile[data-agent="leads"] { --field: #2F4A5C; }
+.agent-tile[data-agent="replies"] { --field: #1F4D47; }
+.agent-tile[data-agent="ads"] { --field: #4A4466; }
+
 /* Loading words: a light sweeps across, then rests. */
 @media (prefers-reduced-motion: no-preference) {
   .shimmer { mask-image: linear-gradient(90deg, #000 40%, #0006 50%, #000 60%); mask-size: 200% 100%; animation: shimmer 2s linear infinite; }
