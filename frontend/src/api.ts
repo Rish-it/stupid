@@ -6,7 +6,10 @@ export type AssetKind = "ads" | "instagram" | "whatsapp" | "messenger";
 export type Issue = { blocking: boolean; text: string; fix: string; link?: string | null };
 export type Asset = { key: string; kind: AssetKind; id: string; name: string; issues?: Issue[] };
 /** `instagram_oauth_start` appears once the server offers Instagram sign-in for creators without a Facebook Page. */
-export type Me = { signed_in: false; instagram_oauth_start?: string } | { signed_in: true; name: string; assets: Asset[]; selected: string[]; permissions: string[]; problems?: string[] };
+/** Who Stupid works for: a creator (Instagram first) or a business owner (WhatsApp first). */
+export type Persona = "creator" | "business";
+/** `persona` is null until the person picks a door; older servers leave it out. */
+export type Me = { signed_in: false; instagram_oauth_start?: string } | { signed_in: true; name: string; assets: Asset[]; selected: string[]; permissions: string[]; problems?: string[]; persona?: Persona | null };
 export type Connections = { assets: Asset[]; selected: string[] };
 export type Account = Connections & { permissions?: string[]; problems?: string[] };
 
@@ -38,6 +41,54 @@ export function appStatus(state: Account, kind: AssetKind) {
 /** Setup is done when nothing was refused, nothing needs a step, and at least one app is ready. */
 export const setupDone = (state: Account) => !state.problems?.length
   && apps.every(a => appStatus(state, a.kind).status !== "step") && apps.some(a => appStatus(state, a.kind).status === "ready");
+
+/** The one thing this person must do next, from real Meta state (GET /api/setup/next). */
+export type SetupStep = {
+  id: string; app: AssetKind | "agent"; title: string; why: string;
+  action: "connect" | "fix_in_meta" | "tell_agent"; button: string; link?: string; optional: boolean;
+};
+export type SetupNext = { persona: Persona | null; done: boolean; progress: { done: number; total: number }; step?: SetupStep };
+
+export const factsPrompt: Record<Persona, string> = {
+  creator: "What you post about and what brand deals you take, in one or two sentences.",
+  business: "Your prices, hours and delivery areas, in one or two sentences.",
+};
+
+/**
+ * The same answer as GET /api/setup/next, worked out here from /api/me and the agent's rules.
+ * ponytail: stand-in while servers without the endpoint are live (and for ?fixtures=1); delete once every server has it.
+ */
+export function localNext(me: Account & { persona?: Persona | null }, rules: string, persona = me.persona ?? null): SetupNext {
+  if (!persona) return { persona: null, done: false, progress: { done: 0, total: 0 } };
+  const main: AssetKind = persona === "creator" ? "instagram" : "whatsapp";
+  const on = (kind: AssetKind) => appStatus(me, kind).on;
+  const issue = on(main).flatMap(a => a.issues ?? []).find(i => i.blocking);
+  // Every step this path needs, each with whether it's passed; the first one not passed is next.
+  const steps: [passed: boolean, step: () => SetupStep][] = persona === "creator" ? [
+    [on("instagram").length > 0, () => ({ id: "instagram_connect", app: "instagram", title: "Connect Instagram", why: "Stupid watches your Reels and reads your comments and DMs.", action: "connect", button: "Connect Instagram", optional: false })],
+  ] : [
+    [on("whatsapp").length > 0, () => ({ id: "whatsapp_connect", app: "whatsapp", title: "Connect WhatsApp and your Facebook Page", why: "Stupid hears your customers' chats, voice notes and photos.", action: "connect", button: "Connect WhatsApp", optional: false })],
+    [on("messenger").length > 0, () => ({ id: "page_connect", app: "messenger", title: "Connect your Facebook Page", why: "Stupid answers Messenger chats from your Page too.", action: "connect", button: "Connect your Page", optional: false })],
+  ];
+  steps.push(
+    [on(main).length > 0 && !issue, () => ({ id: `${main}_fix`, app: main, title: issue!.text, why: issue!.fix, action: "fix_in_meta", button: "Open in Meta", link: issue!.link ?? undefined, optional: false })],
+    [Boolean(rules.trim()), () => ({ id: "agent_facts", app: "agent", title: "Tell your agent about you", why: factsPrompt[persona], action: "tell_agent", button: "Save", optional: true })],
+  );
+  const left = steps.filter(([passed]) => !passed).map(([, step]) => step);
+  const next = left[0]?.();
+  return { persona, done: left.length === 0 || (left.length === 1 && next?.optional === true), progress: { done: steps.length - left.length, total: steps.length }, step: next };
+}
+
+/** The door picked on the landing page, kept for the trip through Facebook sign-in. */
+const doorKey = "stupid.persona";
+export const door = {
+  get(): Persona | null {
+    try { const v = sessionStorage.getItem(doorKey); return v === "creator" || v === "business" ? v : null; } catch { return null; }
+  },
+  set(persona: Persona) {
+    try { sessionStorage.setItem(doorKey, persona); } catch { /* Storage blocked: the choice is asked again after sign-in. */ }
+  },
+};
 
 export type Campaign = {
   campaign_id: string; campaign_name: string; spend: string; impressions: string; reach: string;
@@ -85,7 +136,8 @@ export type AgentRun = {
   agent: AgentId; status: "running" | "done" | "failed"; result: AgentResult | null; error: string | null;
   cost_usd: number | null; created: number; finished: number | null;
 };
-export type Agents = { runs: AgentRun[]; ai_ready: boolean; own_key: boolean; model: string };
+/** `order` lists agents in the order this person's path shows them; older servers leave it out. */
+export type Agents = { runs: AgentRun[]; ai_ready: boolean; own_key: boolean; model: string; order?: AgentId[] };
 export type AiSettings = { has_key: boolean; key_saved_at?: number | null; model: string; workspace_ai: boolean; brain: "open" | "meta"; meta_brain: boolean; open_model: string; meta_model: string };
 
 /** The customer message a piece of agent work is about. */
@@ -139,6 +191,13 @@ export const legal = [["Privacy", "/privacy.html"], ["Terms", "/terms.html"], ["
 
 export const api = {
   me: () => call<Me>("GET", "/api/me"),
+  setPersona: (persona: Persona) => call<Me>("PUT", "/api/me/persona", { persona }),
+  setupNext: (): Promise<SetupNext> => call<SetupNext>("GET", "/api/setup/next").catch(async (cause: unknown) => {
+    if (!(cause instanceof ApiError) || cause.status !== 404) throw cause;
+    const [me, home] = await Promise.all([api.me(), api.agent()]);
+    if (!me.signed_in) throw new ApiError(401, "Sign in again.");
+    return localNext(me, home.rules, me.persona ?? door.get());
+  }),
   signOut: () => call<{ signed_in: false }>("POST", "/api/sign-out"),
   select: (selected: string[]) => call<Connections>("PUT", "/api/connections", { selected }),
   disconnect: () => call<unknown>("DELETE", "/api/connections"),
