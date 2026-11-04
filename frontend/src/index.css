@@ -400,3 +400,20 @@ body { background: var(--color-background-body); }
 @media (prefers-reduced-motion: no-preference) {
   .trace li { animation: arrive .2s ease-out both; animation-delay: calc(var(--i) * 60ms); }
 }
+
+/* Sample desk only: the owner's own WhatsApp, and drawn stand-ins for customers' photos. */
+@media (min-width: 64rem) { .home-panels > .panel:nth-child(3) { grid-column: 1 / -1; } }
+@media (min-width: 90rem) { .home-panels:has(.phone) { grid-template-columns: 1fr 1fr minmax(20rem, 24rem); } .home-panels > .panel:nth-child(3) { grid-column: auto; } }
+.phone { display: grid; gap: 10px; max-width: 24rem; padding: 12px; border-radius: 28px; background: #0b141a; }
+.phone-top { padding: 4px 6px 8px; }
+.phone-avatar { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: #1f6f4a; color: #fff; font-weight: 700; font-size: .875rem; }
+.phone-lines { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.phone-lines li { display: grid; gap: 4px; max-width: 88%; padding: 8px 10px; border-radius: 12px 12px 12px 4px; background: #202c33; color: #e9edef; font-size: .875rem; white-space: pre-line; overflow-wrap: anywhere; }
+.phone-lines li[data-from="owner"] { justify-self: end; border-radius: 12px 12px 4px 12px; background: #005c4b; }
+.phone-at { justify-self: end; color: #8696a0; font-size: .6875rem; }
+@media (prefers-reduced-motion: no-preference) {
+  .phone-lines li { animation: arrive .3s ease-out both; animation-delay: calc(var(--i) * 600ms + 200ms); }
+}
+.sample-photo { display: grid; gap: 4px; justify-items: start; margin: 0; }
+.sample-photo img { width: 160px; height: 120px; border-radius: 12px; }
+.sample-photo figcaption { color: var(--color-text-secondary); font-size: .75rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import type { FocusEvent } from "react";
 import { Button } from "@astryxdesign/core/Button";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
@@ -19,6 +19,8 @@ import MetaProblem from "./MetaProblem";
 
 const filters = { all: "All", messenger: "Messenger", instagram: "Instagram", whatsapp: "WhatsApp" } as const;
 const where = { whatsapp: "WhatsApp", messenger: "Messenger", instagram: "Instagram DM", instagram_comment: "Instagram comment" } as const;
+// Sample desk only: a drawn stand-in for a customer's photo.
+const SamplePhoto = lazy(() => import("./Sample").then(m => ({ default: m.SamplePhoto })));
 const working = { voice: "Transcribing the voice note…", photo: "Looking at the photo…", video: "Watching the video…" } as const;
 type Mark = "Sending…" | "Sent";
 
@@ -180,6 +182,7 @@ function Conversation({ item, mark, onClose, onStatus }: { item: InboxItem; mark
       </> : <Button label="Close" onClick={close} />}>
       {noteLabel(item) && <HStack><Token size="sm" label={noteLabel(item)!} /></HStack>}
       <div className="bubble"><Text as="p">{item.transcribing ? working[item.transcribing] : item.text}</Text></div>
+      {sample && item.photo && <Suspense fallback={null}><SamplePhoto id={item.id} /></Suspense>}
       {canReply && draft ? <Trace voice={item.voice ? kept?.models?.described_by ?? null : undefined} photo={item.photo ? kept?.models?.described_by ?? null : undefined}
         drafted={kept?.models?.drafted_by} used={kept?.used} styled={kept?.styled} match={item.matched_post} source={draft.source ?? "agent"} />
         : item.matched_post && <Match post={item.matched_post} />}

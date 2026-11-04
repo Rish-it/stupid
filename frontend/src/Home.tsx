@@ -16,6 +16,9 @@ import SourceIcon from "./SourceIcon";
 import { Modal } from "./Surface";
 
 const Numbers = lazy(() => import("./Numbers"));
+// Sample desk only: the owner's own WhatsApp, and drawn stand-ins for customers' photos.
+const SamplePhone = lazy(() => import("./Sample"));
+const SamplePhoto = lazy(() => import("./Sample").then(m => ({ default: m.SamplePhoto })));
 const apps: Record<string, string> = { whatsapp: "WhatsApp", messenger: "Messenger", instagram: "Instagram" };
 const list = (names: string[]) => names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : names[0] ?? "";
 /** What an agent says when it has nothing yet: a nudge, never "nothing to read". */
@@ -51,6 +54,7 @@ export default function Home({ state, persona, onSetup }: { state: Connections; 
         <div className="home-panels">
           <Load state={home}>{data => <NeedsYou data={data} reload={home.reload} />}</Load>
           <Load state={runs}>{data => <ReadyForYou runs={data.runs} order={data.order} persona={persona} />}</Load>
+          {sample && persona && <Suspense fallback={null}><SamplePhone persona={persona} /></Suspense>}
         </div>
         <Suspense fallback={null}><Numbers state={state} /></Suspense>
       </VStack>
@@ -159,6 +163,7 @@ function Draft({ need, onDone }: { need: Extract<Need, { type: "draft" }>; onDon
     <VStack gap={3}>
       <Who message={need.message} label={need.source === "muse" ? "From Muse" : "Drafted by AI"} when={need.created} />
       {need.message.text && <Text as="p" type="supporting" size="sm">“{need.message.text}”</Text>}
+      {sample && need.message.photo && <Suspense fallback={null}><SamplePhoto id={need.event_id} /></Suspense>}
       <div className="bubble bubble-out"><Text as="p">{need.text}</Text></div>
       <Trace voice={need.message.voice ? need.message.voice.model ?? need.models?.described_by ?? null : undefined}
         photo={need.message.photo ? need.message.photo.model ?? need.models?.described_by ?? null : undefined}

@@ -305,7 +305,7 @@ test("Settings > Connections lists the connected apps and accounts in place", as
   const settings = page.getByRole("dialog", { name: "Settings" });
   await settings.getByRole("tab", { name: "Connections" }).click();
   await expect(settings.getByRole("button", { name: "Manage Instagram" })).toBeVisible();
-  await expect(settings.getByText("@sample.creator")).toBeVisible();
+  await expect(settings.getByText("@sample.trails")).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
 });
@@ -773,35 +773,53 @@ for (const [persona, off] of [["business", "Reel director"], ["creator", "Ad wat
 
 test("Home asks before drafting for an Ask me first agent, and says what a draft drew on", async ({ page }) => {
   await page.goto("http://127.0.0.1:8032/?fixtures=1&persona=business&stage=busy#home");
-  const ask = page.getByRole("listitem").filter({ hasText: "Sample neighbour" }).filter({ hasText: "Shall I draft a reply to this message?" });
+  const ask = page.getByRole("listitem").filter({ hasText: "Tara" }).filter({ hasText: "Shall I draft a reply to this message?" });
   await expect(ask.getByRole("button", { name: "Skip" })).toBeVisible();
   await expect(ask.getByRole("textbox")).toHaveCount(0);
   await ask.getByRole("button", { name: "Draft it" }).click();
   await expect(ask).toHaveCount(0);
-  const draft = page.getByRole("listitem").filter({ hasText: "Sample draft: yes, the chocolate cake" });
+  const draft = page.getByRole("listitem").filter({ hasText: "Hi Rohan! That's our chocolate berry cake" });
   await expect(draft.getByText("Written in your style")).toBeVisible();
-  const told = await page.evaluate(() => new Date(Date.now() - 86400e3).toLocaleDateString(undefined, { day: "numeric", month: "short" }));
-  await expect(draft.getByText(`Used what you told me on ${told}: Sample answer: the chocolate cake is ₹650.`)).toBeVisible();
+  const told = await page.evaluate(() => new Date(Date.now() - 3 * 86400e3).toLocaleDateString(undefined, { day: "numeric", month: "short" }));
+  await expect(draft.getByText(`Used what you told me on ${told}: ₹650 for 1 kg; delivery in Pune is ₹60.`)).toBeVisible();
 });
 
 test("a draft says which of your posts the customer's photo shows, or that it is none", async ({ page }) => {
   await page.goto("http://127.0.0.1:8032/?fixtures=1&persona=business&stage=busy#home");
-  const draft = page.getByRole("listitem").filter({ hasText: "Sample draft: yes, the chocolate cake" });
+  const draft = page.getByRole("listitem").filter({ hasText: "Hi Rohan! That's our chocolate berry cake" });
   const posted = await page.evaluate(() => new Date("2026-10-20T18:30:00+00:00").toLocaleDateString(undefined, { day: "numeric", month: "short" }));
   const link = draft.getByRole("link", { name: new RegExp(`^Matched your post of ${posted}`) });
   await expect(link).toHaveAttribute("href", "https://www.instagram.com/");
   await expect(link).toHaveAttribute("target", "_blank");
   await expect(draft.locator("img.trace-thumb")).toBeVisible();
   await page.goto("http://127.0.0.1:8032/?fixtures=1&persona=creator&stage=busy#home");
-  await expect(page.getByRole("listitem").filter({ hasText: "Sample draft: thank you!" }).getByText("Not one of your posts")).toBeVisible();
+  await expect(page.getByRole("listitem").filter({ hasText: "Thanks for looking out, Jay!" }).getByText("Not one of your posts")).toBeVisible();
 });
 
 test("Inbox shows the post a customer's photo matches", async ({ page }) => {
   await page.goto("http://127.0.0.1:8032/?fixtures=1&persona=business&stage=busy#inbox");
-  await page.locator(".person").filter({ hasText: "Sample customer" }).click();
+  await page.locator(".person").filter({ hasText: "Rohan" }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("link", { name: /^Matched your post of / })).toHaveAttribute("target", "_blank");
-  await expect(dialog.getByRole("img", { name: "Sample post: chocolate cake with berries" })).toBeVisible();
+  await expect(dialog.getByRole("img", { name: "Sample post: chocolate berry cake, 1 kg" })).toBeVisible();
+});
+
+test("the sample desk shows a busy week, labelled photos and the owner's own WhatsApp", async ({ page }) => {
+  for (const [persona, first, sent] of [["business", "Hi Rohan!", "Sent to Ananya ✓"], ["creator", "Hey Riya!", "Sent to Nikhil ✓"]] as const) {
+    await page.goto(`http://127.0.0.1:8032/?fixtures=1&persona=${persona}&stage=busy#home`);
+    const phone = page.getByRole("group", { name: /^Sample WhatsApp chat with your agent/ });
+    // The urgent ping, the owner's 1, the confirmation, then the 9 PM summary.
+    await expect(phone.getByRole("listitem")).toHaveText([/Reply 1 to send/, /^1You/, new RegExp(`^${sent}`), /9:00 PM$/]);
+    await expect(phone.getByRole("listitem").nth(1)).toHaveCSS("animation-delay", "0.8s");
+    // Each customer photo is a drawing, labelled so.
+    const draft = page.getByRole("listitem").filter({ hasText: first }).first();
+    await expect(draft.getByText("Sample photo")).toBeVisible();
+    await page.goto(`http://127.0.0.1:8032/?fixtures=1&persona=${persona}&stage=busy#inbox`);
+    await expect(page.locator(".person-card").nth(14)).toBeVisible();
+  }
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("http://127.0.0.1:8032/?fixtures=1&persona=business&stage=busy#home");
+  await expect(page.locator(".phone-lines li").first()).toHaveCSS("animation-name", "none");
 });
 
 test("the sample desk never calls the server, so a real session is never used", async ({ page }) => {
@@ -928,10 +946,10 @@ test("a new message or draft from the live stream shows a toast, and the new car
 
 test("each draft says how it got here, step by step, from what the server sent", async ({ page }) => {
   await page.goto("http://127.0.0.1:8032/?fixtures=1&persona=business&stage=busy#home");
-  const draft = page.getByRole("listitem").filter({ hasText: "Sample draft: yes, the chocolate cake" });
+  const draft = page.getByRole("listitem").filter({ hasText: "Hi Rohan! That's our chocolate berry cake" });
   const steps = draft.getByRole("list", { name: "How it got here" }).getByRole("listitem");
   // Each step names the model that did it, by the app's names for the ids the server sends.
-  await expect(steps).toHaveText(["Described the photoMuse Spark 1.3", /^Matched your post of /, /^Used what you told me on /, "Written in your style", "Drafted the replyMuse Spark Open", "Waiting for your tap"]);
+  await expect(steps).toHaveText(["Described the photoMuse Spark Open", /^Matched your post of /, /^Used what you told me on /, "Written in your style", "Drafted the replyMuse Spark Open", "Waiting for your tap"]);
   // One after another, 60 ms apart.
   await expect(steps.nth(2)).toHaveCSS("animation-delay", "0.12s");
   await page.emulateMedia({ reducedMotion: "reduce" });
