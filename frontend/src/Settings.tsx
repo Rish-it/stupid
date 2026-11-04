@@ -55,7 +55,15 @@ export default function Settings({ name, persona, account, onAccount, onConnect,
     setSection(next);
     tabs.current?.querySelector<HTMLElement>(`[data-section="${next}"]`)?.focus();
   };
-  const change = (open: boolean) => { if (!open) onClose(); };
+  // Closing fades the window into the page behind it (a View Transition); without one, or with reduced motion, it just closes.
+  const close = () => {
+    if (!document.startViewTransition || matchMedia("(prefers-reduced-motion: reduce)").matches) return onClose();
+    document.startViewTransition(() => new Promise<void>(done => {
+      addEventListener("hashchange", () => requestAnimationFrame(() => requestAnimationFrame(() => done())), { once: true });
+      onClose();
+    }));
+  };
+  const change = (open: boolean) => { if (!open) close(); };
   return (
     <Dialog isOpen onOpenChange={change} width="min(880px, calc(100vw - 16px))" maxHeight="none" padding={0} aria-label="Settings">
       <div className="prefs">
@@ -71,9 +79,9 @@ export default function Settings({ name, persona, account, onAccount, onConnect,
         <div className="prefs-main">
           <HStack align="center" justify="between" gap={2} className="prefs-head">
             <Heading level={2}>{section}</Heading>
-            <Button variant="ghost" label="Close settings" isIconOnly icon={<Icon icon="close" />} onClick={onClose} />
+            <Button variant="ghost" label="Close settings" isIconOnly icon={<Icon icon="close" />} onClick={close} />
           </HStack>
-          <div id="prefs-panel" role="tabpanel" aria-labelledby={`tab-${section}`} className="prefs-panel">
+          <div key={section} id="prefs-panel" role="tabpanel" aria-labelledby={`tab-${section}`} className="prefs-panel">
             {section === "Your work" && <Path persona={persona} onPersona={onPersona} />}
             {section === "Connections" && <Row id="setup-heading" title="Apps and accounts" description="Which accounts Stupid reads, and anything Meta still needs.">
               <Setup state={account} onChange={onAccount} onConnect={onConnect} embedded />

@@ -111,6 +111,19 @@ body { background: var(--color-background-body); }
   .prefs-head { padding: 20px 20px 16px 32px; }
   .prefs-panel { padding: 0 32px 32px; }
 }
+/* Calm motion: a section eases in when chosen, cards settle in one after another as they arrive. None of it with reduced motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .prefs-panel { animation: arrive .18s ease-out both; }
+  .people > li, .library > .agent-tile { animation: arrive .24s ease-out both; }
+  .people > li:nth-child(2), .library > .agent-tile:nth-child(2) { animation-delay: 30ms; }
+  .people > li:nth-child(3), .library > .agent-tile:nth-child(3) { animation-delay: 60ms; }
+  .people > li:nth-child(4), .library > .agent-tile:nth-child(4) { animation-delay: 90ms; }
+  .people > li:nth-child(n+5), .library > .agent-tile:nth-child(n+5) { animation-delay: 120ms; }
+  .agent-tile { transition: translate .15s ease-out; }
+  .agent-tile:hover { translate: 0 -2px; }
+  ::view-transition-old(root), ::view-transition-new(root) { animation-duration: .18s; }
+}
+@keyframes arrive { from { opacity: 0; translate: 0 6px; } }
 .settings-row { display: grid; gap: 1rem; }
 .settings-row + .settings-row { margin-block-start: 2rem; }
 
