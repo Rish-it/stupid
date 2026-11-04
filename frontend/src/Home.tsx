@@ -1,4 +1,4 @@
-import { lazy, Suspense, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Button } from "@astryxdesign/core/Button";
 import { Heading } from "@astryxdesign/core/Heading";
@@ -123,13 +123,16 @@ function Panel({ id, title, count, children }: { id: string; title: string; coun
 function NeedsYou({ data, reload }: { data: AgentHome; reload: () => Promise<void> }) {
   const list = useRef<HTMLUListElement>(null);
   // After an answer or a send, focus moves to the next card, or to the heading when none is left.
-  const done = async (index: number) => {
-    await reload();
-    requestAnimationFrame(() => {
-      const cards = list.current?.querySelectorAll<HTMLElement>(":scope > li");
-      (cards?.[Math.min(index, cards.length - 1)] ?? document.getElementById("needs-heading"))?.focus();
-    });
-  };
+  // Focus moves once the reloaded list is on screen, not on a timer that can beat React's commit.
+  const next = useRef<number>(undefined);
+  const done = async (index: number) => { next.current = index; await reload(); };
+  useEffect(() => {
+    const index = next.current;
+    if (index === undefined) return;
+    next.current = undefined;
+    const cards = list.current?.querySelectorAll<HTMLElement>(":scope > li");
+    (cards?.[Math.min(index, cards.length - 1)] ?? document.getElementById("needs-heading"))?.focus();
+  }, [data.needs]);
   return (
     <Panel id="needs-heading" title="Needs you" count={data.needs.length}>
       {data.needs.length ? (
