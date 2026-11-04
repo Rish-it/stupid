@@ -1,5 +1,5 @@
 //! The one next thing a person must do before the agent can work, read only from what is stored.
-use crate::{lock, meta::Issue, user, ApiResult, AppState, User};
+use crate::{lock, meta::{Issue, NOT_PROFESSIONAL}, user, ApiResult, AppState, User};
 use axum::{extract::State, http::HeaderMap, Json};
 use serde::Serialize;
 use serde_json::{json, Value};
@@ -56,8 +56,16 @@ fn steps(u: &User, persona: &str, facts_given: bool) -> Vec<(bool, Option<Step>)
     if persona == "creator" {
         let ig = has("instagram");
         let issue = blocking("instagram");
+        // Meta shared no Instagram with any Page and a switched-on Page says why: the account isn't professional or linked yet.
+        let snag = (!u.assets.iter().any(|a| a.kind == "instagram"))
+            .then(|| u.selected_assets("messenger").into_iter().flat_map(|a| &a.issues).find(|i| i.text == NOT_PROFESSIONAL))
+            .flatten();
+        let first = match snag {
+            Some(i) => Step { id: "instagram_professional", title: "Make your Instagram a professional account and link it to your Page".into(), ..fix_in_meta("instagram", i) },
+            None => connect("instagram_connect", "instagram", "Connect your Instagram", "So the agent can read your comments and DMs and see what you post.", "Connect Instagram"),
+        };
         return vec![
-            (ig, Some(connect("instagram_connect", "instagram", "Connect your Instagram", "So the agent can read your comments and DMs and see what you post.", "Connect Instagram"))),
+            (ig, Some(first)),
             (ig && issue.is_none(), issue),
             (facts_given, Some(facts("What you post about and what brand deals you take"))),
         ];
@@ -149,6 +157,24 @@ mod tests {
         assert!(ready["step"]["title"].as_str().unwrap().contains("prices"));
         let all = plan(&person(Some("business"), &[("whatsapp", vec![]), ("messenger", vec![])]), true);
         assert_eq!((all["done"].clone(), all["progress"].clone(), all.get("step")), (json!(true), json!({ "done": 4, "total": 4 }), None));
+    }
+
+    #[test]
+    fn creator_with_a_page_but_no_professional_instagram() {
+        let snags = vec![
+            Issue { blocking: false, ..issue(NOT_PROFESSIONAL, "https://help.instagram.com/502981923235522") },
+            Issue { blocking: false, ..issue(crate::meta::NO_INSTAGRAM, "https://www.facebook.com/business/help/898752960195806") },
+        ];
+        let next = plan(&person(Some("creator"), &[("messenger", snags.clone())]), false);
+        assert_eq!((next["step"]["id"].clone(), next["step"]["action"].clone(), next["step"]["app"].clone()), (json!("instagram_professional"), json!("fix_in_meta"), json!("instagram")));
+        assert_eq!((next["step"]["link"].clone(), next["done"].clone(), next["progress"].clone()), (json!("https://help.instagram.com/502981923235522"), json!(false), json!({ "done": 0, "total": 3 })));
+        // Instagram came with another Page: it only needs switching on.
+        let mut u = person(Some("creator"), &[("messenger", snags), ("instagram", vec![])]);
+        u.selected.retain(|k| k != "instagram:1");
+        assert_eq!(plan(&u, false)["step"]["id"], "instagram_connect");
+        // The same snag never shows on the business path.
+        let business = person(Some("business"), &[("whatsapp", vec![]), ("messenger", vec![Issue { blocking: false, ..issue(NOT_PROFESSIONAL, "https://x") }])]);
+        assert_eq!(plan(&business, false)["step"]["id"], "agent_facts");
     }
 
     #[test]
