@@ -1,11 +1,13 @@
 # Stupid
 
-A workspace for creators and small businesses on Meta. Sign in with Facebook, connect
-Instagram, WhatsApp, your Facebook Page and Meta Ads, and work from one place:
+An agent for creators and small businesses on Meta. Sign in with Facebook, connect Instagram,
+WhatsApp, your Facebook Page and Meta Ads, and let it do the busywork while you decide:
 
+- **It answers with you.** Each new message is read as it lands. The agent, on Muse Spark Open,
+  drafts a reply within a minute or asks you one concrete question when it needs a fact. Today
+  shows only what needs you, then what it did. Nothing is sent, posted or changed without your tap.
 - **Inbox.** Messenger, Instagram DMs and comments, and WhatsApp, newest first, updating live.
-- **Agents.** Background agents on Muse Spark Open draft replies, find leads, suggest posts and
-  read your ads. They prepare work and wait: nothing is sent, posted or changed without your tap.
+- **Jobs on a tap.** Lead finder, post ideas, reply drafts and an ad watcher run when you ask.
 - **Results in plain words.** Ad results for the last 7 days and Instagram reach, followers and
   engagement, straight from Meta. An empty or unconnected account says so; no numbers are invented.
 - **Setup without the maze.** Each connected account says what Meta still needs (a payment

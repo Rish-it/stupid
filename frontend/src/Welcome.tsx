@@ -39,8 +39,8 @@ const features: { title: string; text: string; art: ReactNode }[] = [
     art: <SourceIcon source="chat" size={72} />,
   },
   {
-    title: "Results in plain words",
-    text: "Your ad results for the last 7 days, and Instagram reach, followers and engagement, straight from Meta. An empty account says so.",
+    title: "An agent that answers with you",
+    text: "It reads each new message as it lands, drafts the reply in a minute, and asks you one question when it needs a price or a date. You check it and tap Send.",
     art: <><SourceIcon source="ads" size={64} /><SourceIcon source="instagram" size={56} /></>,
   },
   {
@@ -92,7 +92,7 @@ export default function Welcome({ instagram, onConnect, onPassed }: { instagram?
         <div className="intro-fill" aria-hidden />
         <VStack gap={3} hAlign="center" paddingInline={4} maxWidth={720} width="100%" className="intro-copy">
           <Heading level={2} type="display-3" id="intro-title" justify="center" textWrap="balance">Built around your whole business</Heading>
-          <Text as="p" justify="center">Connect Instagram, WhatsApp, your Facebook Page and Meta Ads. Stupid reads them in plain words, and its agents get the next step ready for your tap.</Text>
+          <Text as="p" justify="center">Connect Instagram, WhatsApp, your Facebook Page and Meta Ads. Stupid's agent reads every new message, drafts the reply or asks you one question, and waits for your tap.</Text>
         </VStack>
         <div className="intro-stage">
           <div className="intro-card" aria-hidden>
