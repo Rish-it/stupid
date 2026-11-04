@@ -25,10 +25,10 @@ const SamplePhoto = lazy(() => import("./Sample").then(m => ({ default: m.Sample
 const working = { voice: "Transcribing the voice note…", photo: "Looking at the photo…", video: "Watching the video…" } as const;
 type Mark = "Sending…" | "Sent";
 
-/** `on`: the accounts switched on, so each one gets its filter even before anything arrives from it. */
-export default function Inbox({ on = [] }: { on?: Asset[] }) {
+/** The switched-on accounts still come in, but a platform gets its filter only once it has a message. */
+export default function Inbox(_: { on?: Asset[] }) {
   const inbox = useLoad("inbox", api.inbox);
-  const [filter, setFilter] = useState<keyof typeof filters>("all");
+  const [picked, setFilter] = useState<keyof typeof filters>("all");
   const [open, setOpen] = useState(() => [...drafts.keys()].at(-1));
   // The person whose recent messages show in a popover: on hover, on focus, or from the corner's button.
   // Hover and focus show it for a look; the corner's button pins it open, and a second press closes it.
@@ -52,9 +52,9 @@ export default function Inbox({ on = [] }: { on?: Asset[] }) {
     return next;
   });
   const current = items?.find(i => i.id === open);
-  // Apps switched on, and any this inbox has messages from, get a filter.
-  const apps = (Object.keys(filters) as (keyof typeof filters)[]).filter(k => k === "all" || on.some(a => a.kind === k) || items?.some(i => i.kind.startsWith(k)));
-  const handles = on.filter(a => a.kind === "instagram").map(a => `@${a.name}`).join(" and ");
+  // Only the apps this inbox actually has messages from get a filter; a pick whose app emptied falls back to All.
+  const apps = (Object.keys(filters) as (keyof typeof filters)[]).filter(k => k === "all" || items?.some(i => i.kind.startsWith(k)));
+  const filter = apps.includes(picked) ? picked : "all";
   // Closing a thread puts focus back on its card, even when it was opened from Home.
   const close = (id: string) => {
     setOpen(undefined);
@@ -73,10 +73,7 @@ export default function Inbox({ on = [] }: { on?: Asset[] }) {
       <Load state={inbox}>{({ items }) => {
         const shown = items.filter(i => filter === "all" || i.kind.startsWith(filter));
         if (!shown.length) return (
-          <EmptyState headingLevel={2} title={items.length ? `Nothing from ${filters[filter]} yet` : "No messages yet"}
-            description={filter === "instagram" && handles
-              ? `Stupid reads ${handles}'s DMs and comments every few seconds while this is open. If a DM you sent doesn't show, turn on Allow access to messages in Instagram: Settings, Messages and story replies, Message controls, Connected tools.`
-              : "New messages and comments show up here as they arrive."} />
+          <EmptyState headingLevel={2} title="No messages yet" description="New messages and comments show up here as they arrive." />
         );
         // One card per person: their newest message on the card, the rest in its popover.
         const threads = new Map<string, InboxItem[]>();
