@@ -10,7 +10,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 const AGENTS: &[(&str, &str)] = &[
-    ("leads", "You find sales leads for a creator or small business. From the comments and messages given, list people who show buying intent or ask about price, availability, booking or collaboration. Return JSON {\"leads\":[{\"who\":string,\"channel\":string,\"said\":string,\"why\":string,\"next_step\":string}]}. Quote what they said exactly. Return an empty list if nobody qualifies. Never invent people."),
+    ("leads", "You find sales leads for a creator or small business. From the comments and messages given, list people who show buying intent or ask about price, availability, booking or collaboration. Return JSON {\"leads\":[{\"who\":string,\"channel\":string,\"said\":string,\"why\":string,\"next_step\":string}]}. Quote what they said exactly. Return an empty list if nobody qualifies. Never invent people. Never guess sensitive traits such as health, religion, ethnicity, politics, sexuality or money troubles, and never rate anyone for credit, housing, jobs or insurance. next_step is a reply the business can send now; if hours_ago is 24 or more, say that a WhatsApp template or a new message from the customer is needed first."),
     ("ideas", "You are a content strategist for a creator or small business. From their recent posts and how each performed, write three new post ideas in their voice. Return JSON {\"ideas\":[{\"hook\":string,\"caption\":string,\"format\":\"reel\"|\"carousel\"|\"photo\"|\"story\",\"why\":string}]}. Base \"why\" only on the numbers given."),
     ("replies", "You draft replies to customer messages for a small business. Be warm, short and specific. Never promise prices, discounts or dates that are not in the conversation; ask instead. Return JSON {\"replies\":[{\"event_id\":number,\"to\":string,\"draft\":string}]}."),
     ("ads", "You review Meta ad results for a small business owner who is not a marketer. Use plain words and only the numbers given. Return JSON {\"summary\":string,\"actions\":[{\"campaign\":string,\"do\":\"pause\"|\"keep\"|\"scale\"|\"fix\",\"why\":string}]}."),
@@ -101,14 +101,14 @@ pub async fn run(State(s): State<AppState>, headers: HeaderMap, Path(agent): Pat
     busy(&lock(&s.db), &u.id, name)?;
     let context = match name {
         // The inbox already holds Instagram comments next to messages.
-        "leads" => json!({ "messages": meta::fresh_inbox(&s, &u).await? }),
+        "leads" => json!({ "messages": for_model(meta::fresh_inbox(&s, &u).await?) }),
         "ideas" => {
             let ig = meta::instagram_data(&s, &u).await?;
             json!({ "accounts": ig["accounts"].as_array().into_iter().flatten().map(|a| json!({
                 "bio": a["profile"]["biography"], "followers": a["profile"]["followers_count"],
                 "posts": a["media"].as_array().into_iter().flatten().map(|m| json!({ "caption": m["caption"], "type": m["media_product_type"], "likes": m["like_count"], "comments": m["comments_count"], "when": m["timestamp"] })).collect::<Vec<_>>() })).collect::<Vec<_>>() })
         }
-        "replies" => json!({ "messages": meta::fresh_inbox(&s, &u).await?.into_iter().filter(|m| m["kind"] != "instagram_comment").take(20).collect::<Vec<_>>() }),
+        "replies" => json!({ "messages": for_model(meta::fresh_inbox(&s, &u).await?.into_iter().filter(|m| m["kind"] != "instagram_comment").take(20).collect()) }),
         _ => meta::ads_data(&s, &u).await?,
     };
     let empty = context.as_object().is_some_and(|o| o.values().all(|v| v.as_array().is_some_and(|a| a.is_empty())));
@@ -132,6 +132,13 @@ pub async fn run(State(s): State<AppState>, headers: HeaderMap, Path(agent): Pat
         };
     });
     Ok(Json(json!({ "agent": name, "status": "running" })))
+}
+
+/// Only what a draft needs from inbox rows. The sender's phone number, PSID or IGSID and the asset id never reach the model.
+fn for_model(rows: Vec<Value>) -> Vec<Value> {
+    let t = now();
+    rows.into_iter().map(|m| json!({ "id": m["id"], "kind": m["kind"], "sender_name": m["sender_name"], "text": m["text"],
+        "hours_ago": m["created"].as_i64().map(|c| (t - c).max(0) / 3600) })).collect()
 }
 
 /// Refuse a second run of the same agent, and more than RUNS_PER_DAY runs per person.
@@ -230,6 +237,14 @@ mod tests {
         assert_eq!(extract_json("<think>{no}</think>\n```json\n{\"a\":1}\n```").unwrap()["a"], 1);
         assert!(extract_json("no json here").is_none());
         assert!(extract_json("[1,2]").is_none());
+    }
+
+    #[test]
+    fn the_model_never_sees_sender_ids() {
+        let row = json!({ "id": 7, "kind": "whatsapp", "asset_id": "1234", "sender": "919876543210", "sender_name": "Asha", "text": "price?", "created": now() - 7200, "replied": false });
+        let sent = for_model(vec![row]);
+        assert_eq!(sent, vec![json!({ "id": 7, "kind": "whatsapp", "sender_name": "Asha", "text": "price?", "hours_ago": 2 })]);
+        assert!(!sent[0].to_string().contains("919876543210") && !sent[0].to_string().contains("1234"));
     }
 
     #[test]

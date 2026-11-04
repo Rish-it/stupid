@@ -49,11 +49,11 @@ Stupid sends Meta Platform Data to one model provider, only to do the work the p
 
 | Provider | What it gets | Retention | Agreement |
 |---|---|---|---|
-| Baseten (model inference) | For the agent a person runs: the messages and comments it reads, Instagram bio, captions and post counts, ad campaign totals | Zero data retention on Model APIs; no training on customer data | [DPA](https://www.baseten.co/dpa/), [security practices](https://www.baseten.co/security-practices/) |
+| Baseten (model inference) | For the agent a person runs: message and comment text with the sender's first name, Instagram bio, captions and post counts, ad campaign totals. Never phone numbers, Meta IDs or tokens | Zero data retention on Model APIs; no training on customer data | [DPA](https://www.baseten.co/dpa/), [security practices](https://www.baseten.co/security-practices/) |
 | The person's own AI provider | The same, only when they saved their own key in Settings | Their provider's terms | Their own account |
 
 Meta tokens and the database stay on Stupid's server. The Cloudflare tunnel only carries the
-site's HTTPS traffic to that server.
+site's HTTPS traffic to that server. Agent results expire after 30 days, like messages.
 
 ## Run it
 

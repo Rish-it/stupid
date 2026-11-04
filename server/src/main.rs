@@ -540,6 +540,8 @@ fn sweep(s: &AppState, startup: bool) {
         // ponytail: fixed 30-day inbox retention; make it a setting if anyone needs longer history.
         .and_then(|_| db.execute("DELETE FROM events WHERE created<?1", [t - 30 * 86400]))
         .and_then(|_| db.execute("DELETE FROM replies WHERE created<?1", [t - 30 * 86400]))
+        // Lead and reply results quote customer messages, so they expire with them.
+        .and_then(|_| db.execute("DELETE FROM agent_runs WHERE created<?1", [t - 30 * 86400]))
         .and_then(|_| db.execute(
             "UPDATE agent_runs SET status='failed',error='Interrupted. Run it again.',finished=?1 WHERE status='running' AND created<?2",
             params![t, stale],
@@ -670,6 +672,19 @@ mod tests {
         assert!(local.origin_allowed("http://localhost:5173") && local.origin_allowed("http://127.0.0.1:8000"));
         assert!(!local.origin_allowed("http://localhost.evil.com"));
         assert_eq!(local.cookie_name("stupid_session"), "stupid_session");
+    }
+
+    #[test]
+    fn sweep_expires_agent_runs_with_the_messages() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        migrate(&mut conn).unwrap();
+        for age in [31, 29] {
+            conn.execute("INSERT INTO agent_runs (user_id,agent,status,created) VALUES ('u','leads','done',?1)", [now() - age * 86400]).unwrap();
+        }
+        let state = AppState { cfg: Arc::new(Config::load()), db: Arc::new(Mutex::new(conn)), http: reqwest::Client::new(), fernet: None, cache: Default::default() };
+        sweep(&state, false);
+        let left: i64 = lock(&state.db).query_row("SELECT COUNT(*) FROM agent_runs", [], |r| r.get(0)).unwrap();
+        assert_eq!(left, 1);
     }
 
     #[test]
