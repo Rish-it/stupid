@@ -9,6 +9,7 @@ mod mcp;
 mod meta_ai;
 mod reels;
 mod setup;
+mod style;
 mod tickets;
 mod tools;
 mod voice;
@@ -234,6 +235,9 @@ ALTER TABLE users ADD COLUMN agent_rules TEXT NOT NULL DEFAULT '';
     // Each agent's mode (off, ask or draft) and the owner's one-sentence note for it.
     "CREATE TABLE agent_controls (user_id TEXT NOT NULL, agent TEXT NOT NULL, mode TEXT NOT NULL CHECK (mode IN ('off','ask','draft')),
      note TEXT NOT NULL DEFAULT '', PRIMARY KEY (user_id, agent));",
+    // How the owner writes, learned from their sent replies at most daily; drafts made with it say so.
+    "ALTER TABLE users ADD COLUMN style_json TEXT; ALTER TABLE users ADD COLUMN style_at INTEGER; ALTER TABLE users ADD COLUMN style_from INTEGER;
+     ALTER TABLE drafts ADD COLUMN styled INTEGER NOT NULL DEFAULT 0;",
 ];
 
 fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
@@ -724,6 +728,7 @@ async fn main() {
         .route("/api/agent/settings", put(attention::settings))
         .route("/api/agent/tickets/{id}/answer", post(attention::answer))
         .route("/api/agent/facts/{id}", delete(attention::forget))
+        .route("/api/agent/style", get(style::get).delete(style::forget))
         .route("/api/mcp/key", get(mcp::key_status).post(mcp::create_key).delete(mcp::revoke_key))
         .route("/mcp", post(mcp::handle))
         .route("/webhooks/meta", get(webhook_verify).post(webhook))

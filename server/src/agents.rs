@@ -265,6 +265,11 @@ pub async fn start(s: &AppState, u: User, agent: &str) -> ApiResult<Value> {
     if !note.is_empty() {
         context["owner_note"] = json!(note);
     }
+    let styled = if name == "replies" { crate::style::current(s, &u).await? } else { None };
+    let system = match &styled {
+        Some(style) => { context["owner_style"] = style.clone(); format!("{system}{}", crate::style::STYLE_LINE) }
+        None => system,
+    };
     // Ad watcher also brings an ad creative pack cut from the creator's own best pictures.
     let pictures = if name == "ads" && !u.selected_assets("instagram").is_empty() { meta::instagram_data(s, &u).await.ok() } else { None };
     let (id, ticket) = {
@@ -298,6 +303,7 @@ pub async fn start(s: &AppState, u: User, agent: &str) -> ApiResult<Value> {
             Ok((result, cost)) => db.execute("UPDATE agent_runs SET status='done',result_json=?1,cost_usd=?2,finished=?3,models_json=?4 WHERE id=?5",
                     params![result.to_string(), cost, now(), json!(models(name, &result, &ai)).to_string(), id])
                 .and_then(|_| keep_drafts(&db, &u.id, ticket, &inbox, &result))
+                .and_then(|_| if styled.is_some() { crate::style::mark(&db, ticket) } else { Ok(()) })
                 .and_then(|_| { let (kind, text) = tickets::summary(name, &result); tickets::close_job(&db, ticket, kind, &text) }),
             Err(e) => db.execute("UPDATE agent_runs SET status='failed',error=?1,finished=?2 WHERE id=?3", params![e.1, now(), id])
                 .and_then(|_| tickets::close_job(&db, ticket, "failed", &e.1)),
