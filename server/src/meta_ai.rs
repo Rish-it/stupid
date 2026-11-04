@@ -268,7 +268,7 @@ mod tests {
     async fn live_meta_api() {
         let mut conn = rusqlite::Connection::open_in_memory().unwrap();
         crate::migrate(&mut conn).unwrap();
-        let s = AppState { cfg: std::sync::Arc::new(crate::Config::load()), db: std::sync::Arc::new(std::sync::Mutex::new(conn)), http: reqwest::Client::new(), fernet: None, cache: Default::default() };
+        let s = AppState { cfg: std::sync::Arc::new(crate::Config::load()), db: std::sync::Arc::new(std::sync::Mutex::new(conn)), http: reqwest::Client::new(), fernet: None, cache: Default::default(), queue: Default::default() };
         let wav = std::fs::read(std::env::var("STUPID_LIVE_WAV").unwrap()).unwrap();
         match transcribe(&s, &wav).await { Ok((t, usd)) => println!("VOICE ok ${usd:.5}: {t}"), Err(e) => println!("VOICE refused: {}", e.1) }
         match segment(&s, "live-test", "https://upload.wikimedia.org/wikipedia/commons/4/45/A_small_cup_of_coffee.JPG", "cup").await {

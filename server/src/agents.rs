@@ -1,5 +1,5 @@
 //! Background agents on Muse Spark Open. Each run prepares work for the person; nothing is sent or changed.
-use crate::{lock, meta, now, user, ApiResult, AppError, AppState};
+use crate::{lock, meta, now, tickets, user, ApiResult, AppError, AppState};
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
@@ -20,17 +20,16 @@ const PRICE: (f64, f64) = (1.25, 4.25);
 // Reasoning tokens count toward this limit, so it leaves room for low-effort thinking plus the answer.
 const MAX_TOKENS: u32 = 4000;
 const MAX_INPUT_CHARS: usize = 12_000;
-const RUNS_PER_DAY: i64 = 30;
 
 /// The person's own key for the provider at `muse_base` (Baseten by default), decrypted, if they saved one.
-fn own_key(s: &AppState, user_id: &str) -> ApiResult<Option<String>> {
+pub fn own_key(s: &AppState, user_id: &str) -> ApiResult<Option<String>> {
     let blob: Option<String> = lock(&s.db).query_row("SELECT ai_key_blob FROM users WHERE id=?1", [user_id], |r| r.get(0)).optional()?.flatten();
     let (Some(blob), Some(f)) = (blob, s.fernet.as_ref()) else { return Ok(None) };
     Ok(f.decrypt(&blob).ok().and_then(|k| String::from_utf8(k).ok()))
 }
 
 /// Whether the workspace key can still pay for a run.
-fn workspace_ready(s: &AppState) -> ApiResult<bool> {
+pub fn workspace_ready(s: &AppState) -> ApiResult<bool> {
     let spent: f64 = lock(&s.db).query_row("SELECT COALESCE(SUM(usd),0) FROM spend WHERE own=0", [], |r| r.get(0))?;
     Ok(!s.cfg.muse_key.is_empty() && s.cfg.muse_budget_usd > spent)
 }
@@ -147,21 +146,19 @@ pub async fn run(State(s): State<AppState>, headers: HeaderMap, Path(agent): Pat
 }
 
 /// Only what a draft needs from inbox rows. The sender's phone number, PSID or IGSID and the asset id never reach the model.
-fn for_model(rows: Vec<Value>) -> Vec<Value> {
+pub fn for_model(rows: Vec<Value>) -> Vec<Value> {
     let t = now();
     rows.into_iter().map(|m| json!({ "id": m["id"], "kind": m["kind"], "sender_name": m["sender_name"], "text": m["text"],
         "hours_ago": m["created"].as_i64().map(|c| (t - c).max(0) / 3600) })).collect()
 }
 
-/// Refuse a second run of the same agent, and more than RUNS_PER_DAY runs per person.
+/// Refuse a second run of the same agent, and more than the daily limit of runs and evals per person.
 fn busy(db: &rusqlite::Connection, user_id: &str, agent: &str) -> ApiResult<()> {
-    let (running, today): (i64, i64) = db.query_row(
-        "SELECT COALESCE(SUM(agent=?2 AND status='running'),0), COUNT(*) FROM agent_runs WHERE user_id=?1 AND created>?3",
-        params![user_id, agent, now() - 86400], |r| Ok((r.get(0)?, r.get(1)?)))?;
+    let running: i64 = db.query_row("SELECT COUNT(*) FROM agent_runs WHERE user_id=?1 AND agent=?2 AND status='running'", params![user_id, agent], |r| r.get(0))?;
     if running > 0 {
         return Err(AppError::new(409, "This agent is already working."));
     }
-    if today >= RUNS_PER_DAY {
+    if tickets::calls_today(db, user_id)? >= tickets::CALLS_PER_DAY {
         return Err(AppError::new(429, "That is enough agent runs for today. Try again tomorrow."));
     }
     Ok(())
@@ -169,7 +166,7 @@ fn busy(db: &rusqlite::Connection, user_id: &str, agent: &str) -> ApiResult<()> 
 
 /// One Muse call, under the workspace spend cap unless the person brought their own key.
 /// Returns the parsed JSON answer and its cost in USD.
-async fn muse(s: &AppState, agent: &str, system: &str, context: &Value, own_key: Option<&str>) -> ApiResult<(Value, f64)> {
+pub async fn muse(s: &AppState, agent: &str, system: &str, context: &Value, own_key: Option<&str>) -> ApiResult<(Value, f64)> {
     let mut input = context.to_string();
     if input.len() > MAX_INPUT_CHARS {
         input = input.chars().take(MAX_INPUT_CHARS).collect();
