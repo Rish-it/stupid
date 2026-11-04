@@ -16,7 +16,7 @@ import { Switch } from "@astryxdesign/core/Switch";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
-import { api, useLoad } from "./api";
+import { api, ownerPlace, useLoad } from "./api";
 import type { Account, AiModel, AiSettings, Fact, Persona } from "./api";
 import { Load } from "./Load";
 import { modelName } from "./Trace";
@@ -49,6 +49,9 @@ export default function Settings({ name, persona, account, onAccount, onConnect,
   onPersona: (persona: Persona) => Promise<void>; onSignedOut: () => void; onClose: () => void;
 }) {
   const [section, setSection] = useState<Section>("On your WhatsApp");
+  // The pings section is named after where the owner actually paired.
+  const owner = useLoad("owner-channel", api.ownerChannel).data;
+  const shown = (s: Section) => s === "On your WhatsApp" ? `On your ${ownerPlace(owner)}` : s;
   // Closing hands focus back to the rail's Settings link, which opened it.
   // A closing transition waits for this unmount: the page behind is then in place (rAF doesn't run during one).
   const closed = useRef<() => void>(undefined);
@@ -83,17 +86,17 @@ export default function Settings({ name, persona, account, onAccount, onConnect,
           <div ref={tabs} role="tablist" aria-label="Settings sections" aria-orientation="vertical" className="prefs-tabs" onKeyDown={move}>
             {sections.map(s => (
               <button key={s} type="button" role="tab" id={`tab-${s}`} data-section={s} aria-selected={s === section} aria-controls="prefs-panel"
-                tabIndex={s === section ? 0 : -1} className="prefs-tab" onClick={() => setSection(s)}>{s}</button>
+                tabIndex={s === section ? 0 : -1} className="prefs-tab" onClick={() => setSection(s)}>{shown(s)}</button>
             ))}
           </div>
         </div>
         <div className="prefs-main">
           <HStack align="center" justify="between" gap={2} className="prefs-head">
-            <Heading level={2}>{section}</Heading>
+            <Heading level={2}>{shown(section)}</Heading>
             <Button variant="ghost" label="Close settings" isIconOnly icon={<Icon icon="close" />} onClick={close} />
           </HStack>
           <div key={section} id="prefs-panel" role="tabpanel" aria-labelledby={`tab-${section}`} className="prefs-panel">
-            {section === "On your WhatsApp" && <OnYourWhatsApp />}
+            {section === "On your WhatsApp" && <OnYourWhatsApp state={account} />}
             {section === "Your work" && <Path persona={persona} onPersona={onPersona} />}
             {section === "Connections" && <Row id="setup-heading" title="Apps and accounts" description="Which accounts Stupid reads, and anything Meta still needs.">
               <Setup state={account} persona={persona} onChange={onAccount} onConnect={onConnect} embedded />

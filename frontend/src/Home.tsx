@@ -7,7 +7,7 @@ import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
-import { ago, api, chatUrl, drafts, jobNames, sample, sampleSend, senderName, useLoad } from "./api";
+import { ago, api, chatUrl, drafts, jobNames, ownerPlace, sample, sampleSend, senderName, useLoad, whatsappBlock } from "./api";
 import type { AgentHome, AgentId, AgentResult, AgentRun, Connections, CustomResult, Need, Persona } from "./api";
 import { Check } from "./Icons";
 import Trace from "./Trace";
@@ -48,7 +48,7 @@ export default function Home({ state, persona, onSetup }: { state: Connections; 
       <VStack gap={8}>
         <VStack as="header" gap={2} hAlign="center">
           {/* The status line's space is kept while it loads, so the date below never moves. */}
-          {home.data ? <Status data={home.data} /> : <Text as="p" type="supporting" size="sm" className="status-line status-wait" aria-hidden><span className="live-dot" />{"\u00a0"}</Text>}
+          {home.data ? <Status data={home.data} state={state} /> : <Text as="p" type="supporting" size="sm" className="status-line status-wait" aria-hidden><span className="live-dot" />{"\u00a0"}</Text>}
           <Heading level={1} justify="center" tabIndex={-1}><VisuallyHidden>Home, </VisuallyHidden>{today}</Heading>
           {unfinished && <HStack gap={2} align="center" wrap="wrap" justify="center">
             <Text type="supporting" size="sm">{`Setup isn't finished: ${unfinished.title}`}</Text>
@@ -60,32 +60,36 @@ export default function Home({ state, persona, onSetup }: { state: Connections; 
           <Load state={runs}>{data => <ReadyForYou runs={data.runs} order={data.order} persona={persona} />}</Load>
           {sample && persona && <Suspense fallback={null}><SamplePhone persona={persona} /></Suspense>}
         </div>
-        {home.data && <AgentChat needs={home.data.needs} />}
+        {home.data && <AgentChat needs={home.data.needs} state={state} />}
         <Suspense fallback={null}><Numbers state={state} /></Suspense>
       </VStack>
     </div>
   );
 }
 
-function Status({ data }: { data: AgentHome }) {
+function Status({ data, state }: { data: AgentHome; state: Connections }) {
   const watching = data.watching.map(w => apps[w] ?? w);
   // The owner's own WhatsApp: say so while the agent can ping them there, else one quiet tap to set it up.
   const owner = useLoad("owner-channel", api.ownerChannel).data;
   const pinging = owner?.linked && owner.window_until !== null && owner.window_until > Date.now() / 1000;
+  // Pings on WhatsApp can't arrive while Meta refuses the number; say so instead of "Pinging you".
+  const blocked = owner?.channel !== "messenger" ? whatsappBlock(state) : undefined;
   return (
     <Text as="p" type="supporting" size="sm" className="status-line">
       <span className="live-dot" data-on={watching.length > 0 || undefined} aria-hidden />
       {watching.length ? `Watching ${list(watching)}` : "Not watching any messages yet"}
       {data.last_checked ? ` · last checked ${ago(data.last_checked)}` : ""}
-      {owner && (pinging ? " · Pinging you on WhatsApp" : owner.business_number && <> · <Link href="#settings" type="supporting" size="sm" hasUnderline>
+      {owner && (blocked ? <> · Meta has restricted your WhatsApp number · <Link href={blocked.link ?? "#settings"} target="_blank" rel="noopener noreferrer" type="supporting" size="sm" hasUnderline>Fix in Meta</Link></>
+        : pinging ? ` · Pinging you on ${ownerPlace(owner)}` : owner.business_number && <> · <Link href="#settings" type="supporting" size="sm" hasUnderline>
         {owner.linked ? "Message your business number to get pings" : "Get pinged on your WhatsApp"}</Link></>)}
     </Text>
   );
 }
 
 /** Once paired: the agent is one WhatsApp message away, for the same things this desk does. */
-function AgentChat({ needs }: { needs: Need[] }) {
+function AgentChat({ needs, state }: { needs: Need[]; state: Connections }) {
   const owner = useLoad("owner-channel", api.ownerChannel).data;
+  const blocked = whatsappBlock(state);
   if (!owner?.linked || !owner.business_number) return null;
   // The example names someone actually waiting, when someone is.
   const waiting = needs.find(n => n.message)?.message;
@@ -94,6 +98,7 @@ function AgentChat({ needs }: { needs: Need[] }) {
       <VStack gap={1}>
         <Heading level={2} id="agent-chat" className="panel-title">Your agent on WhatsApp</Heading>
         <Text type="supporting" size="sm">{`Message your agent anytime: "what's pending?" or "reply to ${waiting ? senderName(waiting).split(" ")[0] : "a customer"}…"`}</Text>
+        {blocked && <Text type="supporting" size="sm">{`Its answers may not arrive: ${blocked.text}`} {blocked.link && <Link href={blocked.link} target="_blank" rel="noopener noreferrer" type="supporting" size="sm" hasUnderline>Fix in Meta</Link>}</Text>}
       </VStack>
       <Button label="Open the chat" href={chatUrl(owner.business_number)} target="_blank" rel="noopener noreferrer" />
     </section>
