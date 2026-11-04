@@ -111,7 +111,7 @@ pub async fn call(s: &AppState, u: &User, ticket: Option<i64>, name: &str, args:
             let (asset, sender) = own_event(s, u, id)?;
             let conversation = rows(s, "SELECT id,kind,sender_name,text,created,matched_json FROM events WHERE asset_id=?1 AND sender=?2 ORDER BY created, id",
                 params![asset, sender], |r| Ok(json!({ "id": r.get::<_, i64>(0)?, "kind": r.get::<_, String>(1)?, "sender_name": r.get::<_, Option<String>>(2)?,
-                    "text": r.get::<_, String>(3)?, "created": r.get::<_, i64>(4)?, "matched_post": matched(r.get(5)?) })))?;
+                    "text": r.get::<_, String>(3)?, "created": r.get::<_, i64>(4)?, "matched_post": matched(r.get(5)?, &u.id) })))?;
             json!(agents::for_model(conversation))
         }
         "get_ads" => meta::ads_data(s, u).await.map_err(|e| e.1)?,
@@ -201,9 +201,16 @@ pub fn save_draft(s: &AppState, u: &User, ticket: Option<i64>, event_id: i64, te
         .map(drop).map_err(|_| "Storage failed.".to_string())
 }
 
-/// A stored photo match as JSON, or null when the photo wasn't compared.
-pub fn matched(stored: Option<String>) -> Value {
-    stored.and_then(|v| serde_json::from_str(&v).ok()).unwrap_or(Value::Null)
+/// A stored photo match as this person sees it, or null when it wasn't compared with their own posts.
+pub fn matched(stored: Option<String>, user_id: &str) -> Value {
+    let Some(mut v) = stored.and_then(|v| serde_json::from_str::<Value>(&v).ok()) else { return Value::Null };
+    if v["owner"] != user_id {
+        return Value::Null;
+    }
+    if let Some(o) = v.as_object_mut() {
+        o.remove("owner");
+    }
+    v
 }
 
 /// A tool result as the text the model reads, cut to size.

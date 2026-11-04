@@ -765,6 +765,27 @@ pub mod tests_support {
         (state, u)
     }
 
+    /// Muse stand-in on a local port: answers every chat call with `content` and keeps each request body.
+    pub async fn stub(content: &'static str) -> (String, std::sync::Arc<std::sync::Mutex<Vec<serde_json::Value>>>) {
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let kept = seen.clone();
+        let app = axum::Router::new().route("/chat/completions", axum::routing::post(move |axum::Json(body): axum::Json<serde_json::Value>| {
+            kept.lock().unwrap().push(body);
+            async move { axum::Json(serde_json::json!({ "choices": [{ "message": { "content": content }, "finish_reason": "stop" }], "usage": { "prompt_tokens": 900, "completion_tokens": 40 } })) }
+        }));
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        (base, seen)
+    }
+
+    pub fn with_muse(base: String) -> AppState {
+        let (s, _) = state_with_user();
+        let mut cfg = crate::Config::load();
+        (cfg.muse_base, cfg.muse_key, cfg.muse_budget_usd) = (base, "k".into(), 1.0);
+        AppState { cfg: std::sync::Arc::new(cfg), ..s }
+    }
+
     /// Request headers signed in as that person.
     pub fn signed_in(state: &AppState) -> HeaderMap {
         lock(&state.db).execute("INSERT OR REPLACE INTO sessions VALUES (?1,'u',?2)", params![digest("t"), now() + 3600]).unwrap();

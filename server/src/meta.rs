@@ -539,7 +539,7 @@ pub fn inbox_rows(state: &AppState, u: &User) -> ApiResult<Vec<Value>> {
             // A voice note, photo or video still being put into words.
             "transcribing": r.get::<_, Option<String>>(10)?.map(|m| crate::voice::media_kind(&m).0).map(|k| match k { crate::voice::Media::Voice => "voice", crate::voice::Media::Photo => "photo", crate::voice::Media::Video => "video" }),
             "draft": r.get::<_, Option<String>>(11)?.map(|text| -> rusqlite::Result<Value> { Ok(json!({ "text": text, "source": r.get::<_, String>(12)? })) }).transpose()?,
-            "matched_post": crate::tools::matched(r.get(13)?) }))
+            "matched_post": crate::tools::matched(r.get(13)?, &u.id) }))
     })?;
     Ok(rows.collect::<Result<_, _>>()?)
 }

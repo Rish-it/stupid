@@ -792,3 +792,20 @@ test("Inbox shows the post a customer's photo matches", async ({ page }) => {
   await expect(dialog.getByRole("link", { name: /^Matches your post of / })).toHaveAttribute("target", "_blank");
   await expect(dialog.getByRole("img", { name: "Sample post: chocolate cake with berries" })).toBeVisible();
 });
+
+test("the sample desk never calls the server, so a real session is never used", async ({ page }) => {
+  const calls: string[] = [];
+  page.on("request", r => { const path = new URL(r.url()).pathname; if (path.startsWith("/api/") || path === "/mcp" || path.startsWith("/webhooks/")) calls.push(`${r.method()} ${path}`); });
+  for (const persona of ["creator", "business"]) {
+    for (const hash of ["home", "inbox", "agents", "settings"]) {
+      await page.goto(`/?fixtures=1&persona=${persona}&stage=busy#${hash}`);
+      await expect(page.getByText("Sample data")).toBeVisible();
+    }
+  }
+  await page.goto("/?fixtures=1&persona=creator&stage=busy#agents");
+  for (const run of await page.getByRole("button", { name: /^Run/ }).all()) await run.click();
+  await page.goto("/?fixtures=1&persona=business&stage=busy#settings");
+  for (const tab of ["Your work", "Connections", "Your agent", "AI model", "Muse", "Account"]) await page.getByRole("tab", { name: tab }).click();
+  expect(calls).toEqual([]);
+});
+

@@ -10,7 +10,7 @@ import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { Token } from "@astryxdesign/core/Token";
 import { Heading } from "@astryxdesign/core/Heading";
-import { ago, api, drafts, jobNames, lastReport, senderName, useLoad } from "./api";
+import { ago, api, drafts, jobNames, lastReport, mediaImage, senderName, useLoad } from "./api";
 import type { AgentControl, AgentId, AgentMode, AgentResult, AgentRun, AssetKind, Connections, ReelScript, Ticket } from "./api";
 import { objectPosition, ratios, savePng } from "./crop";
 import type { Crop } from "./crop";
@@ -243,7 +243,7 @@ function CreativePack({ pack }: { pack: Crop[] }) {
       <Text weight="semibold">Ad creative pack</Text>
       <Text as="p" type="supporting" size="sm">Your own pictures, cropped around what SAM 3.1 found in each, for every ad placement. Nothing is uploaded to Ads; save the ones you want.</Text>
       {pack.map(p => {
-        const src = `/api/instagram/media/${encodeURIComponent(p.id)}/image`;
+        const src = mediaImage(p.id);
         return (
           <VStack key={p.id} gap={2}>
             <Text size="sm"><Text weight="semibold" size="sm">{p.subject}</Text>{p.permalink && <> · <Link hasUnderline href={p.permalink} isExternalLink>the post</Link></>}</Text>
