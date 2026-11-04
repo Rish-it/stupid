@@ -498,6 +498,7 @@ h1[tabindex="-1"]:focus-visible { outline: none; }
 .space-row-meta { grid-area: meta; display: flex; flex-wrap: wrap; gap: 4px 10px; color: var(--color-text-secondary); font-size: .75rem; }
 .space-row-meta [data-state] { display: inline-flex; align-items: center; gap: 4px; }
 .space-row-meta [data-state="Draft ready"], .space-row-meta [data-state="New"], .space-row-meta [data-state="Question"], .space-row-meta [data-state="Asks first"] { color: var(--color-text-primary); font-weight: 600; }
+.space-row-meta [data-state="Agent talking"] { color: var(--color-text-primary); }
 .space-row-meta [data-state="Not delivered"], .space-warn, .space-urgent { color: var(--live); }
 .space-urgent { font-weight: 600; }
 /* A phone shows no row as open until one is tapped. */

@@ -188,6 +188,10 @@ fn decision(answer: &Value) -> (&'static str, String) {
 
 /// Gate every waiting trigger on one thread, then judge what passed with a single Muse call.
 async fn eval_thread(s: &AppState, user_id: &str, thread_id: i64) -> ApiResult<()> {
+    // A conversation the owner pinned is answered by the agent itself, not judged for a draft.
+    if crate::owner::pinned_thread(&lock(&s.db), user_id, thread_id)? {
+        return crate::owner::autopilot(s, user_id, thread_id).await;
+    }
     let ai = agents::ai(s, user_id)?;
     let ai_ready = agents::ready(s, &ai)?;
     let (batch, messages, tickets, rules) = {

@@ -672,7 +672,8 @@ pub fn inbox_rows(state: &AppState, u: &User) -> ApiResult<Vec<Value>> {
     let mut stmt = db.prepare(&format!("SELECT events.id,kind,asset_id,sender,events.text,events.created,EXISTS(SELECT 1 FROM replies r WHERE r.event_id=events.id AND r.error IS NULL),sender_name,
           (SELECT error FROM replies r WHERE r.event_id=events.id),voice,media,d.text,d.source,matched_json,heard_json,d.model,d.styled,l.answer,l.created,post_id,
           (SELECT text FROM replies r WHERE r.event_id=events.id AND r.error IS NULL),
-          EXISTS(SELECT 1 FROM skips k WHERE k.event_id=events.id AND k.user_id=?{u})
+          EXISTS(SELECT 1 FROM skips k WHERE k.event_id=events.id AND k.user_id=?{u}),
+          EXISTS(SELECT 1 FROM pins p WHERE p.user_id=?{u} AND p.key='inbox:'||events.kind||':'||events.asset_id||':'||events.sender)
           FROM events LEFT JOIN drafts d ON d.id=(SELECT MAX(id) FROM drafts WHERE event_id=events.id AND user_id=?{u})
           LEFT JOIN learned l ON l.id=d.learned_id AND l.user_id=d.user_id
           WHERE asset_id IN ({marks}) ORDER BY events.created DESC, events.id DESC LIMIT 100", u = ids.len() + 1))?;
@@ -693,7 +694,9 @@ pub fn inbox_rows(state: &AppState, u: &User) -> ApiResult<Vec<Value>> {
             // What the owner sent, so a replied thread shows it.
             "reply_text": r.get::<_, Option<String>>(20)?,
             // The owner chose not to answer it.
-            "skipped": r.get::<_, bool>(21)? }))
+            "skipped": r.get::<_, bool>(21)?,
+            // The owner let the agent answer this conversation by itself.
+            "pinned": r.get::<_, bool>(22)? }))
     })?;
     Ok(rows.collect::<Result<_, _>>()?)
 }
@@ -757,7 +760,7 @@ pub struct ReplyBody {
 }
 
 /// Meta allows free-form replies to messages only within 24 hours of the customer's message.
-const REPLY_WINDOW: i64 = 24 * 3600;
+pub const REPLY_WINDOW: i64 = 24 * 3600;
 
 /// The Graph call that answers one inbox message, or None when the message cannot be answered.
 fn reply_request(kind: &str, asset_id: &str, sender: &str, dedupe: &str, text: &str) -> Option<(String, Value)> {

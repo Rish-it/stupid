@@ -276,6 +276,8 @@ ALTER TABLE users ADD COLUMN agent_rules TEXT NOT NULL DEFAULT '';
      CREATE INDEX custom_agents_user ON custom_agents(user_id);",
     // A message the owner chose not to answer: its draft leaves Needs you and Home files it under Done.
     "CREATE TABLE skips (user_id TEXT NOT NULL, event_id INTEGER NOT NULL, created INTEGER NOT NULL, PRIMARY KEY (user_id, event_id));",
+    // Conversations the owner let the agent answer by itself (thread key `inbox:<kind>:<asset>:<sender>`), until it hands back.
+    "CREATE TABLE pins (user_id TEXT NOT NULL, key TEXT NOT NULL, created INTEGER NOT NULL, PRIMARY KEY (user_id, key));",
 ];
 
 /// The built app. A missing hashed asset answers 404, so a stale page fails loudly instead of loading
@@ -814,6 +816,7 @@ async fn main() {
         .route("/api/stream", get(stream))
         .route("/api/inbox/{id}/reply", post(meta::reply))
         .route("/api/inbox/{id}/skip", post(meta::skip))
+        .route("/api/inbox/{id}/pin", put(owner::pin))
         .route("/api/settings/ai", get(agents::settings).put(agents::save_key))
         .route("/api/settings/ai/brain", put(agents::save_brain))
         .route("/api/settings/ai/model", put(agents::save_model))

@@ -6,6 +6,7 @@ import { Button } from "@astryxdesign/core/Button";
 import { Center } from "@astryxdesign/core/Center";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Spinner } from "@astryxdesign/core/Spinner";
+import { Switch } from "@astryxdesign/core/Switch";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
@@ -87,10 +88,10 @@ export default function Home({ state, persona }: { state: Connections; persona: 
     const kind = (last?.kind ?? need?.message.kind) as InboxKind;
     const who = last ? senderName(last) : senderName(need!.message);
     const failed = last && !last.replied && last.reply_error;
-    const state = need ? "Draft ready" : !last ? "" : last.replied ? "Replied" : last.skipped ? "Skipped" : failed ? "Not delivered" : last.transcribing ? working[last.transcribing] : last.draft ? "Draft ready" : "New";
+    const state = last?.pinned ? "Agent talking" : need ? "Draft ready" : !last ? "" : last.replied ? "Replied" : last.skipped ? "Skipped" : failed ? "Not delivered" : last.transcribing ? working[last.transcribing] : last.draft ? "Draft ready" : "New";
     rows.push({
       urgent: need?.urgent ? urgency[need.urgent] ?? "Urgent" : undefined,
-      key: `t:${key}`, group: (last?.replied || last?.skipped) && !need ? "done" : last?.transcribing && !need ? "working" : "needs", who, tag: apps[kind] ?? kind, source: kind,
+      key: `t:${key}`, group: last?.pinned ? "working" : (last?.replied || last?.skipped) && !need ? "done" : last?.transcribing && !need ? "working" : "needs", who, tag: apps[kind] ?? kind, source: kind,
       preview: last ? (last.transcribing ? working[last.transcribing] : last.text) : need?.message.text ?? "", when: Math.max(last?.created ?? 0, need?.created ?? 0), state,
       pane: <Conversation key={key} who={who} kind={kind} thread={thread} need={need} />,
     });
@@ -341,9 +342,18 @@ function Conversation({ who, kind, thread, need }: { who: string; kind: InboxKin
   };
   const askButton = !asking && <Button variant="ghost" size="sm" label="Ask something else" onClick={() => setAsking(true)} />;
   const failed = last && !last.replied && !sent ? last.reply_error : undefined;
+  // The owner's explicit opt-in: the agent answers this chat by itself until it hands back or is switched off.
+  const [pinned, setPinned] = useState(Boolean(last?.pinned));
+  const pin = (on: boolean) => api.pin(String(last?.id ?? id), on).then(() => { setPinned(on); refetch("inbox"); }, (cause: unknown) => setError(message(cause)));
   return (
     <Pane who={who} tag={apps[kind] ?? kind} when={last?.created ?? need?.created ?? 0} source={kind}
       actions={!canReply && askButton}>
+      {kind !== "instagram_comment" && <VStack gap={1}>
+        <Switch label="Let agent talk for me" value={pinned} isDisabled={sample} onChange={on => void pin(on)} />
+        <Text type="supporting" size="sm">{pinned
+          ? "Your agent answers their new messages itself. It hands the chat back to you for money, refunds, complaints, long messages or anything it isn't sure of."
+          : "Off: every reply waits for your Send."}</Text>
+      </VStack>}
       <VStack gap={2}>
         {(thread.length ? [...thread].reverse() : [{ id: need!.event_id, text: need!.message.text ?? "", replied: false } as InboxItem]).map(m => <VStack key={m.id} gap={2}>
           <div className="bubble"><Text as="p">{m.transcribing ? working[m.transcribing] : m.text}</Text></div>
