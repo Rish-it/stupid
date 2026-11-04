@@ -1,8 +1,9 @@
+import type { ReactNode } from "react";
 import { Button } from "@astryxdesign/core/Button";
 import { Link } from "@astryxdesign/core/Link";
 import { VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
-import { oauthStartUrl } from "./api";
+import { door, oauthStartUrl } from "./api";
 import type { Persona } from "./api";
 import { Modal } from "./Surface";
 
@@ -12,8 +13,17 @@ const asks: Record<Persona, string[]> = {
   business: ["Your WhatsApp Business number.", "Your Facebook Page.", "Your ad account, only if you run ads."],
 };
 
+const tips: ["all" | Persona, ReactNode][] = [
+  ["all", "Use the Facebook profile that manages your Page."],
+  ["creator", "Have a public Professional Instagram account (Creator or Business). Linking it to a Facebook Page lets Stupid read DMs."],
+  ["business", "For Instagram, have a public Professional account (Creator or Business) linked to that Page."],
+  ["business", "For WhatsApp, use a Business Platform account and registered number, or Meta's test number."],
+  ["business", <>No business portfolio yet? In <Link hasUnderline isExternalLink href="https://business.facebook.com/">Meta Business Suite</Link>, open the dropdown below Home → Create a business portfolio. Business verification is needed only when Meta asks for it.</>],
+];
+
 /** Sign in, for the door picked: what Meta will ask and what to pick. */
-export default function SignIn({ persona, instagram, onConnect, onClose }: { persona?: Persona; instagram?: string; onConnect: () => void; onClose: () => void }) {
+export default function SignIn({ persona, instagram, onConnect: connect, onClose }: { persona?: Persona; instagram?: string; onConnect: () => void; onClose: () => void }) {
+  const onConnect = () => { door.set(persona ?? null); connect(); };
   return (
     <Modal isOpen onClose={onClose} width={480} title={persona === "creator" ? "Connect as a creator" : persona === "business" ? "Connect your business" : "Sign in to Stupid"}
       subtitle="Stupid signs you in with Facebook, then Meta asks what to share.">
@@ -31,10 +41,7 @@ export default function SignIn({ persona, instagram, onConnect, onClose }: { per
       <details className="before-start">
         <summary>Before you start</summary>
         <ul className="picks">
-          <li><Text type="supporting" size="sm">Use the Facebook profile that manages your business Page.</Text></li>
-          <li><Text type="supporting" size="sm">For Instagram, have a public Professional account (Creator or Business) linked to that Page.</Text></li>
-          <li><Text type="supporting" size="sm">For WhatsApp, use a Business Platform account and registered number, or Meta's test number.</Text></li>
-          <li><Text type="supporting" size="sm">No business portfolio yet? In <Link hasUnderline isExternalLink href="https://business.facebook.com/">Meta Business Suite</Link>, open the dropdown below Home → Create a business portfolio. Business verification is needed only when Meta asks for it.</Text></li>
+          {tips.filter(([who]) => !persona || who === "all" || who === persona).map(([, tip], i) => <li key={i}><Text type="supporting" size="sm">{tip}</Text></li>)}
         </ul>
       </details>
     </Modal>

@@ -62,8 +62,9 @@ export const door = {
   get(): Persona | null {
     try { const v = sessionStorage.getItem(doorKey); return v === "creator" || v === "business" ? v : null; } catch { return null; }
   },
-  set(persona: Persona) {
-    try { sessionStorage.setItem(doorKey, persona); } catch { /* Storage blocked: the choice is asked again after sign-in. */ }
+  /** Set on Continue only; a plain sign-in clears it, so an existing account is never guessed. */
+  set(persona: Persona | null) {
+    try { if (persona) sessionStorage.setItem(doorKey, persona); else sessionStorage.removeItem(doorKey); } catch { /* Storage blocked: the choice is asked again after sign-in. */ }
   },
 };
 

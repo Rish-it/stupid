@@ -26,13 +26,20 @@ test("the landing page offers two doors, each with its own sign-in", async ({ pa
   await expect(dialog.getByText("Your WhatsApp Business number.")).toBeVisible();
   await expect(dialog.getByRole("link", { name: "Continue with Facebook" })).toHaveAttribute("href", "/api/v1/meta/oauth/start");
   await expect(dialog.getByRole("link", { name: "Privacy policy" })).toHaveAttribute("href", "/privacy.html");
-  expect(await page.evaluate(() => sessionStorage.getItem("stupid.persona"))).toBe("business");
+  expect(await page.evaluate(() => sessionStorage.getItem("stupid.persona"))).toBeNull();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("button", { name: "I run a business" })).toBeFocused();
 
   await page.getByRole("button", { name: "I create content" }).click();
   await expect(page.getByRole("dialog", { name: "Connect as a creator" }).getByText(/Your Instagram account/)).toBeVisible();
-  expect(await page.evaluate(() => sessionStorage.getItem("stupid.persona"))).toBe("creator");
+  // The door is kept only once the person continues; a plain sign-in clears it.
+  await page.route("**/api/v1/meta/oauth/start", route => route.fulfill({ status: 204 }));
+  await page.getByRole("link", { name: "Continue with Facebook" }).click({ noWaitAfter: true });
+  await expect.poll(() => page.evaluate(() => sessionStorage.getItem("stupid.persona"))).toBe("creator");
+  await page.goto("/");
+  await page.getByRole("button", { name: "Already use Stupid? Sign in" }).click();
+  await page.getByRole("link", { name: "Continue with Facebook" }).click({ noWaitAfter: true });
+  await expect.poll(() => page.evaluate(() => sessionStorage.getItem("stupid.persona"))).toBeNull();
 });
 
 test("how it works switches between the creator and business paths", async ({ page }) => {

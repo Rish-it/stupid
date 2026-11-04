@@ -5,7 +5,7 @@ import { Link } from "@astryxdesign/core/Link";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
-import { door, legal } from "./api";
+import { legal } from "./api";
 import type { Persona } from "./api";
 import SourceIcon from "./SourceIcon";
 
@@ -41,9 +41,9 @@ const models: [name: string, does: string][] = [
 
 /** The signed-out home: what Stupid is, two doors, and how each path works. */
 export default function Landing({ instagram, onConnect }: { instagram?: string; onConnect: () => void }) {
-  const [shown, setShown] = useState<Persona>(() => door.get() ?? "creator");
+  const [shown, setShown] = useState<Persona>("creator");
   const [signIn, setSignIn] = useState<Persona | "any">();
-  const open = (persona: Persona) => { door.set(persona); setShown(persona); setSignIn(persona); };
+  const open = (persona: Persona) => { setShown(persona); setSignIn(persona); };
   return (
     <VStack className="landing">
       <VStack as="section" aria-labelledby="landing-title" className="landing-hero" hAlign="center" gap={8}>
