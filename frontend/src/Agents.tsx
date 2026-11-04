@@ -7,8 +7,10 @@ import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { Token } from "@astryxdesign/core/Token";
-import { api, drafts, useLoad } from "./api";
-import type { AgentId, AgentResult, AgentRun, AssetKind, Connections } from "./api";
+import { Heading } from "@astryxdesign/core/Heading";
+import { api, drafts, jobNames, lastReport, senderName, useLoad } from "./api";
+import type { AgentId, AgentResult, AgentRun, AssetKind, Connections, Ticket } from "./api";
+import { ReportMark } from "./Attention";
 import { Load } from "./Load";
 import { Modal, Page, Tile } from "./Surface";
 
@@ -68,6 +70,7 @@ export default function Agents({ state }: { state: Connections }) {
           {data.model && <Text as="p" type="supporting" size="sm">Agents run on {data.model}{data.own_key ? " with your own key" : ""}.</Text>}
         </VStack>
       )}</Load>
+      <RecentWork />
       {shown && shownRun?.result && (
         <Modal isOpen onClose={close} title={shown.name}
           subtitle={shownRun.finished ? <>Finished <Timestamp value={shownRun.finished} format="relative" />{shownRun.cost_usd != null && ` · cost $${shownRun.cost_usd.toFixed(3)}`}</> : undefined}
@@ -155,6 +158,47 @@ function Result({ result, onLeave }: { result: AgentResult; onLeave: () => void 
       <Text as="p" type="supporting" size="sm">Change your ads in Meta Ads Manager. Stupid doesn't edit them.</Text>
     </VStack>
   );
+}
+
+const said = { progress: "Working", waiting: "Waiting", ready: "Ready", blocked: "Stopped", failed: "Failed", dropped: "Nothing to do", question: "Asked you", answer: "You answered", idea: "Idea", advice: "Advice" } as const;
+
+/** Every task the agent took on lately, with each step it reported. */
+function RecentWork() {
+  const home = useLoad("agent", api.agent);
+  const tickets = home.data?.tickets ?? [];
+  if (!tickets.length) return null;
+  return (
+    <section aria-labelledby="work-heading">
+      <VStack gap={4}>
+        <Heading level={2} id="work-heading">Recent work</Heading>
+        <VStack gap={5} as="ul">
+          {tickets.map((t: Ticket) => (
+            <VStack key={t.id} as="li" gap={2}>
+              <HStack gap={2} align="center" wrap="wrap">
+                <Text weight="semibold">{t.message ? `Reply to ${senderName(t.message)}` : jobNames[t.job] ?? t.job}</Text>
+                <ReportMark kind={lastReport(t)?.kind} />
+              </HStack>
+              <VStack gap={1} as="ol">
+                {t.reports.map((r, i) => (
+                  <li key={i}><Text size="sm"><Text type="supporting" size="sm">{said[r.kind] ?? r.kind} · <Timestamp value={r.created} format="relative" size="sm" /></Text> {r.kind === "idea" || r.kind === "advice" ? ideaLine(r.text) : r.text}</Text></li>
+                ))}
+              </VStack>
+            </VStack>
+          ))}
+        </VStack>
+      </VStack>
+    </section>
+  );
+}
+
+/** A saved idea or advice is JSON; show its headline. */
+function ideaLine(text: string) {
+  try {
+    const v = JSON.parse(text) as { hook?: string; campaign?: string; do?: string; why?: string };
+    return v.hook ?? `${v.do ?? ""} ${v.campaign ?? ""}: ${v.why ?? ""}`.trim();
+  } catch {
+    return text;
+  }
 }
 
 function Copy({ text }: { text: string }) {
