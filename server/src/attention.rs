@@ -62,7 +62,7 @@ pub async fn home(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Js
 pub const MAX_FACTS: i64 = 50;
 
 /// Keep what the owner told the agent, once per question; the same question again replaces the old answer.
-fn learn(db: &rusqlite::Connection, user_id: &str, question: &str, answer: &str) -> rusqlite::Result<()> {
+pub(crate) fn learn(db: &rusqlite::Connection, user_id: &str, question: &str, answer: &str) -> rusqlite::Result<()> {
     db.execute("INSERT INTO learned (user_id,question,answer,created) VALUES (?1,?2,?3,?4)
                 ON CONFLICT(user_id,question) DO UPDATE SET answer=excluded.answer, created=excluded.created", params![user_id, question, answer, now()])?;
     db.execute("DELETE FROM learned WHERE user_id=?1 AND id NOT IN (SELECT id FROM learned WHERE user_id=?1 ORDER BY created DESC, id DESC LIMIT ?2)", params![user_id, MAX_FACTS])?;
