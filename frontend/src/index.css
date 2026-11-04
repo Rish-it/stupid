@@ -1,19 +1,26 @@
 body { background: var(--color-background-body); }
 
-/* Dark only, after Rishit's references: near-black page, flat borderless panels, white pill buttons
-   with black text, and one warm colour (--live) for what is happening now. */
+/* Everywhere: no borders or divider lines; things are separated by space, surface tone and weight. */
 [data-astryx-theme="neutral"] {
-  --color-background-body: #0E0E0F; --color-background-card: #141416; --color-background-surface: #18181A;
-  --color-background-muted: #1C1C1F; --color-background-popover: #1C1C1F;
-  /* No borders or divider lines anywhere: things are separated by space, surface tone and weight. */
   --color-border: transparent; --color-border-emphasized: transparent;
   /* The theme's dark shadows add a 1px white rim; keep only the drops. */
   --shadow-low: 0 2px 4px #00000040, 0 4px 8px #00000066; --shadow-med: 0 2px 4px #00000059, 0 4px 12px #00000080;
   --shadow-high: 0 4px 6px #00000080, 0 12px 24px #000000B3;
+  --live: #FF5A1F;
+  /* Signed out, the welcome page keeps its own colours: Meta blue on Muse's near-black page. */
+  --color-background-body: #111112;
+  --color-accent: #2694FE; --color-on-accent: #fff; --color-accent-muted: #0082FB3F;
+  --color-text-accent: #3E9EFB; --color-icon-accent: #2694FE;
+  --color-background-muted: #242426;
+}
+/* Signed in, after Rishit's references: near-black page, flat panels, white pill buttons with black text,
+   and one warm colour (--live) for what is happening now. */
+[data-astryx-theme="neutral"]:has(.workspace) {
+  --color-background-body: #0E0E0F; --color-background-card: #141416; --color-background-surface: #18181A;
+  --color-background-muted: #1C1C1F; --color-background-popover: #1C1C1F;
   --color-text-primary: #EDEDED; --color-text-secondary: #8E8E93; --color-icon-primary: #EDEDED; --color-icon-secondary: #8E8E93;
   --color-accent: #EDEDED; --color-on-accent: #0E0E0F; --color-accent-muted: #FFFFFF14;
   --color-text-accent: #EDEDED; --color-icon-accent: #EDEDED;
-  --live: #FF5A1F;
 }
 .astryx-button, .astryx-segmented-control, .astryx-segmented-control-item { --radius-element: 9999px; }
 /* Unselected options sit on the control's tint; lighter grey keeps them above 4.5:1. */
