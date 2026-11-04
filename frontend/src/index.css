@@ -172,6 +172,7 @@ body { background: var(--color-background-body); }
 .person-foot { display: grid; gap: 2px; }
 .person-meta { display: flex; flex-wrap: wrap; gap: 4px 8px; color: var(--color-text-secondary); font-size: .8125rem; font-variant-numeric: tabular-nums; }
 .person-meta [data-status="Not delivered"] { color: var(--live); }
+.person-why { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; color: var(--color-text-secondary); font-size: .8125rem; }
 /* Each card keeps its controls folded into the top corner; they fan out on hover or focus (always out on touch screens). */
 .person-card { position: relative; }
 .person-card[data-peek] { z-index: 6; }
