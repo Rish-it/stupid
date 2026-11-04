@@ -260,25 +260,47 @@ pub fn links(text: &str, code: &str) -> bool {
 }
 
 /// A message from the owner's own number to their business number. Returns what Stupid said back, if anything.
+#[cfg(test)]
 pub async fn inbound(s: &AppState, user_id: &str, asset_id: &str, text: &str) -> ApiResult<Option<String>> {
-    let ch = {
-        let db = lock(&s.db);
-        db.execute("UPDATE owner_channel SET window_until=?2 WHERE user_id=?1", params![user_id, now() + WINDOW])?;
-        channel(&db, user_id)?
-    };
-    if !ch.linked {
-        if !links(text, &ch.link_code) {
-            return Ok(None);
-        }
-        {
-            let db = lock(&s.db);
-            // Only needs from now on are pinged.
-            db.execute("UPDATE owner_channel SET linked=1,asset_id=?2,seen_draft=(SELECT COALESCE(MAX(id),0) FROM drafts),seen_report=(SELECT COALESCE(MAX(id),0) FROM reports) WHERE user_id=?1",
-                params![user_id, asset_id])?;
-            tickets::note(&db, user_id, None, "owner", "ready", "Linked your WhatsApp. Pings and your daily summary go there.")?;
-        }
-        return say(s, user_id, None, CONNECTED).await;
+    let step = receive(&lock(&s.db), user_id, asset_id, text)?;
+    act(s, user_id, step).await
+}
+
+/// What an owner's message asks for, decided when it arrives.
+#[derive(Debug, PartialEq)]
+pub enum Step {
+    Ignore,
+    Linked,
+    Command(String),
+}
+
+/// The part of an owner's message that must follow arrival order: it opens the window, and it links the number or
+/// not, before the next message is looked at. A message that came before the link stays ignored even if it is
+/// acted on after.
+pub fn receive(db: &Connection, user_id: &str, asset_id: &str, text: &str) -> rusqlite::Result<Step> {
+    db.execute("UPDATE owner_channel SET window_until=?2 WHERE user_id=?1", params![user_id, now() + WINDOW])?;
+    let ch = channel(db, user_id)?;
+    if ch.linked {
+        return Ok(Step::Command(text.to_string()));
     }
+    if !links(text, &ch.link_code) {
+        return Ok(Step::Ignore);
+    }
+    // Only needs from now on are pinged.
+    db.execute("UPDATE owner_channel SET linked=1,asset_id=?2,seen_draft=(SELECT COALESCE(MAX(id),0) FROM drafts),seen_report=(SELECT COALESCE(MAX(id),0) FROM reports) WHERE user_id=?1",
+        params![user_id, asset_id])?;
+    tickets::note(db, user_id, None, "owner", "ready", "Linked your WhatsApp. Pings and your daily summary go there.")?;
+    Ok(Step::Linked)
+}
+
+/// Answer what the owner's message asked for. Returns what Stupid said back, if anything.
+pub async fn act(s: &AppState, user_id: &str, step: Step) -> ApiResult<Option<String>> {
+    let text = match step {
+        Step::Ignore => return Ok(None),
+        Step::Linked => return say(s, user_id, None, CONNECTED).await,
+        Step::Command(text) => text,
+    };
+    let text = text.as_str();
     // A summary kept while the window was closed goes first.
     let held: bool = lock(&s.db).query_row("SELECT digest_held FROM owner_channel WHERE user_id=?1", [user_id], |r| r.get(0))?;
     if held {
@@ -608,6 +630,8 @@ mod tests {
             headers.insert("x-hub-signature-256", format!("sha256={}", hex::encode(crate::hmac_sha256(&s.cfg.app_secret, body.as_bytes()))).parse().unwrap());
             crate::webhook(State(s.clone()), headers, body.into()).await.map_err(|e| e.1).unwrap();
         }
+        assert!(sends(&seen).is_empty(), "a message before the link is never answered, even later");
+        assert!(channel(&lock(&s.db), "u").unwrap().open(now()), "it still opens the window");
         let inbox = crate::meta::inbox_rows(&s, &crate::user_by_id(&s, "u").unwrap()).unwrap();
         assert_eq!(inbox.iter().map(|r| r["sender"].as_str().unwrap()).collect::<Vec<_>>(), ["15550001111"], "the owner's own message is not in the Inbox");
         assert_eq!(owner_of(&lock(&s.db), "p9", "919876543210").unwrap(), None, "only to a business number this owner switched on");
