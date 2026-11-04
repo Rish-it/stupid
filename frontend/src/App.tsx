@@ -61,6 +61,7 @@ export default function App() {
     if (pending) api.setPersona(pending).then(next => { if (next.signed_in) setMe(next); }, () => undefined);
   }, [pending, setMe]);
   const page = usePage() ?? "home";
+  const setPersona = (persona: Persona) => api.setPersona(persona).then(next => { if (next.signed_in) setMe(next); });
   const [held, setHeld] = useState(later.get);
   const [failed, setFailed] = useState(failure);
   const [connecting, setConnecting] = useState(false);
@@ -96,7 +97,7 @@ export default function App() {
   else if (user && page === "home") body = <Suspense fallback={loading}><Home state={user} persona={user.persona} /></Suspense>;
   else if (user && page === "inbox") body = <Suspense fallback={loading}><Inbox /></Suspense>;
   else if (user && page === "agents") body = <Suspense fallback={loading}><Agents state={user} /></Suspense>;
-  else if (user) body = <Suspense fallback={loading}><Settings name={user.name} onSignedOut={signOut} /></Suspense>;
+  else if (user) body = <Suspense fallback={loading}><Settings name={user.name} persona={user.persona} onPersona={setPersona} onSignedOut={signOut} /></Suspense>;
   else if (welcome) body = <Welcome onDoor={setSignIn} onPassed={setPassed} />;
   else if (me.error) body = (
     <EmptyState headingLevel={1} title={me.error.status === 0 ? "Stupid is offline" : "Something went wrong"}
@@ -119,7 +120,7 @@ export default function App() {
         {reconnecting && <Text className="shimmer reconnecting" type="supporting" size="sm" role="status">Reconnecting…</Text>}
         {body}
         {user && page === "home" && !pending && !held && <Suspense><Onboarding persona={user.persona}
-          onPersona={persona => api.setPersona(persona).then(next => { if (next.signed_in) setMe(next); })}
+          onPersona={setPersona}
           onAccount={next => setMe({ ...user, ...next })} onConnect={connect} onClose={() => { later.set(); setHeld(true); }} /></Suspense>}
         {welcome && signIn && <Suspense><SignIn persona={signIn === "any" ? undefined : signIn} instagram={me.data?.signed_in === false ? me.data.instagram_oauth_start : undefined}
           onConnect={connect} onClose={() => setSignIn(undefined)} /></Suspense>}

@@ -270,7 +270,9 @@ body { background: var(--color-background-body); }
 .picks { display: grid; gap: .35rem; margin: 0; padding-inline-start: 1.25rem; list-style: disc; }
 
 .before-start { width: 100%; padding-block: .5rem; }
-.before-start > summary, .tutorial-step summary { cursor: pointer; padding-block: .5rem; }
+.before-start > summary, .tutorial-step summary, .settings-row details > summary { cursor: pointer; padding-block: .5rem; }
+.more > summary { font-weight: 600; }
+.more[open] > summary { margin-block-end: .5rem; }
 .before-start > p { margin-block-start: .75rem; }
 .tutorial-steps { gap: 1.25rem; }
 .tutorial-complete { color: var(--color-text-accent); }

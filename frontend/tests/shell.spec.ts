@@ -254,7 +254,22 @@ test("Settings switches the agents to Muse Spark 1.3 on Meta's Model API", async
   await page.getByRole("radio", { name: "Muse Spark 1.3 · Meta API" }).click();
   await expect(page.getByText("Agents run on muse-spark-1.3 through Meta's Model API, using Stupid's shared allowance.")).toBeVisible();
   expect(picked).toBe("meta");
+  // The own-key form sits folded under the model choice.
+  await expect(page.getByLabel("Your own Baseten API key")).toBeHidden();
+  await page.getByText("Use your own Baseten key").click();
   await expect(page.getByLabel("Your own Baseten API key")).toBeVisible();
+});
+
+test("Settings changes the path between creator and business", async ({ page }) => {
+  let account = { ...signedIn, persona: "creator" };
+  const sent: unknown[] = [];
+  await page.route("**/api/me", route => route.fulfill(json(account)));
+  await page.route("**/api/me/persona", route => { sent.push(route.request().postDataJSON()); account = { ...account, persona: "business" }; return route.fulfill(json(account)); });
+  await page.goto("/#settings");
+  await expect(page.getByRole("radio", { name: "Create content" })).toBeChecked();
+  await page.getByRole("radio", { name: "Run a business" }).click();
+  await expect(page.getByRole("radio", { name: "Run a business" })).toBeChecked();
+  expect(sent).toEqual([{ persona: "business" }]);
 });
 
 test("Settings saves an AI key, confirms before deleting and signs out", async ({ page }) => {
@@ -269,6 +284,7 @@ test("Settings saves an AI key, confirms before deleting and signs out", async (
   await page.goto("/#settings");
   await expect(page.getByRole("link", { name: "Open setup" })).toHaveAttribute("href", "#setup");
 
+  await page.getByText("Use your own Baseten key").click();
   const key = page.getByLabel("Your own Baseten API key");
   await key.fill("bad");
   await expect(page.getByRole("button", { name: "Save key" })).toBeDisabled();
