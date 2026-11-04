@@ -36,10 +36,12 @@ const short = (unix: number) => {
   return d.toDateString() === new Date().toDateString() ? time.format(d) : date.format(d);
 };
 
+// Why the agent pinged the owner about something as urgent, in their words.
+const urgency: Record<string, string> = { big_order: "Big order", complaint: "Complaint", brand_deal: "Brand deal", payment: "Payment", question: "Question" };
 const groups = { all: "Everything", needs: "Needs you", working: "Agents working", done: "Done" } as const;
 type Group = Exclude<keyof typeof groups, "all">;
 /** One thing in the shared space: a person's conversation, or an agent's question, work or result. */
-type Row = { key: string; group: Group; who: string; tag: string; source?: string; agent?: boolean; preview: string; when: number; state: string; pane: ReactNode };
+type Row = { key: string; group: Group; urgent?: string; who: string; tag: string; source?: string; agent?: boolean; preview: string; when: number; state: string; pane: ReactNode };
 
 /** A result with nothing in it (no leads, no ideas) isn't ready work. */
 const thin = (result: AgentResult) => "empty" in result || ("leads" in result && !result.leads.length) || ("ideas" in result && !result.ideas.length)
@@ -86,13 +88,14 @@ export default function Home({ state, persona }: { state: Connections; persona: 
     const failed = last && !last.replied && last.reply_error;
     const state = need ? "Draft ready" : !last ? "" : last.replied ? "Replied" : last.skipped ? "Skipped" : failed ? "Not delivered" : last.transcribing ? working[last.transcribing] : last.draft ? "Draft ready" : "New";
     rows.push({
+      urgent: need?.urgent ? urgency[need.urgent] ?? "Urgent" : undefined,
       key: `t:${key}`, group: (last?.replied || last?.skipped) && !need ? "done" : last?.transcribing && !need ? "working" : "needs", who, tag: apps[kind] ?? kind, source: kind,
       preview: last ? (last.transcribing ? working[last.transcribing] : last.text) : need?.message.text ?? "", when: Math.max(last?.created ?? 0, need?.created ?? 0), state,
       pane: <Conversation key={key} who={who} kind={kind} thread={thread} need={need} />,
     });
   }
   for (const need of needs) if (need.type === "question") rows.push({
-    key: `q:${need.id}`, group: "needs", who: "Your agent", tag: need.message ? `About ${senderName(need.message)}` : "Agent", agent: true,
+    key: `q:${need.id}`, group: "needs", urgent: need.urgent ? urgency[need.urgent] ?? "Urgent" : undefined, who: "Your agent", tag: need.message ? `About ${senderName(need.message)}` : "Agent", agent: true,
     preview: need.question, when: need.created, state: need.ask_first ? "Asks first" : "Question",
     pane: <Pane who="Your agent" tag="Question" when={need.created} agent><Question key={need.id} need={need} onDone={() => refetch("agent")} /></Pane>,
   });
@@ -130,7 +133,8 @@ export default function Home({ state, persona }: { state: Connections; persona: 
         </VStack> : <Result result={result} onLeave={() => undefined} />}
       </Pane> });
   }
-  rows.sort((a, b) => b.when - a.when);
+  // Urgent first: what the agent pinged the owner about, then newest.
+  rows.sort((a, b) => Number(Boolean(b.urgent)) - Number(Boolean(a.urgent)) || b.when - a.when);
   const counts = { all: rows.length, needs: 0, working: 0, done: 0 };
   for (const r of rows) counts[r.group]++;
   const shown = rows.filter(r => group === "all" || r.group === group);
@@ -173,7 +177,7 @@ export default function Home({ state, persona }: { state: Connections; persona: 
                     <span className="space-row-who">{r.who}</span>
                     <span className="space-row-when">{r.when ? short(r.when) : ""}</span>
                     <span className="space-row-text">{r.preview}</span>
-                    <span className="space-row-meta"><span>{r.tag}</span>{r.state && <span data-state={r.state}>{(r.state === "Replied" || r.state === "Ready") && <Check />}{r.state}</span>}</span>
+                    <span className="space-row-meta">{r.urgent && <span className="space-urgent">Urgent · {r.urgent}</span>}<span>{r.tag}</span>{r.state && <span data-state={r.state}>{(r.state === "Replied" || r.state === "Ready") && <Check />}{r.state}</span>}</span>
                   </button>
                 </li>
               ))}

@@ -156,8 +156,8 @@ export type AgentMessage = { kind: InboxKind; sender: string; sender_name: strin
 export type DraftModels = { described_by?: string; drafted_by?: string };
 /** What waits for the person: a ready reply draft, or the agent's one question. */
 export type Need =
-  | { type: "draft"; id: number; event_id: string; text: string; source: string; created: number; message: AgentMessage; used?: { answer: string; told: number } | null; styled?: boolean; matched_post?: MatchedPost | null; models?: DraftModels }
-  | { type: "question"; id: number; question: string; created: number; message: AgentMessage | null; ask_first?: boolean };
+  | { type: "draft"; id: number; event_id: string; text: string; source: string; created: number; urgent?: Urgent | null; message: AgentMessage; used?: { answer: string; told: number } | null; styled?: boolean; matched_post?: MatchedPost | null; models?: DraftModels }
+  | { type: "question"; id: number; question: string; created: number; urgent?: Urgent | null; message: AgentMessage | null; ask_first?: boolean };
 /** A customer's photo compared with the owner's Instagram posts. `posted` is ISO time; `thumbnail` is served by Stupid. Null when not compared. */
 export type MatchedPost = { matched: true; post_id: string; permalink: string; caption: string; posted: string; thumbnail: string } | { matched: false };
 export type ReportKind = "progress" | "waiting" | "ready" | "blocked" | "failed" | "dropped" | "question" | "answer" | "idea" | "advice";
