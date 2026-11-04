@@ -428,3 +428,9 @@ body { background: var(--color-background-body); }
 .time-field input:focus-visible { outline: 2px solid var(--color-text-primary); outline-offset: 2px; }
 /* With borders gone, an unticked box drew nothing; it gets a quiet fill instead (ticked keeps its own). */
 div:has(> input[type="checkbox"]:not(:checked)) .astryx-checkbox-indicator { background: #3a3a40; }
+input[role="switch"]:not(:checked) + div { background: #3a3a40; }
+/* Pairing: the code is the thing to send, so it reads like one. */
+.pair-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .12em; white-space: nowrap; }
+.owner-error { color: var(--color-text-error); }
+/* Home, once paired: the agent is one message away on WhatsApp. */
+.agent-chat { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 14px 18px; border-radius: 16px; background: #1b1d1a; }

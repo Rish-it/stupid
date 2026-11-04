@@ -199,13 +199,16 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   } catch {
     throw new ApiError(0, "Stupid can't reach its server right now.");
   }
-  const data = (await res.json().catch(() => undefined)) as (T & { message?: string }) | undefined;
+  const data = (await res.json().catch(() => undefined)) as (T & { message?: string; error?: unknown }) | undefined;
   // A non-JSON reply is either a dev proxy with no server behind it, or the server's page fallback for a route it doesn't have yet.
   if (data === undefined) throw res.status >= 500 ? new ApiError(0, "Stupid can't reach its server right now.") : new ApiError(404, "This isn't available yet.");
-  if (!res.ok) throw new ApiError(res.status, data.message ?? `Request failed (${res.status}).`, data);
+  // Most routes say `{ message }`; a send that WhatsApp refused says `{ error, code }`.
+  if (!res.ok) throw new ApiError(res.status, data.message ?? (typeof data.error === "string" ? data.error : `Request failed (${res.status}).`), data);
   return data;
 }
 
+/** A chat with the business number on WhatsApp, with `text` typed in when given. */
+export const chatUrl = (number: string, text?: string) => `https://wa.me/${number.replace(/\D/g, "")}${text ? `?text=${encodeURIComponent(text)}` : ""}`;
 export const oauthStartUrl = "/api/v1/meta/oauth/start";
 // Static pages the server serves next to the app.
 export const legal = [["Privacy", "/privacy.html"], ["Terms", "/terms.html"], ["Data deletion", "/deletion.html"]] as const;

@@ -7,7 +7,7 @@ import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
-import { ago, api, drafts, jobNames, sample, sampleSend, senderName, useLoad } from "./api";
+import { ago, api, chatUrl, drafts, jobNames, sample, sampleSend, senderName, useLoad } from "./api";
 import type { AgentHome, AgentId, AgentResult, AgentRun, Connections, Need, Persona } from "./api";
 import { Check } from "./Icons";
 import Trace from "./Trace";
@@ -57,6 +57,7 @@ export default function Home({ state, persona, onSetup }: { state: Connections; 
           <Load state={runs}>{data => <ReadyForYou runs={data.runs} order={data.order} persona={persona} />}</Load>
           {sample && persona && <Suspense fallback={null}><SamplePhone persona={persona} /></Suspense>}
         </div>
+        {home.data && <AgentChat needs={home.data.needs} />}
         <Suspense fallback={null}><Numbers state={state} /></Suspense>
       </VStack>
     </div>
@@ -76,6 +77,23 @@ function Status({ data }: { data: AgentHome }) {
       {owner && (pinging ? " · Pinging you on WhatsApp" : owner.business_number && <> · <Link href="#settings" type="supporting" size="sm" hasUnderline>
         {owner.linked ? "Message your business number to get pings" : "Get pinged on your WhatsApp"}</Link></>)}
     </Text>
+  );
+}
+
+/** Once paired: the agent is one WhatsApp message away, for the same things this desk does. */
+function AgentChat({ needs }: { needs: Need[] }) {
+  const owner = useLoad("owner-channel", api.ownerChannel).data;
+  if (!owner?.linked || !owner.business_number) return null;
+  // The example names someone actually waiting, when someone is.
+  const waiting = needs.find(n => n.message)?.message;
+  return (
+    <section aria-labelledby="agent-chat" className="agent-chat">
+      <VStack gap={1}>
+        <Heading level={2} id="agent-chat" className="panel-title">Your agent on WhatsApp</Heading>
+        <Text type="supporting" size="sm">{`Message your agent anytime: "what's pending?" or "reply to ${waiting ? senderName(waiting).split(" ")[0] : "a customer"}…"`}</Text>
+      </VStack>
+      <Button label="Open the chat" href={chatUrl(owner.business_number)} target="_blank" rel="noopener noreferrer" />
+    </section>
   );
 }
 
