@@ -429,6 +429,7 @@ export async function answer(method: string, path: string, body: unknown): Promi
     runs.set(agent, { agent, status: "running", result: null, error: null, cost_usd: null, created: now(), finished: null, models: [] });
     return { agent, status: "running" };
   }
+  if (route === "GET /api/custom-agents") return { agents: [] };
   if (route === "GET /api/mcp/key") return { ...mcp, url: "https://app.example.com/mcp" };
   if (route === "POST /api/mcp/key") { mcp = { has_key: true, created: now(), last_used: null }; return { key: "stupid_sample_key_not_real", created: mcp.created }; }
   if (route === "DELETE /api/mcp/key") { mcp = { has_key: false, created: null, last_used: null }; return { has_key: false }; }

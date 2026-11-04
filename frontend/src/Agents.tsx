@@ -15,6 +15,7 @@ import type { AgentControl, AgentId, AgentMode, AgentResult, AgentRun, AssetKind
 import { objectPosition, ratios, savePng } from "./crop";
 import type { Crop } from "./crop";
 import { Load } from "./Load";
+import OwnAgents from "./OwnAgents";
 import SourceIcon from "./SourceIcon";
 import { Modal, Page } from "./Surface";
 
@@ -133,6 +134,7 @@ export default function Agents({ state }: { state: Connections }) {
               ))}
             </div>
             {data.model && <Text as="p" type="supporting" size="sm">Agents run on {data.model}{data.own_key ? " with your own key" : ""}.</Text>}
+            <OwnAgents runs={data.runs} ready={data.ai_ready} onStarted={() => void reload()} />
             {/* Results open over their app's window; Escape steps back one level at a time. */}
             {current && <Modal isOpen onClose={close} title={current.name} subtitle={current.does} width={inApp.length > 1 ? 960 : 560}>
                 <div className="agent-list">

@@ -8,7 +8,7 @@ import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
 import { ago, api, chatUrl, drafts, jobNames, sample, sampleSend, senderName, useLoad } from "./api";
-import type { AgentHome, AgentId, AgentResult, AgentRun, Connections, Need, Persona } from "./api";
+import type { AgentHome, AgentId, AgentResult, AgentRun, Connections, CustomResult, Need, Persona } from "./api";
 import { Check } from "./Icons";
 import Trace from "./Trace";
 import { Result } from "./Agents";
@@ -205,11 +205,15 @@ function Draft({ need, onDone }: { need: Extract<Need, { type: "draft" }>; onDon
 function ReadyForYou({ runs, order, persona }: { runs: AgentRun[]; order: AgentId[]; persona: Persona | null }) {
   const [open, setOpen] = useState<AgentRun>();
   const done = order.map(id => runs.find(r => r.agent === id && r.status === "done" && r.result && !("empty" in r.result))).filter(r => r !== undefined);
+  const own = runs.filter(r => r.agent.startsWith("custom:") && r.status === "done" && r.result).sort((a, b) => (b.finished ?? 0) - (a.finished ?? 0));
   // The path's first three agents nudge when they have nothing yet.
   const quiet = order.slice(0, persona === "business" ? 2 : 3).filter(id => !done.some(r => r.agent === id));
   return (
-    <Panel id="ready-heading" title="Ready for you" count={done.length}>
-      {done.length > 0 && <ul className="rows">{done.map(r => <li key={r.agent} className="row"><Made run={r} onOpen={() => setOpen(r)} /></li>)}</ul>}
+    <Panel id="ready-heading" title="Ready for you" count={done.length + own.length}>
+      {done.length + own.length > 0 && <ul className="rows">
+        {own.map(r => <li key={r.agent} className="row"><Own run={r} /></li>)}
+        {done.map(r => <li key={r.agent} className="row"><Made run={r} onOpen={() => setOpen(r)} /></li>)}
+      </ul>}
       {quiet.map(id => <Text key={id} as="p" type="supporting" size="sm">{jobNames[id]}: {nudges[id]}</Text>)}
       {open?.result && (
         <Modal isOpen onClose={() => setOpen(undefined)} title={jobNames[open.agent]} subtitle={open.models?.length ? `Made with ${list(open.models)}` : undefined}>
@@ -217,6 +221,22 @@ function ReadyForYou({ runs, order, persona }: { runs: AgentRun[]; order: AgentI
         </Modal>
       )}
     </Panel>
+  );
+}
+
+/** What an agent the owner wrote found, in its own words. */
+function Own({ run }: { run: AgentRun }) {
+  const result = run.result as unknown as CustomResult;
+  return (
+    <VStack gap={2}>
+      <HStack gap={2} align="center" wrap="wrap">
+        <Text weight="semibold" size="sm">{result.name}</Text>
+        {run.models?.length ? <span className="kind">{list(run.models)}</span> : null}
+        {run.finished && <Text type="supporting" size="sm">{ago(run.finished)}</Text>}
+      </HStack>
+      <Text as="p">{result.summary}</Text>
+      {result.drafts > 0 && <Text as="p" type="supporting" size="sm">{result.drafts === 1 ? "Its draft waits" : "Its drafts wait"} in Needs you.</Text>}
+    </VStack>
   );
 }
 
