@@ -125,10 +125,12 @@ export type AiSettings = { has_key: boolean; key_saved_at?: number | null; model
 export type AgentMessage = { kind: InboxKind; sender: string; sender_name: string | null; text?: string };
 /** What waits for the person: a ready reply draft, or the agent's one question. */
 export type Need =
-  | { type: "draft"; id: number; event_id: string; text: string; source: string; created: number; message: AgentMessage; used?: { answer: string; told: number } | null }
+  | { type: "draft"; id: number; event_id: string; text: string; source: string; created: number; message: AgentMessage; used?: { answer: string; told: number } | null; styled?: boolean }
   | { type: "question"; id: number; question: string; created: number; message: AgentMessage | null };
 export type ReportKind = "progress" | "waiting" | "ready" | "blocked" | "failed" | "dropped" | "question" | "answer" | "idea" | "advice";
 export type Ticket = { id: number; job: string; state: "open" | "ended"; created: number; message: AgentMessage | null; reports: { kind: ReportKind; text: string; created: number }[] };
+/** How the owner writes, learned from their sent replies. `message` says why there is none yet. */
+export type Style = { style: { note: string; length: string; greeting: string; emoji: string; language: string; sign_off: string } | null; built: number | null; from: number; sent: number; message: string | null };
 /** Something the owner told the agent once, kept until they delete it. `created` is unix time. */
 export type Fact = { id: number; question: string; answer: string; created: number };
 /** `watching` lists the switched-on channels the agent reads; `last_checked` is unix time, or null if never. */
@@ -210,6 +212,8 @@ export const api = {
   revokeMcpKey: () => call<{ has_key: false }>("DELETE", "/api/mcp/key"),
   answer: (ticket: number, text: string, skip = false) => call<{ state: string }>("POST", `/api/agent/tickets/${ticket}/answer`, { text, skip }),
   agentSettings: (proactive: boolean, rules: string) => call<{ proactive: boolean; rules: string }>("PUT", "/api/agent/settings", { proactive, rules }),
+  style: () => call<Style>("GET", "/api/agent/style"),
+  forgetStyle: () => call<{ style: null; message: string }>("DELETE", "/api/agent/style"),
   forgetFact: (id: number) => call<{ facts: Fact[] }>("DELETE", `/api/agent/facts/${id}`),
 };
 

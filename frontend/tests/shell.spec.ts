@@ -521,6 +521,31 @@ test("Settings lists what the owner told the agent and forgets one on request", 
   expect(forgotten).toEqual(["DELETE /api/agent/facts/4"]);
 });
 
+test("Settings shows how the owner writes, or says honestly that there are no sent replies", async ({ page }) => {
+  let style: object = { style: null, built: null, from: 0, sent: 0, message: "No sent replies yet. Once you send a few from Stupid, your agent learns how you write." };
+  const deleted: string[] = [];
+  await page.route("**/api/me", route => route.fulfill(json(signedIn)));
+  await page.route("**/api/settings/ai", route => route.fulfill(json({ has_key: false, model: "test-model", workspace_ai: true })));
+  await page.route("**/api/agent", route => route.fulfill(json({ proactive: true, rules: "", facts: [], needs: [], tickets: [], watching: [], last_checked: null })));
+  await page.route("**/api/agent/style", route => {
+    if (route.request().method() === "DELETE") { deleted.push("style"); style = { style: null, built: null, from: 0, sent: 4, message: "Your agent learns how you write once a day. Check back tomorrow." }; return route.fulfill(json({ style: null, message: "Forgotten." })); }
+    return route.fulfill(json(style));
+  });
+  await page.goto("/#settings");
+  await page.getByRole("tab", { name: "Your agent" }).click();
+  await expect(page.getByText("No sent replies yet. Once you send a few from Stupid, your agent learns how you write.")).toBeVisible();
+
+  style = { style: { note: "Short and warm, starts with Hii, one emoji.", length: "short", greeting: "Hii", emoji: "one", language: "Hinglish", sign_off: "none" }, built: now() - 600, from: 4, sent: 4, message: null };
+  await page.evaluate(() => { location.hash = "today"; });
+  await page.evaluate(() => { location.hash = "settings"; });
+  await page.getByRole("tab", { name: "Your agent" }).click();
+  await expect(page.getByText("Short and warm, starts with Hii, one emoji.")).toBeVisible();
+  await expect(page.getByText(/From 4 sent replies/)).toBeVisible();
+  await page.getByRole("button", { name: "Forget how you write" }).click();
+  await expect(page.getByText("Your agent learns how you write once a day. Check back tomorrow.")).toBeVisible();
+  expect(deleted).toEqual(["style"]);
+});
+
 test("voice notes and photos show what they say, marked while being read", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json(signedIn)));
   await page.route("**/api/inbox", route => route.fulfill(json({ items: [
