@@ -1,4 +1,4 @@
-// Sample data for dev builds only (?fixtures=1). Every name says "Sample"; nothing here is real.
+// Sample data for ?fixtures=1, loaded only then. Every name says "Sample"; nothing here is real.
 import { ApiError, appStatus, factsPrompt } from "./api";
 import type { Account, AgentHome, AgentId, AgentRun, Asset, AssetKind, InboxItem, McpKey, Me, Persona, SetupNext, SetupStep } from "./api";
 

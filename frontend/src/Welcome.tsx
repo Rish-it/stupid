@@ -94,6 +94,7 @@ export default function Welcome({ onDoor, onPassed }: { onDoor: (persona: Person
         <VStack ref={signIn} gap={2} hAlign="center" maxWidth={408} width="100%" paddingBlockStart={2}>
           <p className="hero-ask">For creators and small businesses on Meta. Which are you?</p>
           {buttons}
+          <Link href="/?fixtures=1&persona=business&stage=busy#home" type="supporting">See a sample desk</Link>
           <details className="before-start">
             <summary>Before you start</summary>
             <Text as="p" type="supporting" size="sm">Use the Facebook profile that manages your business Page. For Instagram, have a public Professional account (Creator or Business) linked to that Page. For WhatsApp, use a Business Platform account and registered number, or Meta's test number. Ads needs an ad account you can view. You can connect one app now and add the rest later.</Text>

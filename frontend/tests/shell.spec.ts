@@ -662,3 +662,41 @@ test("Agents are laid out in the path's order, each naming the models behind its
   await expect(page.getByRole("article").last()).toHaveAccessibleName("Reel director");
   await expect(page.getByRole("article", { name: "Reel director" })).toContainText("Muse Wonder");
 });
+
+test("closing Settings with motion on hands focus back to the rail's Settings link", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.goto("http://127.0.0.1:8032/?fixtures=1&persona=creator&stage=ready#inbox");
+  await page.getByRole("link", { name: "Settings" }).focus();
+  await page.keyboard.press("Enter");
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  await expect(settings).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(settings).toBeHidden();
+  // Well inside the browser's 4 s limit for a transition's DOM update.
+  await expect(page.getByRole("link", { name: "Settings" })).toBeFocused({ timeout: 2000 });
+});
+
+test("the production build opens a sample desk from the welcome page, sends nothing and never calls the server", async ({ page }) => {
+  await page.route("**/api/me", route => route.fulfill({ contentType: "application/json", body: JSON.stringify({ signed_in: false }) }));
+  await page.goto("/");
+  const desk = page.getByRole("link", { name: "See a sample desk" });
+  await expect(desk).toBeVisible();
+  const calls: string[] = [];
+  page.on("request", request => { if (new URL(request.url()).pathname.startsWith("/api/")) calls.push(`${request.url()} from ${request.frame().url()}`); });
+  await desk.click();
+  await expect(page).toHaveURL(/fixtures=1&persona=business&stage=busy#home$/);
+  const banner = page.getByText("Sample data, nothing here is real");
+  await expect(banner).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sample: nothing is sent" }).first()).toBeDisabled();
+  await page.getByRole("link", { name: "Inbox" }).click();
+  await page.locator(".person").first().click();
+  await expect(page.getByRole("button", { name: "Sample: nothing is sent" })).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await page.locator("#astryx-app-shell-main").evaluate(el => el.scrollTo(0, el.scrollHeight));
+  await expect(banner).toBeInViewport();
+  await page.getByRole("link", { name: "See the creator desk" }).click();
+  await expect(page).toHaveURL(/persona=creator&stage=busy#home$/);
+  await expect(page.getByRole("link", { name: "See the business desk" })).toBeVisible();
+  expect(calls).toEqual([]);
+});

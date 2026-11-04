@@ -32,6 +32,8 @@ const later = { get: () => { try { return sessionStorage.getItem("stupid.onboard
 // Only fixed wording is shown: text from the address could be anyone's.
 const query = new URLSearchParams(location.search);
 const failure = query.has("meta_error") ? "Nothing was shared with Stupid. You can try again whenever you like." : null;
+// The sample desk shows one path; the banner offers the other.
+const other = query.get("persona") === "creator" ? "business" : "creator";
 const returned = failure ? "error" : query.has("connected") ? "connected" : null;
 if (returned) {
   for (const key of ["error", "meta_error", "connected"]) query.delete(key);
@@ -111,7 +113,10 @@ export default function App() {
 
   return (
     <AppShell className={user ? "shell workspace" : "shell"} variant="wash" contentPadding={welcome ? 0 : 3}
-      banner={sample && <Banner status="warning" container="section" title="Sample data" description="Nothing on this page is real. Remove ?fixtures=1 to use your own accounts." />}
+      banner={sample && <Banner status="warning" container="section" title="Sample data, nothing here is real" description={<HStack as="span" gap={3} wrap="wrap">
+        <Link href={`/?fixtures=1&persona=${other}&stage=busy#home`}>{other === "creator" ? "See the creator desk" : "See the business desk"}</Link>
+        <Link href="/">Leave the sample</Link>
+      </HStack>} />}
       topNav={!user && <TopNav label="Main navigation" heading={<TopNavHeading logo={<Logo />} heading="Stupid" headingHref="/" />}
         endContent={welcome && <span className="sticky-mark" data-passed={passed || undefined}><Button variant="primary" size="lg" label="Sign in" onClick={() => setSignIn("any")} /></span>} />}
       sideNav={user && <Suspense fallback={null}><SideBar page={page} name={user.name} /></Suspense>}>

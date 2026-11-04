@@ -6,7 +6,7 @@ import { HStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { Token } from "@astryxdesign/core/Token";
-import { ago, api, drafts, senderName, useLoad } from "./api";
+import { ago, api, drafts, sample, sampleSend, senderName, useLoad } from "./api";
 import type { InboxItem } from "./api";
 import { Load } from "./Load";
 import SourceIcon from "./SourceIcon";
@@ -120,7 +120,7 @@ function Conversation({ item, mark, onClose, onStatus }: { item: InboxItem; mark
       subtitle={<HStack gap={2} align="center"><SourceIcon source={item.kind} size={14} />{where[item.kind]} · {ago(item.created)}</HStack>}
       footer={canReply ? <>
         <Button variant="ghost" label="Close" onClick={close} />
-        <Button variant="primary" label="Send" isDisabled={!text.trim()} isLoading={sending} onClick={() => void send()} />
+        <Button variant="primary" label={sample ? sampleSend : "Send"} isDisabled={sample || !text.trim()} isLoading={sending} onClick={() => void send()} />
       </> : <Button label="Close" onClick={close} />}>
       {noteLabel(item) && <HStack><Token size="sm" label={noteLabel(item)!} /></HStack>}
       <div className="bubble"><Text as="p">{item.transcribing ? working[item.transcribing] : item.text}</Text></div>

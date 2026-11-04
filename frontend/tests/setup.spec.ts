@@ -78,7 +78,7 @@ for (const [kind, name, instruction] of [
   for (const stage of ["connect", "choose", "fix", "ready"]) {
     test(`tutorial fixtures: ${name} resumes at ${stage}`, async ({ page }) => {
       await page.goto(`http://127.0.0.1:8032/?fixtures=1&tutorial=${kind}&stage=${stage}#setup`);
-      await expect(page.getByText("Nothing on this page is real.")).toBeVisible();
+      await expect(page.getByText("Sample data, nothing here is real")).toBeVisible();
       await page.getByRole("button", { name: `${stage === "connect" ? "Connect" : "Manage"} ${name}`, exact: true }).click();
       const dialog = page.getByRole("dialog");
       if (stage === "connect") {

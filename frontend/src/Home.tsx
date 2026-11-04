@@ -6,7 +6,7 @@ import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
-import { ago, api, drafts, jobNames, senderName, useLoad } from "./api";
+import { ago, api, drafts, jobNames, sample, sampleSend, senderName, useLoad } from "./api";
 import type { AgentHome, AgentId, AgentResult, AgentRun, Connections, Need, Persona } from "./api";
 import { Result } from "./Agents";
 import { Load } from "./Load";
@@ -142,7 +142,7 @@ function Draft({ need, onDone }: { need: Extract<Need, { type: "draft" }>; onDon
       {need.message.text && <Text as="p" type="supporting" size="sm">“{need.message.text}”</Text>}
       <div className="bubble bubble-out"><Text as="p">{need.text}</Text></div>
       <HStack gap={2}>
-        <Button variant="primary" size="sm" label="Send" clickAction={send} />
+        <Button variant="primary" size="sm" label={sample ? sampleSend : "Send"} isDisabled={sample} clickAction={send} />
         <Button variant="ghost" size="sm" label="Edit" onClick={edit} />
       </HStack>
       <div aria-live="polite">{error && <Text as="p" size="sm">{error}</Text>}</div>
