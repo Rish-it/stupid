@@ -83,6 +83,7 @@ test("Today explains empty reporting periods without inventing results", async (
   await page.route("**/api/ads", route => route.fulfill(json({ accounts: [] })));
   await page.route("**/api/instagram", route => route.fulfill(json({ accounts: [] })));
   await page.route("**/api/inbox", route => route.fulfill(json({ items: [] })));
+  await page.route("**/api/agent", route => route.fulfill(json({ proactive: false, rules: "", needs: [], tickets: [] })));
   await page.goto("/#today");
   await page.getByRole("button", { name: "Your numbers, last 7 days" }).click();
   await expect(page.getByText("No ad results in the last 7 days.")).toBeVisible();
