@@ -123,6 +123,7 @@ export default function App() {
         {reconnecting && <Text className="shimmer reconnecting" type="supporting" size="sm" role="status">Reconnecting…</Text>}
         {body}
         {user && page === "settings" && <Suspense><Settings name={user.name} persona={user.persona} onPersona={setPersona} onSignedOut={signOut}
+          account={user} onAccount={next => me.setData({ ...user, ...next })} onConnect={connect}
           onClose={() => { location.hash = `#${behind}`; }} /></Suspense>}
         {user && page === "home" && !pending && !held && <Suspense><Onboarding persona={user.persona}
           onPersona={setPersona}
