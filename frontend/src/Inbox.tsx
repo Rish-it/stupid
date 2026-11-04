@@ -11,6 +11,7 @@ import { ago, api, drafts, sample, sampleSend, senderName, useLoad } from "./api
 import type { InboxItem } from "./api";
 import { Check } from "./Icons";
 import Match from "./Match";
+import Trace from "./Trace";
 import { Load } from "./Load";
 import SourceIcon from "./SourceIcon";
 import { Modal, Page } from "./Surface";
@@ -174,7 +175,8 @@ function Conversation({ item, mark, onClose, onStatus }: { item: InboxItem; mark
       </> : <Button label="Close" onClick={close} />}>
       {noteLabel(item) && <HStack><Token size="sm" label={noteLabel(item)!} /></HStack>}
       <div className="bubble"><Text as="p">{item.transcribing ? working[item.transcribing] : item.text}</Text></div>
-      {item.matched_post && <Match post={item.matched_post} />}
+      {canReply && draft ? <Trace voice={item.voice} match={item.matched_post} source={draft.source ?? "agent"} />
+        : item.matched_post && <Match post={item.matched_post} />}
       {item.replied && <Text as="p" type="supporting">You've replied to this one.</Text>}
       {failed && <MetaProblem issue={failed} kind={item.kind} title="Your reply didn't arrive" />}
       {error && <MetaProblem issue={error} kind={item.kind} />}

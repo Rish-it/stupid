@@ -5,12 +5,11 @@ import { Heading } from "@astryxdesign/core/Heading";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
-import { Token } from "@astryxdesign/core/Token";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
 import { ago, api, drafts, jobNames, sample, sampleSend, senderName, useLoad } from "./api";
 import type { AgentHome, AgentId, AgentResult, AgentRun, Connections, Need, Persona } from "./api";
 import { Check } from "./Icons";
-import Match from "./Match";
+import Trace from "./Trace";
 import { Result } from "./Agents";
 import { Load } from "./Load";
 import SourceIcon from "./SourceIcon";
@@ -148,8 +147,6 @@ function Question({ need, onDone }: { need: Extract<Need, { type: "question" }>;
   );
 }
 
-/** The local day a fact was told, as "4 Nov" or "Nov 4" by the reader's locale. */
-const toldOn = (unix: number) => new Date(unix * 1000).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 function Draft({ need, onDone }: { need: Extract<Need, { type: "draft" }>; onDone: () => void }) {
   const [error, setError] = useState("");
   const edit = () => { drafts.set(need.event_id, { text: need.text, source: need.source === "muse" ? "muse" : "agent" }); location.hash = "#inbox"; };
@@ -162,11 +159,7 @@ function Draft({ need, onDone }: { need: Extract<Need, { type: "draft" }>; onDon
       <Who message={need.message} label={need.source === "muse" ? "From Muse" : "Drafted by AI"} when={need.created} />
       {need.message.text && <Text as="p" type="supporting" size="sm">“{need.message.text}”</Text>}
       <div className="bubble bubble-out"><Text as="p">{need.text}</Text></div>
-      {need.matched_post && <Match post={need.matched_post} />}
-      {(need.styled || need.used) && <VStack gap={2} hAlign="start">
-        {need.styled && <Token size="sm" label="Written in your style" />}
-        {need.used && <Text as="p" type="supporting" size="sm">Used what you told me on {toldOn(need.used.told)}: {need.used.answer}</Text>}
-      </VStack>}
+      <Trace match={need.matched_post} used={need.used} styled={need.styled} source={need.source} />
       <HStack gap={2}>
         {sent ? <span role="status" className="sent"><Check /> Sent</span>
           : <Button variant="primary" size="sm" label={sample ? sampleSend : "Send"} isDisabled={sample} clickAction={send} />}

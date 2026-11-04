@@ -4,7 +4,7 @@ import { Text } from "@astryxdesign/core/Text";
 import type { MatchedPost } from "./api";
 
 // Meta writes "+0000"; Safari reads only "+00:00".
-const postedOn = (iso: string) => new Date(iso.replace(/([+-]\d\d)(\d\d)$/, "$1:$2")).toLocaleDateString(undefined, { day: "numeric", month: "short" });
+export const postedOn = (iso: string) => new Date(iso.replace(/([+-]\d\d)(\d\d)$/, "$1:$2")).toLocaleDateString(undefined, { day: "numeric", month: "short" });
 
 /** Which of the owner's posts a customer's photo shows, or that it is none of them. */
 export default function Match({ post }: { post: MatchedPost }) {

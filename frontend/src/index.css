@@ -382,3 +382,17 @@ body { background: var(--color-background-body); }
 }
 @keyframes tutorial-arrive { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes tutorial-check { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+
+/* "How it got here" on a draft: the steps as a short chain of quiet pills, each with the model that did it. */
+.trace-box { display: grid; gap: 6px; }
+.trace-title { color: var(--color-text-secondary); font-size: .75rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.trace { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 0; margin: 0; padding: 0; list-style: none; font-size: .8125rem; }
+.trace li { display: inline-flex; align-items: center; }
+.trace li + li::before { content: "›"; padding-inline: 6px; color: var(--color-text-secondary); }
+.trace-text { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 12px; background: #ffffff14; color: #c8c8ce; }
+.trace-model { margin-inline-start: 6px; color: var(--color-text-primary); font-weight: 600; }
+.trace li[data-step="wait"] .trace-text { color: var(--color-text-primary); }
+.trace-thumb { width: 20px; height: 20px; border-radius: 4px; object-fit: cover; }
+@media (prefers-reduced-motion: no-preference) {
+  .trace li { animation: arrive .2s ease-out both; animation-delay: calc(var(--i) * 60ms); }
+}
