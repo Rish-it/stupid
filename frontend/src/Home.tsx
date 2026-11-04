@@ -107,7 +107,10 @@ export default function Home({ state, persona }: { state: Connections; persona: 
         <VStack gap={2}>{t.reports.filter(r => r.kind !== "question").map((r, i) => <Text key={i} as="p" size="sm"><Text type="supporting" size="sm">{short(r.created)}</Text> {r.text}</Text>)}</VStack>
       </Pane> });
   }
+  const waiting = needs.some(n => n.type === "draft");
   for (const run of runs.data?.runs ?? []) {
+    // Reply drafts already sent or dropped aren't ready work: they show only while some still wait.
+    if (run.agent === "replies" && run.status === "done" && !waiting) continue;
     const own = run.agent.startsWith("custom:");
     const result = run.result;
     const name = own && result ? (result as unknown as CustomResult).name : jobNames[run.agent] ?? "Your agent";

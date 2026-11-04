@@ -3,7 +3,7 @@ import { Button } from "@astryxdesign/core/Button";
 import { Link } from "@astryxdesign/core/Link";
 import { VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
-import { door, oauthStartUrl } from "./api";
+import { door, oauthStartUrl, passed } from "./api";
 import type { Persona } from "./api";
 import { Modal } from "./Surface";
 import SourceIcon from "./SourceIcon";
@@ -25,7 +25,7 @@ const tips: ["all" | Persona, ReactNode][] = [
 
 /** Sign in, for the door picked: what Meta will ask and what to pick. */
 export default function SignIn({ persona, instagram, onConnect: connect, onClose }: { persona?: Persona; instagram?: string; onConnect: () => void; onClose: () => void }) {
-  const onConnect = () => { door.set(persona ?? null); connect(); };
+  const onConnect = () => { door.set(persona ?? null); passed.keep(0); connect(); };
   return (
     <Modal isOpen onClose={onClose} width={480} title={persona === "creator" ? "Connect as a creator" : persona === "business" ? "Connect your business" : "Sign in to Stupid"}
       subtitle="Stupid signs you in with Facebook, then Meta asks what to share.">
