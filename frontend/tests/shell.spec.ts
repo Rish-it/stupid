@@ -507,3 +507,17 @@ test("a sender without a name reads as someone on that app, never as an id", asy
   await expect(page.getByText("Someone on Messenger")).toBeVisible();
   await expect(page.getByText("17841400000000001")).toHaveCount(0);
 });
+
+test("Inbox shows each person as a card with the app, the words, when, and what's waiting", async ({ page }) => {
+  await page.route("**/api/me", route => route.fulfill(json(signedIn)));
+  await page.route("**/api/inbox", route => route.fulfill(json({ items: [{ ...inbox.items[0], created: now() - 600, draft: { text: "Yes!", source: "agent" } }, inbox.items[1]] })));
+  await page.goto("/#inbox");
+  const ana = page.getByRole("button", { name: /Are you open\?/ });
+  await expect(ana).toContainText("WhatsApp");
+  await expect(ana).toContainText("Ana");
+  await expect(ana).toContainText("10 minutes ago");
+  await expect(ana).toContainText("Draft ready");
+  await expect(page.getByRole("button", { name: /Nice post/ })).toContainText("Replied");
+  // Unselected filters stay readable on the control's tint (QA 2-3).
+  await expect(page.getByRole("radio", { name: "WhatsApp" })).toHaveCSS("color", "rgb(180, 180, 186)");
+});

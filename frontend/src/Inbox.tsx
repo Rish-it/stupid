@@ -1,15 +1,12 @@
 import { useState } from "react";
-import { Avatar } from "@astryxdesign/core/Avatar";
 import { Button } from "@astryxdesign/core/Button";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
-import { List, ListItem } from "@astryxdesign/core/List";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
-import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { HStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
-import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { Token } from "@astryxdesign/core/Token";
-import { api, drafts, senderName, useLoad } from "./api";
+import { ago, api, drafts, senderName, useLoad } from "./api";
 import type { InboxItem } from "./api";
 import { Load } from "./Load";
 import SourceIcon from "./SourceIcon";
@@ -39,7 +36,7 @@ export default function Inbox() {
   const current = items?.find(i => i.id === open);
 
   return (
-    <Page title="Inbox" description="Every new message and comment in one place, newest first."
+    <Page title="Inbox" description="Every message and comment, newest first. Open one to reply."
       actions={
         <SegmentedControl label="Show messages from" value={filter} onChange={v => setFilter(v as keyof typeof filters)}>
           {Object.entries(filters).map(([value, label]) => value === "all"
@@ -54,24 +51,25 @@ export default function Inbox() {
             description="New messages and comments show up here as they arrive." />
         );
         return (
-          <div className="inset-list">
-            <List density="balanced">
-              {shown.map(item => {
-                const label = mark(item);
-                const tag = item.replied ? <Token size="sm" label="Replied" />
-                  : label ? <Token size="sm" label={label} />
-                  : item.reply_error ? <Token size="sm" color="red" label="Not delivered" />
-                  : null;
-                return (
-                  <ListItem key={item.id} align="start" isSelected={open === item.id} onClick={() => setOpen(item.id)}
-                    startContent={<Avatar name={senderName(item)} size="md" tooltip={false} aria-hidden status={<SourceIcon source={item.kind} size={14} />} />}
-                    label={<HStack gap={2} align="center" wrap="wrap"><Text weight="semibold">{senderName(item)}</Text><Text type="supporting" size="sm">{where[item.kind]}</Text><VoiceMark item={item} /></HStack>}
-                    description={<Text type="supporting" maxLines={1}>{item.transcribing ? working[item.transcribing] : item.text}</Text>}
-                    endContent={<VStack gap={1} hAlign="end"><Timestamp value={item.created} format="relative" type="supporting" size="sm" />{tag}</VStack>} />
-                );
-              })}
-            </List>
-          </div>
+          <ul className="people">
+            {shown.map(item => {
+              const label = mark(item);
+              const status = item.replied ? "Replied" : label ?? (item.reply_error ? "Not delivered" : item.draft ? "Draft ready" : undefined);
+              const note = noteLabel(item);
+              return (
+                <li key={item.id}>
+                  <button type="button" className="person" data-app={item.kind.startsWith("instagram") ? "instagram" : item.kind} onClick={() => setOpen(item.id)}>
+                    <span className="tag">{where[item.kind]}</span>
+                    <span className="person-text">{item.transcribing ? working[item.transcribing] : item.text}</span>
+                    <span className="person-foot">
+                      <strong>{senderName(item)}</strong>
+                      <span className="person-meta">{note && <span>{note}</span>}<span>{ago(item.created)}</span>{status && <span data-status={status}>{status}</span>}</span>
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
         );
       }}</Load>
       {current && <Conversation key={current.id} item={current} mark={mark(current)} onClose={() => setOpen(undefined)}
@@ -80,11 +78,11 @@ export default function Inbox() {
   );
 }
 
-/** Voice notes say so, since their text is a transcript by Muse Voice Transcribe. */
-function VoiceMark({ item }: { item: InboxItem }) {
-  if (item.transcribing === "photo" || item.transcribing === "video") return <HStack><Token size="sm" label={item.transcribing === "photo" ? "Photo · looking" : "Video · watching"} /></HStack>;
-  if (!item.voice && !item.transcribing) return null;
-  return <HStack><Token size="sm" label={item.transcribing ? "Voice note · transcribing" : "Voice note · transcript"} /></HStack>;
+/** Voice notes say so, since their text is a transcript by Muse Voice Transcribe; photos and videos say while they're being looked at. */
+function noteLabel(item: InboxItem) {
+  if (item.transcribing === "photo" || item.transcribing === "video") return item.transcribing === "photo" ? "Photo · looking" : "Video · watching";
+  if (!item.voice && !item.transcribing) return undefined;
+  return item.transcribing ? "Voice note · transcribing" : "Voice note · transcript";
 }
 
 function Conversation({ item, mark, onClose, onStatus }: { item: InboxItem; mark?: Mark; onClose: () => void; onStatus: (label?: Mark) => void }) {
@@ -112,12 +110,12 @@ function Conversation({ item, mark, onClose, onStatus }: { item: InboxItem; mark
   const close = () => { if (text.trim()) drafts.set(item.id, { ...draft, text }); onClose(); };
   return (
     <Modal isOpen onClose={close} purpose="form" title={senderName(item)}
-      subtitle={<HStack gap={2} align="center"><SourceIcon source={item.kind} size={14} />{where[item.kind]} · <Timestamp value={item.created} format="relative" /></HStack>}
+      subtitle={<HStack gap={2} align="center"><SourceIcon source={item.kind} size={14} />{where[item.kind]} · {ago(item.created)}</HStack>}
       footer={canReply ? <>
         <Button variant="ghost" label="Close" onClick={close} />
         <Button variant="primary" label="Send" isDisabled={!text.trim()} isLoading={sending} onClick={() => void send()} />
       </> : <Button label="Close" onClick={close} />}>
-      <VoiceMark item={item} />
+      {noteLabel(item) && <HStack><Token size="sm" label={noteLabel(item)!} /></HStack>}
       <div className="bubble"><Text as="p">{item.transcribing ? working[item.transcribing] : item.text}</Text></div>
       {item.replied && <Text as="p" type="supporting">You've replied to this one.</Text>}
       {failed && <MetaProblem issue={failed} kind={item.kind} title="Your reply didn't arrive" />}

@@ -13,6 +13,8 @@ body { background: var(--color-background-body); }
   --live: #FF5A1F;
 }
 .astryx-button, .astryx-segmented-control, .astryx-segmented-control-item { --radius-element: 9999px; }
+/* Unselected options sit on the control's tint; lighter grey keeps them above 4.5:1. */
+.astryx-segmented-control-item { --color-text-secondary: #B4B4BA; --color-icon-secondary: #B4B4BA; }
 
 /* Motion follows muse.ai: the same curves and timings, with Stupid's content. Everything moving here
    stops for people who ask for reduced motion. */
@@ -101,6 +103,23 @@ body { background: var(--color-background-body); }
 .tag { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--color-text-secondary); }
 .tag::before { content: ""; width: 2px; height: 10px; border-radius: 1px; background: var(--live); }
 .bubble-out { align-self: flex-start; background: #232327; }
+
+/* Inbox, after the "Customers" reference: a grid of people, the app as a small tag with a coloured tick. */
+.people { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr)); gap: 12px; margin: 0; padding: 0; list-style: none; }
+.person {
+  display: grid; grid-template-rows: auto 1fr auto; gap: 12px; width: 100%; height: 100%; min-height: 10.5rem; padding: 16px; box-sizing: border-box;
+  border: 0; border-radius: 12px; background: var(--color-background-surface); color: var(--color-text-primary); font: inherit; text-align: start; cursor: pointer;
+}
+.person:hover { background: var(--color-background-muted); }
+.person:focus-visible { outline: 2px solid var(--color-text-primary); outline-offset: 2px; }
+.person[data-app="whatsapp"] .tag::before { background: #25D366; }
+.person[data-app="instagram"] .tag::before { background: #E1306C; }
+.person[data-app="messenger"] .tag::before { background: #0A7CFF; }
+.person-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; color: var(--color-text-secondary); line-height: 1.45; overflow-wrap: anywhere; }
+.person-foot { display: grid; gap: 2px; }
+.person-meta { display: flex; flex-wrap: wrap; gap: 4px 8px; color: var(--color-text-secondary); font-size: .8125rem; font-variant-numeric: tabular-nums; }
+.person-meta [data-status="Not delivered"] { color: var(--live); }
+@media (prefers-reduced-motion: no-preference) { .person { transition: background-color .15s ease-out; } }
 
 /* Loading words: a light sweeps across, then rests. */
 @media (prefers-reduced-motion: no-preference) {
