@@ -10,12 +10,13 @@ const update = (versions: Record<string, string>) => ({ contentType: "text/event
 const versions = (replies: string) => ({ inbox: "1", replies, runs: "1", connections: "1" });
 
 test("a live update refetches the inbox and shows that a reply didn't arrive", async ({ page }) => {
-  let sent = false;
+  // Meta's failure report arrives only once "Sent" was seen, so a slow runner can't skip past it.
+  let failed = false;
   await page.route("**/api/me", route => route.fulfill(json(me)));
-  await page.route("**/api/stream", route => route.fulfill(update(versions(sent ? "2" : "1"))));
-  await page.route("**/api/inbox", route => route.fulfill(json({ items: [sent ? { ...message, reply_error: "WhatsApp didn't deliver this reply: the number has no WhatsApp." } : message] })));
+  await page.route("**/api/stream", route => route.fulfill(update(versions(failed ? "2" : "1"))));
+  await page.route("**/api/inbox", route => route.fulfill(json({ items: [failed ? { ...message, reply_error: "WhatsApp didn't deliver this reply: the number has no WhatsApp." } : message] })));
   let release = () => {};
-  await page.route("**/api/inbox/w1/reply", async route => { await new Promise<void>(done => (release = done)); sent = true; await route.fulfill(json({ sent: true })); });
+  await page.route("**/api/inbox/w1/reply", async route => { await new Promise<void>(done => (release = done)); await route.fulfill(json({ sent: true })); });
   await page.goto("/#inbox");
 
   await page.getByText("Are you open?").click();
@@ -24,6 +25,7 @@ test("a live update refetches the inbox and shows that a reply didn't arrive", a
   await expect(page.getByText("Sending…")).toBeVisible();
   release();
   await expect(page.getByText("Sent", { exact: true })).toBeVisible();
+  failed = true;
   await expect(page.getByText("Not delivered")).toBeVisible({ timeout: 5000 });
   // Focus is back on the card, so its popover repeats the words; open the card itself.
   await page.locator(".person", { hasText: "Are you open?" }).click();
