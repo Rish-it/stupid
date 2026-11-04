@@ -10,6 +10,21 @@ const assets: Asset[] = [
   { key: "whatsapp:2", kind: "whatsapp", id: "2", name: "Sample second number", issues: [{ blocking: true, text: "This number can't send messages yet.", fix: "Add a payment method in WhatsApp Manager.", link: "https://business.facebook.com/wa/manage/home/" }] },
 ];
 let me: Me = { signed_in: true, name: "Sample creator", assets, selected: ["ads:act_1", "instagram:1", "whatsapp:1", "whatsapp:2"], permissions: ["ads_read", "instagram_basic", "instagram_manage_insights", "whatsapp_business_messaging"], problems: ["Messages from Sample Page: the Page wasn't shared."] };
+const tutorial = new URLSearchParams(location.search);
+const tutorialKind = tutorial.get("tutorial");
+if (["instagram", "whatsapp", "messenger", "ads"].includes(tutorialKind ?? "")) {
+  const kind = tutorialKind as Asset["kind"];
+  const stage = tutorial.get("stage") ?? "connect";
+  const fixes = {
+    instagram: { text: "Instagram messages aren't shared yet.", fix: "In Meta Business Suite, open Inbox → Instagram and allow access to messages.", link: "https://business.facebook.com/latest/inbox" },
+    whatsapp: { text: "Meta has locked this WhatsApp account.", fix: "Open Business Support Home, select this account and follow the reason shown.", link: "https://business.facebook.com/business-support-home/" },
+    messenger: { text: "Your Page access doesn't include messages.", fix: "Ask someone with full control to assign you messaging access.", link: "https://www.facebook.com/business/help/1101781386943864" },
+    ads: { text: "This ad account has an unpaid balance.", fix: "Open Billing & payments and select this ad account.", link: "https://business.facebook.com/latest/billing_hub/payment_methods/" },
+  };
+  const asset: Asset = { key: `${kind}:1`, kind, id: "1", name: `Sample ${kind} account`, issues: stage === "fix" ? [{ blocking: true, ...fixes[kind] }] : [] };
+  me = { signed_in: true, name: "Sample first-timer", assets: stage === "connect" ? [] : [asset], selected: stage === "choose" || stage === "connect" ? [] : [asset.key],
+    permissions: ["ads_read", "instagram_basic", "instagram_manage_insights", "instagram_manage_comments", "instagram_manage_messages", "pages_messaging", "whatsapp_business_messaging"], problems: [] };
+}
 let hasKey = false;
 
 const campaign = (name: string, spend: string, clicks: string, ctr: string, cpc: string) => ({
@@ -36,6 +51,7 @@ export async function answer(method: string, path: string, body: unknown): Promi
   }
   // The first check finds the sample number fixed.
   if (route === "POST /api/connections/refresh" && me.signed_in) {
+    if (tutorial.get("refresh") === "fail") throw new ApiError(502, "Meta could not be reached. Try again.");
     me = { ...me, assets: me.assets.map(a => ({ ...a, issues: [] })) };
     return { assets: me.assets, selected: me.selected, permissions: me.permissions, problems: me.problems ?? [] };
   }

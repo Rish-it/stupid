@@ -4,9 +4,13 @@ export default defineConfig({
   testDir: "./frontend/tests",
   workers: 1,
   use: { baseURL: "http://127.0.0.1:8031", browserName: "chromium" },
-  webServer: {
+  webServer: [{
     command: "npm run preview --workspace @stupid/frontend -- --port 8031 --strictPort",
     url: "http://127.0.0.1:8031",
     reuseExistingServer: false,
-  },
+  }, {
+    command: "npm run dev --workspace @stupid/frontend -- --port 8032 --strictPort",
+    url: "http://127.0.0.1:8032",
+    reuseExistingServer: false,
+  }],
 });

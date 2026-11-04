@@ -1,7 +1,6 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
-import { Link } from "@astryxdesign/core/Link";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Step, Stepper } from "@astryxdesign/core/Stepper";
 import { Switch } from "@astryxdesign/core/Switch";
@@ -11,21 +10,31 @@ import { api, apps, appStatus, oauthStartUrl, setupDone } from "./api";
 import type { Account, AssetKind, Issue } from "./api";
 import { Modal, Page, Tile } from "./Surface";
 
+const Tutorial = lazy(() => import("./Tutorial"));
+
 const labels = { ready: ["Ready", "green"], step: ["Needs one step", "yellow"], off: ["Not connected", "default"] } as const;
 const message = (cause: unknown) => cause instanceof Error ? cause.message : String(cause);
 
 export default function Setup({ state, onChange, onConnect }: { state: Account; onChange: (next: Account) => void; onConnect: () => void }) {
   const [error, setError] = useState("");
+  const checking = useRef(false);
+  const [waiting, setWaiting] = useState(false);
   const [checked, setChecked] = useState(false);
   const [open, setOpen] = useState<AssetKind>();
   const done = setupDone(state);
   const check = async () => {
+    if (checking.current) return;
+    checking.current = true;
+    setWaiting(true);
     try {
       onChange(await api.refresh());
       setError("");
       setChecked(true);
     } catch (cause) {
       setError(message(cause));
+    } finally {
+      checking.current = false;
+      setWaiting(false);
     }
   };
   const toggle = async (key: string, on: boolean) => {
@@ -38,7 +47,7 @@ export default function Setup({ state, onChange, onConnect }: { state: Account; 
   };
   // People fix things in Meta's tabs; look again when they come back, until everything is ready.
   useEffect(() => {
-    if (done) return;
+    if (done && !open) return;
     const onFocus = () => document.visibilityState === "visible" && void check();
     document.addEventListener("visibilitychange", onFocus);
     return () => document.removeEventListener("visibilitychange", onFocus);
@@ -52,7 +61,8 @@ export default function Setup({ state, onChange, onConnect }: { state: Account; 
       actions={done && <Button variant="primary" label="Go to Inbox" href="#inbox" />}>
       <div aria-live="polite">
         {error && <Banner status="warning" title="That didn't go through" description={`${error} Try again in a moment.`} />}
-        {checked && !error && !done && <Text as="p" type="supporting">Checked just now. Meta can take a minute to catch up.</Text>}
+        {waiting && <Text as="p" type="supporting">Checking what Meta has shared…</Text>}
+        {!waiting && checked && !error && !done && <Text as="p" type="supporting">Checked just now. Meta can take a minute to catch up.</Text>}
       </div>
       {state.problems?.map(problem => (
         <Banner key={problem} status="warning" title="Meta didn't share everything" description={problem} endContent={connect} />
@@ -80,16 +90,16 @@ export default function Setup({ state, onChange, onConnect }: { state: Account; 
       {app && (() => {
         const { status, on, refused } = appStatus(state, app.kind);
         const accounts = state.assets.filter(a => a.kind === app.kind);
-        const fixable = on.some(a => a.issues?.length);
         const step = !accounts.length ? 0 : !on.length ? 1 : status === "step" ? 2 : 3;
         const close = () => setOpen(undefined);
         return (
           <Modal isOpen onClose={close} title={`Connect ${app.name}`} width={620}
             footer={step === 0 ? <>
               <Button variant="ghost" label="Cancel" onClick={close} />
+              <Button label="Check again" isLoading={waiting} onClick={() => void check()} />
               <Button variant="primary" label="Continue with Facebook" href={oauthStartUrl} onClick={onConnect} />
             </> : <>
-              {fixable && <Button label="Check again" clickAction={check} />}
+              <Button label="Check again" isLoading={waiting} onClick={() => void check()} />
               <Button variant="primary" label={step === 3 ? "Done" : "Close"} onClick={close} />
             </>}>
             <Stepper activeStep={step} label={`${app.name} setup`} density="compact">
@@ -98,23 +108,14 @@ export default function Setup({ state, onChange, onConnect }: { state: Account; 
               <Step step={2} label="Fix in Meta" />
             </Stepper>
             {step === 0 ? (
-              <VStack gap={3}>
-                <Text as="p">{app.why}</Text>
-                <ol className="steps">
-                  <li>Continue with Facebook. Meta opens its own window.</li>
-                  <li>{app.pick}</li>
-                  <li>Come back here and switch it on.</li>
-                </ol>
-                {app.kind === "instagram" && (
-                  <Text as="p" type="supporting" size="sm">
-                    Instagram must be a Professional account linked to your Facebook Page.{" "}
-                    <Link hasUnderline isExternalLink href="https://help.instagram.com/502981923235522">How to switch</Link>
-                  </Text>
-                )}
-              </VStack>
+              <Suspense fallback={<Text as="p" role="status">Opening the steps…</Text>}><Tutorial kind={app.kind} /></Suspense>
             ) : (
               <VStack gap={3}>
-                {!on.length && <Text as="p">Switch on the account you use.</Text>}
+                {!on.length && <Text as="p">Switch on the account you use. Only the accounts you choose are used in Stupid.</Text>}
+                <details>
+                  <summary>Review the setup steps</summary>
+                  <Suspense fallback={<Text as="p">Opening the steps…</Text>}><Tutorial kind={app.kind} /></Suspense>
+                </details>
                 {accounts.map(a => (
                   <VStack key={a.key} gap={3}>
                     
