@@ -23,6 +23,9 @@ pub struct Asset {
     /// What stops or limits this account, in plain words, from Meta's own health check.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub issues: Vec<Issue>,
+    /// The Meta business a WhatsApp number belongs to, for links to that business's own screens.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub business: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -50,7 +53,7 @@ fn whatsapp_issues(health: &Value, business: &str, waba: &str) -> Vec<Issue> {
                 141006 => ("WhatsApp needs a payment method before it can send.", "Open Billing & payments, select this WhatsApp account, then Payment methods. Production replies can be charged by Meta.", format!("https://business.facebook.com/billing_hub/accounts/details/?business_id={business}&asset_id={waba}")),
                 141007 => ("This WhatsApp account has no time zone.", "Set a time zone for the WhatsApp account.", format!("https://business.facebook.com/latest/settings/whatsapp_account?business_id={business}")),
                 141010 => ("Your business isn't verified, so new chats per day are limited.", "Open Security Center and follow the verification steps Meta asks for. This is different from a paid Meta Verified badge.", format!("https://business.facebook.com/latest/settings/security_center?business_id={business}")),
-                131031 => ("Meta has locked this WhatsApp account.", "Open Business Support Home, select this account and follow the reason shown. Choose Request review if offered. Verification alone may not unlock it.", "https://business.facebook.com/business-support-home/".into()),
+                131031 => ("Meta has restricted this WhatsApp account.", VERIFY, security_center(Some(business))),
                 131042 => ("WhatsApp couldn't use this account's billing setup.", "Open Billing & payments, select this account and check Payment methods, its balance, currency and time zone.", "https://business.facebook.com/latest/billing_hub/payment_methods/".into()),
                 131045 | 133010 => ("This WhatsApp number isn't registered for messaging.", "In WhatsApp Manager, select this account and Phone numbers. Finish verifying and registering your number before trying again.", "https://developers.facebook.com/documentation/business-messaging/whatsapp/business-phone-numbers/registration".into()),
                 131000 => ("Your business profile is missing its legal name, country or website.", "Fill in your business info.", format!("https://business.facebook.com/latest/settings/business_info?business_id={business}")),
@@ -69,6 +72,79 @@ fn whatsapp_issues(health: &Value, business: &str, waba: &str) -> Vec<Issue> {
             fix: "Open Business Support Home, select this account and follow the requirement shown. Meta hasn't shared a more specific reason yet.".into(),
             link: "https://business.facebook.com/business-support-home/".into(),
         });
+    }
+    out
+}
+
+const VERIFY: &str = "Meta has restricted your business. Open Security Center and verify your business (not the paid Meta Verified badge). \
+If Meta shows another reason, follow it in Business Support Home. Sending works here again as soon as Meta lifts it.";
+
+fn security_center(business: Option<&str>) -> String {
+    match business.filter(|b| numeric(b)) {
+        Some(b) => format!("https://business.facebook.com/latest/settings/security_center?business_id={b}"),
+        None => "https://business.facebook.com/latest/settings/security_center".into(),
+    }
+}
+
+/// Meta codes that stop every WhatsApp send from a business until Meta lifts them. Meta's health check can still
+/// say AVAILABLE meanwhile, so the refusal itself is what Stupid goes by.
+const BUSINESS_BLOCKS: [i64; 1] = [131031];
+
+/// Keep a business-level refusal for a WhatsApp number, or clear it once Meta reports a message from it as sent.
+pub fn whatsapp_sent(db: &rusqlite::Connection, asset_id: &str, refusal: Option<(&str, i64)>) -> rusqlite::Result<()> {
+    match refusal {
+        Some((reason, code)) if BUSINESS_BLOCKS.contains(&code) => db.execute(
+            "INSERT INTO wa_blocks (asset_id,reason,at) VALUES (?1,?2,?3) ON CONFLICT(asset_id) DO UPDATE SET reason=?2,at=?3",
+            params![asset_id, reason.chars().take(300).collect::<String>(), now()],
+        ),
+        Some(_) => Ok(0),
+        None => db.execute("DELETE FROM wa_blocks WHERE asset_id=?1", [asset_id]),
+    }
+    .map(drop)
+}
+
+/// A refused send from a WhatsApp number, if it was a business-level one, is kept for that number.
+pub fn whatsapp_refused(db: &rusqlite::Connection, asset_id: &str, error: &str) -> rusqlite::Result<()> {
+    match crate::owner::meta_code(error) {
+        Some(code) => whatsapp_sent(db, asset_id, Some((error.trim_start_matches("Meta: "), code))),
+        None => Ok(()),
+    }
+}
+
+/// Is this WhatsApp number refused by Meta at the business level right now?
+pub fn whatsapp_blocked(db: &rusqlite::Connection, asset_id: &str) -> rusqlite::Result<bool> {
+    db.query_row("SELECT 1 FROM wa_blocks WHERE asset_id=?1", [asset_id], |_| Ok(())).optional().map(|r| r.is_some())
+}
+
+/// Meta's own refusal of a WhatsApp number's sends, as an issue on that number, ahead of what the health check says.
+pub fn add_refusals(db: &rusqlite::Connection, assets: &mut [Asset]) -> rusqlite::Result<()> {
+    for a in assets.iter_mut().filter(|a| a.kind == "whatsapp") {
+        let reason: Option<String> = db.query_row("SELECT reason FROM wa_blocks WHERE asset_id=?1", [&a.id], |r| r.get(0)).optional()?;
+        if let Some(reason) = reason {
+            a.issues.retain(|i| !i.blocking);
+            a.issues.insert(0, Issue { blocking: true, text: format!("Meta refused to send from this number: {reason}"), fix: VERIFY.into(), link: security_center(a.business.as_deref()) });
+        }
+    }
+    Ok(())
+}
+
+/// Per WhatsApp number in a status webhook: a business-level refusal, or None once a message was sent.
+pub fn whatsapp_states(payload: &Value) -> Vec<(String, Option<(String, i64)>)> {
+    let values = payload["entry"].as_array().into_iter().flatten().flat_map(|e| e["changes"].as_array().into_iter().flatten()).map(|c| &c["value"]);
+    let mut out = Vec::new();
+    for v in values {
+        let Some(phone) = v["metadata"]["phone_number_id"].as_str() else { continue };
+        for st in v["statuses"].as_array().into_iter().flatten() {
+            let e = &st["errors"][0];
+            match (st["status"].as_str(), e["code"].as_i64()) {
+                (Some("sent" | "delivered" | "read"), _) => out.push((phone.to_string(), None)),
+                (Some("failed"), Some(code)) if BUSINESS_BLOCKS.contains(&code) => {
+                    let reason = format!("{} ({code})", e["error_data"]["details"].as_str().or(e["title"].as_str()).unwrap_or("refused"));
+                    out.push((phone.to_string(), Some((reason, code))));
+                }
+                _ => {}
+            }
+        }
     }
     out
 }
@@ -219,6 +295,7 @@ async fn discover(state: &AppState, token: &str) -> Grant {
     }
     let mut numbers = Vec::new();
     let mut issues = HashMap::new();
+    let mut business_of = HashMap::new();
     for account in &ad_accounts {
         if let Some(id) = account["id"].as_str() {
             issues.insert(format!("ads:{id}"), ad_account_issues(account));
@@ -234,6 +311,7 @@ async fn discover(state: &AppState, token: &str) -> Grant {
         let found = take("WhatsApp numbers", rows(state, &format!("{w}/phone_numbers"), "id,verified_name,display_phone_number,health_status", token).await);
         for n in &found {
             issues.insert(format!("whatsapp:{}", n["id"].as_str().unwrap_or_default()), whatsapp_issues(&n["health_status"], b, w));
+            business_of.insert(format!("whatsapp:{}", n["id"].as_str().unwrap_or_default()), b.clone());
         }
         numbers.extend(found);
         // Meta forwards a WhatsApp account's messages only once the app is subscribed to it.
@@ -259,7 +337,7 @@ async fn discover(state: &AppState, token: &str) -> Grant {
             page_tokens.insert(key.clone(), t.to_string());
         }
         let name: String = name.as_str().unwrap_or(fallback).chars().take(200).collect();
-        assets.push(Asset { key, kind: kind.into(), id, name, issues: Vec::new() });
+        assets.push(Asset { key, kind: kind.into(), id, name, issues: Vec::new(), business: None });
     };
     for row in &ad_accounts {
         add("ads", &row["id"], &row["name"], "Ad account", None);
@@ -277,6 +355,7 @@ async fn discover(state: &AppState, token: &str) -> Grant {
     }
     for a in &mut assets {
         a.issues = issues.remove(&a.key).unwrap_or_default();
+        a.business = business_of.remove(&a.key);
     }
     let mut permissions: Vec<String> = permissions.iter().filter(|r| r["status"] == "granted").filter_map(|r| r["permission"].as_str().map(str::to_string)).collect();
     permissions.sort();
@@ -651,7 +730,11 @@ pub async fn send_reply(s: &AppState, u: &User, id: i64, text: &str) -> ApiResul
     let sent = match post(s, &path, &payload, t.for_asset(&asset.key)).await {
         Ok(sent) => sent,
         Err(e) => {
-            let _ = lock(&s.db).execute("DELETE FROM replies WHERE event_id=?1", [id]);
+            let db = lock(&s.db);
+            let _ = db.execute("DELETE FROM replies WHERE event_id=?1", [id]);
+            if kind == "whatsapp" {
+                whatsapp_refused(&db, &asset_id, &e.1)?;
+            }
             return Err(e);
         }
     };
@@ -847,12 +930,34 @@ mod tests {
     }
 
     #[test]
-    fn locked_whatsapp_accounts_offer_review_without_guessing_the_cause() {
-        let issues = whatsapp_issues(&json!({"entities":[{"can_send_message":"BLOCKED","errors":[{"error_code":131031}]}]}), "7", "8");
+    fn a_restricted_business_points_to_verification() {
+        let issues = whatsapp_issues(&json!({"entities":[{"entity_type":"BUSINESS","can_send_message":"BLOCKED","errors":[{"error_code":131031}]}]}), "7", "8");
         assert_eq!(issues.len(), 1);
-        assert!(issues[0].blocking && issues[0].text.contains("locked"));
-        assert!(issues[0].fix.contains("Request review"));
-        assert_eq!(issues[0].link, "https://business.facebook.com/business-support-home/");
+        assert!(issues[0].blocking && issues[0].text.contains("restricted"));
+        assert!(issues[0].fix.contains("verify your business"));
+        assert_eq!(issues[0].link, "https://business.facebook.com/latest/settings/security_center?business_id=7");
+    }
+
+    #[test]
+    fn a_verified_business_has_nothing_blocking() {
+        let health = json!({"can_send_message":"AVAILABLE","entities":[
+            {"entity_type":"PHONE_NUMBER","id":"1","can_send_message":"AVAILABLE"},
+            {"entity_type":"WABA","id":"2","can_send_message":"AVAILABLE"},
+            {"entity_type":"BUSINESS","id":"7","can_send_message":"AVAILABLE"},
+            {"entity_type":"APP","id":"3","can_send_message":"AVAILABLE"}]});
+        assert!(whatsapp_issues(&health, "7", "8").is_empty());
+        // No refusal kept either: the number shows exactly what the health check says.
+        let db = rusqlite::Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE wa_blocks (asset_id TEXT PRIMARY KEY, reason TEXT NOT NULL, at INTEGER NOT NULL);").unwrap();
+        let mut assets = vec![Asset { key: "whatsapp:1".into(), kind: "whatsapp".into(), id: "1".into(), name: "n".into(), issues: Vec::new(), business: Some("7".into()) }];
+        add_refusals(&db, &mut assets).unwrap();
+        assert!(assets[0].issues.is_empty());
+        whatsapp_sent(&db, "1", Some(("Business account has been locked. (131031)", 131031))).unwrap();
+        whatsapp_sent(&db, "1", Some(("Message undeliverable. (131026)", 131026))).unwrap();
+        add_refusals(&db, &mut assets).unwrap();
+        assert_eq!((assets[0].issues.len(), assets[0].issues[0].link.as_str()), (1, "https://business.facebook.com/latest/settings/security_center?business_id=7"));
+        whatsapp_sent(&db, "1", None).unwrap();
+        assert!(!whatsapp_blocked(&db, "1").unwrap(), "a sent message clears it");
     }
 
     #[test]

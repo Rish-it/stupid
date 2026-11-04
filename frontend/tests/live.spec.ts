@@ -61,7 +61,7 @@ test("a server without a stream stays quiet", async ({ page }) => {
 });
 
 for (const [reason, title, link] of [
-  ["Business account has been locked. (131031)", "Meta has locked this WhatsApp account.", "https://business.facebook.com/business-support-home/"],
+  ["Business account has been locked. (131031)", "Meta has restricted this WhatsApp account.", "https://business.facebook.com/latest/settings/security_center"],
   ["Re-engagement message (131047)", "The 24-hour reply window has ended.", "https://developers.facebook.com/documentation/business-messaging/whatsapp/messages/send-messages#customer-service-windows"],
   ["Payment error (131042)", "Meta couldn't use this account's billing setup.", "https://business.facebook.com/latest/billing_hub/payment_methods/"],
 ]) {

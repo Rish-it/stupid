@@ -113,7 +113,7 @@ mod tests {
     use crate::meta::Asset;
 
     fn person(persona: Option<&str>, assets: &[(&str, Vec<Issue>)]) -> User {
-        let assets: Vec<Asset> = assets.iter().map(|(kind, issues)| Asset { key: format!("{kind}:1"), kind: kind.to_string(), id: "1".into(), name: "x".into(), issues: issues.clone() }).collect();
+        let assets: Vec<Asset> = assets.iter().map(|(kind, issues)| Asset { key: format!("{kind}:1"), kind: kind.to_string(), id: "1".into(), name: "x".into(), issues: issues.clone(), business: None }).collect();
         User { id: "u".into(), name: "n".into(), token_blob: String::new(), selected: assets.iter().map(|a| a.key.clone()).collect(), assets, permissions: vec![], problems: vec![], persona: persona.map(Into::into) }
     }
     fn issue(text: &str, link: &str) -> Issue {

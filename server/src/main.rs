@@ -262,6 +262,10 @@ ALTER TABLE users ADD COLUMN agent_rules TEXT NOT NULL DEFAULT '';
     // The owner channel over Messenger too: where the owner last wrote from, and their Messenger id on the Page.
     "ALTER TABLE owner_channel ADD COLUMN channel TEXT NOT NULL DEFAULT 'whatsapp'; ALTER TABLE owner_channel ADD COLUMN psid TEXT;
      CREATE INDEX owner_channel_psid ON owner_channel(psid);",
+    // Meta's business-level refusal of a WhatsApp number's sends, kept until a message from it goes out again.
+    // And the Page the owner's Messenger id belongs to, so pings can move there while WhatsApp is refused.
+    "CREATE TABLE wa_blocks (asset_id TEXT PRIMARY KEY, reason TEXT NOT NULL, at INTEGER NOT NULL);
+     ALTER TABLE owner_channel ADD COLUMN psid_page TEXT; UPDATE owner_channel SET psid_page=asset_id WHERE channel='messenger';",
 ];
 
 /// The built app. A missing hashed asset answers 404, so a stale page fails loudly instead of loading
@@ -333,11 +337,13 @@ pub fn user_by_id(state: &AppState, id: &str) -> ApiResult<User> {
         )
         .optional()?;
     let (name, token_blob, assets, selected, permissions, problems, persona) = row.ok_or_else(|| AppError::new(401, "Your session ended. Sign in again."))?;
+    let mut assets: Vec<meta::Asset> = serde_json::from_str(&assets).unwrap_or_default();
+    meta::add_refusals(&lock(&state.db), &mut assets)?;
     Ok(User {
         id: id.to_string(),
         name,
         token_blob,
-        assets: serde_json::from_str(&assets).unwrap_or_default(),
+        assets,
         selected: serde_json::from_str(&selected).unwrap_or_default(),
         permissions: serde_json::from_str(&permissions).unwrap_or_default(),
         problems: serde_json::from_str(&problems).unwrap_or_default(),
@@ -611,6 +617,9 @@ async fn webhook(State(s): State<AppState>, headers: HeaderMap, body: Bytes) -> 
         for (message_id, reason) in meta::failed_sends(&payload) {
             tracing::warn!("WhatsApp send {message_id} failed: {reason}");
             db.execute("UPDATE replies SET error=?2 WHERE message_id=?1", params![message_id, format!("WhatsApp didn't deliver this reply: {reason}")])?;
+        }
+        for (number, refusal) in meta::whatsapp_states(&payload) {
+            meta::whatsapp_sent(&db, &number, refusal.as_ref().map(|(r, c)| (r.as_str(), *c)))?;
         }
         let mut added = Vec::new();
         let mut from_owner = Vec::new();
