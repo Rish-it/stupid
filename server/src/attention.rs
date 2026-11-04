@@ -22,6 +22,7 @@ pub async fn home(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Js
          LEFT JOIN learned l ON l.id=d.learned_id AND l.user_id=d.user_id
          WHERE d.id IN (SELECT MAX(id) FROM drafts WHERE user_id=?1 GROUP BY event_id)
            AND NOT EXISTS (SELECT 1 FROM replies r WHERE r.event_id=d.event_id AND r.error IS NULL)
+           AND NOT EXISTS (SELECT 1 FROM skips k WHERE k.event_id=d.event_id AND k.user_id=d.user_id)
            AND (e.kind='instagram_comment' OR e.created>?2)
          ORDER BY d.id DESC LIMIT 20")?;
     let drafts = stmt.query_map(params![u.id, now() - 86_400], |r| {
