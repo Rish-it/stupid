@@ -149,6 +149,8 @@ function noteLabel(item: InboxItem) {
 function Conversation({ item, mark, onClose, onStatus }: { item: InboxItem; mark?: Mark; onClose: () => void; onStatus: (label?: Mark) => void }) {
   // A draft handed over in this tab first, else the newest one Stupid keeps (from the agent or Muse).
   const [draft] = useState(() => drafts.get(item.id) ?? (item.draft && !item.replied ? { text: item.draft.text, source: item.draft.source === "muse" ? "muse" as const : "agent" as const } : undefined));
+  // What the server says about its own draft; a draft handed over from Agents in this tab carries none of it.
+  const [kept] = useState(() => drafts.has(item.id) ? undefined : item.draft ?? undefined);
   const [text, setText] = useState(draft?.text ?? "");
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
@@ -178,7 +180,8 @@ function Conversation({ item, mark, onClose, onStatus }: { item: InboxItem; mark
       </> : <Button label="Close" onClick={close} />}>
       {noteLabel(item) && <HStack><Token size="sm" label={noteLabel(item)!} /></HStack>}
       <div className="bubble"><Text as="p">{item.transcribing ? working[item.transcribing] : item.text}</Text></div>
-      {canReply && draft ? <Trace voice={item.voice} match={item.matched_post} source={draft.source ?? "agent"} />
+      {canReply && draft ? <Trace voice={item.voice ? kept?.models?.described_by ?? null : undefined} photo={item.photo ? kept?.models?.described_by ?? null : undefined}
+        drafted={kept?.models?.drafted_by} used={kept?.used} styled={kept?.styled} match={item.matched_post} source={draft.source ?? "agent"} />
         : item.matched_post && <Match post={item.matched_post} />}
       {item.replied && <Text as="p" type="supporting">You've replied to this one.</Text>}
       {failed && <MetaProblem issue={failed} kind={item.kind} title="Your reply didn't arrive" />}

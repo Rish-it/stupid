@@ -160,7 +160,9 @@ function Draft({ need, onDone }: { need: Extract<Need, { type: "draft" }>; onDon
       <Who message={need.message} label={need.source === "muse" ? "From Muse" : "Drafted by AI"} when={need.created} />
       {need.message.text && <Text as="p" type="supporting" size="sm">“{need.message.text}”</Text>}
       <div className="bubble bubble-out"><Text as="p">{need.text}</Text></div>
-      <Trace match={need.matched_post} used={need.used} styled={need.styled} source={need.source} />
+      <Trace voice={need.message.voice ? need.message.voice.model ?? need.models?.described_by ?? null : undefined}
+        photo={need.message.photo ? need.message.photo.model ?? need.models?.described_by ?? null : undefined}
+        drafted={need.models?.drafted_by} match={need.matched_post} used={need.used} styled={need.styled} source={need.source} />
       <HStack gap={2}>
         {sent ? <span role="status" className="sent"><Check /> Sent</span>
           : <Button variant="primary" size="sm" label={sample ? sampleSend : "Send"} isDisabled={sample} clickAction={send} />}

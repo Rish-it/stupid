@@ -116,30 +116,34 @@ const found: Record<Persona, Partial<Record<AgentId, AgentRun["result"]>>> = {
 const cake: MatchedPost = { matched: true, post_id: "p1", permalink: "https://www.instagram.com/", caption: "Sample post: chocolate cake with berries", posted: "2026-10-20T18:30:00+0000",
   thumbnail: "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 40 40'%3E%3Crect width='40' height='40' fill='%235B3A2E'/%3E%3Ccircle cx='20' cy='22' r='11' fill='%23C46A7A'/%3E%3C/svg%3E" };
 const notOurs: MatchedPost = { matched: false };
+// The model ids the server names, as it sends them.
+const spark = "meta-models/muse-spark-open-1026", looked = "muse-spark-1.3";
 const ask: Record<Persona, AgentHome["needs"]> = {
   creator: [
     { type: "question", id: 12, question: "Sample question: what's your rate for one Reel?", created: now() - 240, message: { kind: "instagram", sender: "17841400000000009", sender_name: "Sample Shoe Co", text: "Sample: what are your rates for a Reel?" } },
     { type: "draft", id: 11, event_id: "c1", text: "Sample draft: thank you! The jacket is from a small shop, link in bio.", source: "agent", created: now() - 600, message: { kind: "instagram_comment", sender: "17841400000000003", sender_name: "Sample fan", text: "Sample: where is the jacket from?" }, styled: true, used: null,
-      matched_post: notOurs },
+      matched_post: notOurs, models: { drafted_by: spark } },
     { type: "question", id: 13, question: "Shall I draft a reply to this message?", ask_first: true, created: now() - 700, message: { kind: "instagram", sender: "17841400000000011", sender_name: "Sample follower", text: "Sample: do you do collabs?" } },
   ],
   business: [
     { type: "question", id: 22, question: "Sample question: do you deliver to Andheri, and what does it cost?", created: now() - 180, message: { kind: "whatsapp", sender: "15550000002", sender_name: "Sample buyer", text: "Sample voice note: hi, can you deliver to Andheri tomorrow?" } },
-    { type: "draft", id: 21, event_id: "b1", text: "Sample draft: yes, the chocolate cake is ₹650 and we deliver in Bandra.", source: "agent", created: now() - 420, message: { kind: "whatsapp", sender: "15550000001", sender_name: "Sample customer", text: "Sample: how much is this cake? (Photo: a chocolate cake)" },
+    { type: "draft", id: 21, event_id: "b1", text: "Sample draft: yes, the chocolate cake is ₹650 and we deliver in Bandra.", source: "agent", created: now() - 420, message: { kind: "whatsapp", sender: "15550000001", sender_name: "Sample customer", text: "Sample: how much is this cake? (Photo: a chocolate cake)",
+      photo: { description: "Sample: a chocolate cake with berries.", model: looked } },
       styled: true, used: { answer: "Sample answer: the chocolate cake is ₹650.", told: now() - 86400 },
-      matched_post: cake },
+      matched_post: cake, models: { described_by: looked, drafted_by: spark } },
     { type: "question", id: 23, question: "Shall I draft a reply to this message?", ask_first: true, created: now() - 500, message: { kind: "messenger", sender: "15550000003", sender_name: "Sample neighbour", text: "Sample: are you open on Sunday?" } },
   ],
 };
 const messages: Record<Persona, InboxItem[]> = {
   creator: [
     { id: "c1", kind: "instagram_comment", asset_id: "1", sender: "17841400000000003", sender_name: "Sample fan", text: "Sample: where is the jacket from?", created: now() - 900, replied: false,
-      draft: { text: "Sample draft: thank you! The jacket is from a small shop, link in bio.", source: "agent" }, matched_post: notOurs },
+      draft: { text: "Sample draft: thank you! The jacket is from a small shop, link in bio.", source: "agent", styled: true, used: null, models: { drafted_by: spark } }, matched_post: notOurs },
     { id: "c2", kind: "instagram", asset_id: "1", sender: "17841400000000009", sender_name: "Sample Shoe Co", text: "Sample: what are your rates for a Reel?", created: now() - 1800, replied: false },
   ],
   business: [
-    { id: "b1", kind: "whatsapp", asset_id: "1", sender: "15550000001", sender_name: "Sample customer", text: "Sample: how much is this cake?\n(Photo: a chocolate cake with berries.)", created: now() - 600, replied: false,
-      draft: { text: "Sample draft: yes, the chocolate cake is ₹650 and we deliver in Bandra.", source: "agent" }, matched_post: cake },
+    { id: "b1", kind: "whatsapp", asset_id: "1", sender: "15550000001", sender_name: "Sample customer", text: "Sample: how much is this cake?\n(Photo: a chocolate cake with berries.)", created: now() - 600, replied: false, photo: true,
+      draft: { text: "Sample draft: yes, the chocolate cake is ₹650 and we deliver in Bandra.", source: "agent", styled: true,
+        used: { answer: "Sample answer: the chocolate cake is ₹650.", told: now() - 86400 }, models: { described_by: looked, drafted_by: spark } }, matched_post: cake },
     { id: "b2", kind: "whatsapp", asset_id: "1", sender: "15550000002", sender_name: "Sample buyer", text: "Sample voice note: hi, can you deliver to Andheri tomorrow?", created: now() - 900, replied: false, voice: true },
     { id: "b3", kind: "messenger", asset_id: "1", sender: "24000000000000001", sender_name: "Sample neighbour", text: "Sample: are you open on Sunday?", created: now() - 7200, replied: false },
   ],

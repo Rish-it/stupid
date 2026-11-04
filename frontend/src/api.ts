@@ -92,9 +92,9 @@ export type Instagram = {
 export type InboxKind = "whatsapp" | "messenger" | "instagram" | "instagram_comment";
 export type InboxItem = { id: string; kind: InboxKind; asset_id: string; sender: string; sender_name: string | null; text: string; created: number; replied: boolean; reply_error?: string | null;
   /** A voice note: `text` holds its transcript. While a voice note, photo or video is put into words, `transcribing` says which. */
-  voice?: boolean; transcribing?: "voice" | "photo" | "video" | null;
+  voice?: boolean; photo?: boolean; transcribing?: "voice" | "photo" | "video" | null;
   /** The newest draft Stupid keeps for this message, from the agent or from Muse. */
-  draft?: { text: string; source: string } | null;
+  draft?: { text: string; source: string; styled?: boolean; used?: { answer: string; told: number } | null; models?: DraftModels } | null;
   /** For a customer's photo: which of the owner's posts it shows. */
   matched_post?: MatchedPost | null };
 // ponytail: only India's +91 is grouped; other numbers show as +<digits>. Add a library if numbers from more countries arrive.
@@ -129,10 +129,15 @@ export type AiModel = { id: string; label: string; provider: "baseten" | "meta";
 export type AiSettings = { has_key: boolean; key_saved_at?: number | null; model: string; workspace_ai: boolean; brain: "open" | "meta"; meta_brain: boolean; open_model: string; meta_model: string; models: AiModel[] };
 
 /** The customer message a piece of agent work is about. */
-export type AgentMessage = { kind: InboxKind; sender: string; sender_name: string | null; text?: string };
+/** What a voice note or photo said, and the model id that put it into words. Null for older messages and plain text. */
+export type Heard = { model: string | null };
+export type AgentMessage = { kind: InboxKind; sender: string; sender_name: string | null; text?: string;
+  voice?: (Heard & { transcript: string }) | null; photo?: (Heard & { description: string }) | null };
+/** Model ids behind a draft: the one that put a voice note or photo into words, and the one that wrote the reply. */
+export type DraftModels = { described_by?: string; drafted_by?: string };
 /** What waits for the person: a ready reply draft, or the agent's one question. */
 export type Need =
-  | { type: "draft"; id: number; event_id: string; text: string; source: string; created: number; message: AgentMessage; used?: { answer: string; told: number } | null; styled?: boolean; matched_post?: MatchedPost | null }
+  | { type: "draft"; id: number; event_id: string; text: string; source: string; created: number; message: AgentMessage; used?: { answer: string; told: number } | null; styled?: boolean; matched_post?: MatchedPost | null; models?: DraftModels }
   | { type: "question"; id: number; question: string; created: number; message: AgentMessage | null; ask_first?: boolean };
 /** A customer's photo compared with the owner's Instagram posts. `posted` is ISO time; `thumbnail` is served by Stupid. Null when not compared. */
 export type MatchedPost = { matched: true; post_id: string; permalink: string; caption: string; posted: string; thumbnail: string } | { matched: false };
