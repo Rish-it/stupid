@@ -151,7 +151,7 @@ pub async fn start(s: &AppState, u: User, id: i64) -> ApiResult<Value> {
         agents::busy(&db, &u.id, &key)?;
         let rules: String = db.query_row("SELECT agent_rules FROM users WHERE id=?1", [&u.id], |r| r.get(0))?;
         let input = json!({ "job": agent["job"], "channels": agent["channels"], "owner_rules": rules, "owner_facts": attention::facts_for_model(&db, &u.id)?,
-            "today_utc": executor::today(now()) });
+            "now": executor::local_now(&db, &u.id)? });
         (agent, input)
     };
     let ai = agents::ai(s, &u.id)?;

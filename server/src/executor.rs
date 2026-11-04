@@ -174,7 +174,19 @@ pub(crate) fn context(db: &rusqlite::Connection, user_id: &str, ticket: i64, eve
     let said = stmt.query_map([ticket], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?.collect::<Result<Vec<_>, _>>()?;
     // Each answer follows the question it answers.
     let answers: Vec<Value> = said.windows(2).filter(|w| w[0].0 == "question" && w[1].0 == "answer").map(|w| json!({ "question": w[0].1, "answer": w[1].1 })).collect();
-    Ok(json!({ "event_id": event_id, "owner_rules": rules, "owner_answers": answers, "owner_facts": attention::facts_for_model(db, user_id)?, "today_utc": today(now()) }))
+    Ok(json!({ "event_id": event_id, "owner_rules": rules, "owner_answers": answers, "owner_facts": attention::facts_for_model(db, user_id)?, "now": local_now(db, user_id)? }))
+}
+
+/// The owner's own date and time, "2026-11-05 Thursday, 03:15 in Asia/Kolkata", so "yesterday" means their yesterday.
+pub(crate) fn local_now(db: &rusqlite::Connection, user_id: &str) -> rusqlite::Result<String> {
+    use rusqlite::OptionalExtension;
+    let tz: String = db.query_row("SELECT tz FROM owner_channel WHERE user_id=?1", [user_id], |r| r.get(0)).optional()?.unwrap_or_else(|| "Asia/Kolkata".into());
+    Ok(local_time(now(), &tz))
+}
+
+fn local_time(t: i64, tz: &str) -> String {
+    let minutes = crate::owner::local_minutes(t, tz);
+    format!("{}, {:02}:{:02} in {tz}", today(crate::owner::local_day(t, tz) * 86_400), minutes / 60, minutes % 60)
 }
 
 /// "2026-11-04 Wednesday" for a Unix time, so "tomorrow" in a message means something to the model.
@@ -234,6 +246,8 @@ mod tests {
         assert_eq!(today(0), "1970-01-01 Thursday");
         assert_eq!(today(1_793_771_336), "2026-11-04 Wednesday");
         assert_eq!(today(951_782_400), "2000-02-29 Tuesday");
+        // 21:30 UTC on Nov 4 is already Nov 5 in India.
+        assert_eq!(local_time(1_793_827_800, "Asia/Kolkata"), "2026-11-05 Thursday, 03:00 in Asia/Kolkata");
     }
 
     #[tokio::test]
