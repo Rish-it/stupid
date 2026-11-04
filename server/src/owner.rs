@@ -64,7 +64,7 @@ impl Channel {
         }
     }
     fn json(&self) -> Value {
-        json!({ "phone": self.phone, "channel": self.channel, "page_name": self.page_name, "link_code": self.link_code, "linked": self.linked, "business_number": self.business_number,
+        json!({ "phone": self.phone, "channel": self.channel, "page_name": self.page_name, "link_code": self.link_code, "linked": self.linked, "asset_id": self.asset_id, "business_number": self.business_number,
             "window_until": self.window_until, "digest_time": self.digest_time, "tz": self.tz,
             "quiet": self.quiet.as_ref().map(|(f, t)| json!({ "from": f, "to": t })), "urgent": self.urgent, "last_ping": self.last_ping, "last_error": self.last_error })
     }

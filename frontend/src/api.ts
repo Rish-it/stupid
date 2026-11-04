@@ -271,15 +271,15 @@ export type OwnerChannel = {
   window_until: number | null;
   digest_time: string | null; tz: string; quiet: { from: string; to: string } | null; urgent: Urgent[]; last_ping: number | null;
   /** Where the owner paired and where pings go. */
-  channel?: "whatsapp" | "messenger"; page_name?: string | null;
+  channel?: "whatsapp" | "messenger"; page_name?: string | null; asset_id?: string | null;
   /** Meta's refusal of the last ping, in Meta's words. */
   last_error?: { error: string; code: number | null; at: number } | null;
 };
 /** The app the owner hears from their agent on: their real pairing, WhatsApp until they pair elsewhere. */
 export const ownerPlace = (oc?: OwnerChannel) => oc?.channel === "messenger" ? "Messenger" : "WhatsApp";
-/** Meta's reason the selected WhatsApp number can't send, when Meta has said one. */
-export const whatsappBlock = (state: Connections) => state.assets
-  .find(a => a.kind === "whatsapp" && state.selected.includes(a.key) && a.issues?.some(i => i.blocking))?.issues?.find(i => i.blocking);
+/** Meta's reason the owner's WhatsApp number can't send, when Meta has said one: the linked number, else any switched on. */
+export const whatsappBlock = (state: Connections, linked?: string | null) => state.assets
+  .find(a => a.kind === "whatsapp" && state.selected.includes(a.key) && (!linked || a.id === linked) && a.issues?.some(i => i.blocking))?.issues?.find(i => i.blocking);
 
 /** A reply waiting in the Inbox. `source` marks text an agent wrote, so the person sees it came from AI. */
 export type Draft = { text: string; source?: "agent" | "muse" };
