@@ -1,7 +1,9 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
+import { ProgressBar } from "@astryxdesign/core/ProgressBar";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
-import { VStack } from "@astryxdesign/core/Stack";
+import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Step, Stepper } from "@astryxdesign/core/Stepper";
 import { Switch } from "@astryxdesign/core/Switch";
 import { Text } from "@astryxdesign/core/Text";
@@ -14,6 +16,10 @@ import MetaProblem from "./MetaProblem";
 const Tutorial = lazy(() => import("./Tutorial"));
 
 const labels = { ready: ["Ready", "green"], step: ["Needs one step", "yellow"], off: ["Not connected", "default"] } as const;
+const phase = (state: Account, kind: AssetKind) => {
+  const { status, on } = appStatus(state, kind);
+  return !state.assets.some(a => a.kind === kind) ? 0 : !on.length ? 1 : status === "step" ? 2 : 3;
+};
 const message = (cause: unknown) => cause instanceof Error ? cause.message : String(cause);
 
 export default function Setup({ state, onChange, onConnect }: { state: Account; onChange: (next: Account) => void; onConnect: () => void }) {
@@ -23,12 +29,19 @@ export default function Setup({ state, onChange, onConnect }: { state: Account; 
   const [checked, setChecked] = useState(false);
   const [open, setOpen] = useState<AssetKind>();
   const done = setupDone(state);
+  const apply = (next: Account) => {
+    const update = () => onChange(next);
+    if (open && phase(state, open) !== phase({ ...state, ...next }, open)
+      && document.startViewTransition && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      void document.startViewTransition(() => flushSync(update)).finished.catch(() => {});
+    } else update();
+  };
   const check = async () => {
     if (checking.current) return;
     checking.current = true;
     setWaiting(true);
     try {
-      onChange(await api.refresh());
+      apply(await api.refresh());
       setError("");
       setChecked(true);
     } catch (cause) {
@@ -40,7 +53,7 @@ export default function Setup({ state, onChange, onConnect }: { state: Account; 
   };
   const toggle = async (key: string, on: boolean) => {
     try {
-      onChange(await api.select(on ? [...state.selected, key] : state.selected.filter(k => k !== key)));
+      apply(await api.select(on ? [...state.selected, key] : state.selected.filter(k => k !== key)));
       setError("");
     } catch (cause) {
       setError(message(cause));
@@ -55,16 +68,17 @@ export default function Setup({ state, onChange, onConnect }: { state: Account; 
   });
   const connect = <Button variant="primary" label="Connect again" href={oauthStartUrl} onClick={onConnect} />;
   const app = apps.find(a => a.kind === open);
+  const checkStatus = <div aria-live="polite">
+    {error && <Banner status="warning" title="That didn't go through" description={`${error} Try again in a moment.`} />}
+    {waiting && <Text as="p" type="supporting">Checking what Meta has shared…</Text>}
+    {!waiting && checked && !error && !done && <Text as="p" type="supporting">Checked just now. Meta can take a minute to catch up. Your progress stays here while it does.</Text>}
+  </div>;
 
   return (
     <Page title={done ? "You're set" : "Set up Stupid"}
       description={done ? "New messages arrive in your inbox as they come in." : "One step at a time. Open a card to see what to do next."}
       actions={done && <Button variant="primary" label="Go to Inbox" href="#inbox" />}>
-      <div aria-live="polite">
-        {error && <Banner status="warning" title="That didn't go through" description={`${error} Try again in a moment.`} />}
-        {waiting && <Text as="p" type="supporting">Checking what Meta has shared…</Text>}
-        {!waiting && checked && !error && !done && <Text as="p" type="supporting">Checked just now. Meta can take a minute to catch up.</Text>}
-      </div>
+      {!open && checkStatus}
       {state.problems?.map(problem => (
         <VStack key={problem} gap={2}>
           <MetaProblem issue={problem} />
@@ -93,9 +107,9 @@ export default function Setup({ state, onChange, onConnect }: { state: Account; 
         })}
       </div>
       {app && (() => {
-        const { status, on, refused } = appStatus(state, app.kind);
+        const { on, refused } = appStatus(state, app.kind);
         const accounts = state.assets.filter(a => a.kind === app.kind);
-        const step = !accounts.length ? 0 : !on.length ? 1 : status === "step" ? 2 : 3;
+        const step = phase(state, app.kind);
         const close = () => setOpen(undefined);
         return (
           <Modal isOpen onClose={close} title={`Connect ${app.name}`} width={620}
@@ -107,11 +121,15 @@ export default function Setup({ state, onChange, onConnect }: { state: Account; 
               <Button label="Check again" isLoading={waiting} onClick={() => void check()} />
               <Button variant="primary" label={step === 3 ? "Done" : "Close"} onClick={close} />
             </>}>
+            {checkStatus}
+            <ProgressBar value={step} max={3} label={`${app.name} setup progress`} isLabelHidden />
+            <Completion ready={step === 3} name={app.name} />
             <Stepper activeStep={step} label={`${app.name} setup`} density="compact">
               <Step step={0} label="Connect" />
               <Step step={1} label="Choose" />
               <Step step={2} label="Fix in Meta" />
             </Stepper>
+            <div key={`${app.kind}-${step}`} className="tutorial-step" data-phase={step}>
             {step === 0 ? (
               <Suspense fallback={<Text as="p" role="status">Opening the steps…</Text>}><Tutorial kind={app.kind} /></Suspense>
             ) : (
@@ -132,12 +150,25 @@ export default function Setup({ state, onChange, onConnect }: { state: Account; 
                 {refused.length > 0 && (
                   <Banner status="warning" title={`Meta wasn't allowed to share ${refused.join(", ")}.`} description={`Connect again and allow ${refused.length > 1 ? "them" : "it"}. In Facebook Business Integrations → Stupid → View and Edit, tick the missing access and Save.`} endContent={connect} />
                 )}
-                {step === 3 && <Text as="p" type="supporting">{app.name} is ready.</Text>}
               </VStack>
             )}
+            </div>
           </Modal>
         );
       })()}
     </Page>
   );
 }
+
+function Completion({ ready, name }: { ready: boolean; name: string }) {
+  const [wasReady] = useState(ready);
+  if (!ready) return null;
+  return <HStack gap={2} align="center" className={wasReady ? "tutorial-complete" : "tutorial-complete tutorial-just-completed"} role="status">
+    <svg width="28" height="28" viewBox="0 0 28 28" fill="none" aria-hidden>
+      <circle cx="14" cy="14" r="14" fill="currentColor" opacity=".12" />
+      <path d="m7 14 5 5 9-10" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" pathLength="1" />
+    </svg>
+    <Text as="p">{name} is ready.</Text>
+  </HStack>;
+}
+
