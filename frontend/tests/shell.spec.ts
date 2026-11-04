@@ -262,6 +262,15 @@ test("Inbox offers app filters only when messages come from more than one app", 
   await expect(page.getByRole("radiogroup", { name: "Show messages from" })).toHaveCount(0);
 });
 
+test("a switched-on Instagram gets its filter before anything arrives, and says how to let DMs in", async ({ page }) => {
+  await page.route("**/api/me", route => route.fulfill(json({ ...signedIn, selected: ["instagram:1"] })));
+  await page.route("**/api/inbox", route => route.fulfill(json({ items: [inbox.items[0]] })));
+  await page.goto("/#inbox");
+  await page.getByRole("radiogroup", { name: "Show messages from" }).getByRole("radio", { name: "Instagram" }).click();
+  await expect(page.getByRole("heading", { name: "Nothing from Instagram yet" })).toBeVisible();
+  await expect(page.getByText(/^Stupid reads @Test Instagram's DMs and comments every few seconds.*Connected tools\./)).toBeVisible();
+});
+
 test("Agents point to Settings when there is no AI access", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json(signedIn)));
   await page.route("**/api/agents", route => route.fulfill(json({ ai_ready: false, own_key: false, model: "", order: ["leads", "ideas", "replies", "reels", "ads"], runs: [] })));

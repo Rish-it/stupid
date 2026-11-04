@@ -8,7 +8,7 @@ import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { Token } from "@astryxdesign/core/Token";
 import { ago, api, drafts, sample, sampleSend, senderName, useLoad } from "./api";
-import type { InboxItem } from "./api";
+import type { Asset, InboxItem } from "./api";
 import { Check } from "./Icons";
 import Match from "./Match";
 import Trace from "./Trace";
@@ -24,7 +24,8 @@ const SamplePhoto = lazy(() => import("./Sample").then(m => ({ default: m.Sample
 const working = { voice: "Transcribing the voice note…", photo: "Looking at the photo…", video: "Watching the video…" } as const;
 type Mark = "Sending…" | "Sent";
 
-export default function Inbox() {
+/** `on`: the accounts switched on, so each one gets its filter even before anything arrives from it. */
+export default function Inbox({ on = [] }: { on?: Asset[] }) {
   const inbox = useLoad("inbox", api.inbox);
   const [filter, setFilter] = useState<keyof typeof filters>("all");
   const [open, setOpen] = useState(() => [...drafts.keys()].at(-1));
@@ -50,8 +51,9 @@ export default function Inbox() {
     return next;
   });
   const current = items?.find(i => i.id === open);
-  // Only the apps this inbox actually has messages from get a filter.
-  const apps = (Object.keys(filters) as (keyof typeof filters)[]).filter(k => k === "all" || items?.some(i => i.kind.startsWith(k)));
+  // Apps switched on, and any this inbox has messages from, get a filter.
+  const apps = (Object.keys(filters) as (keyof typeof filters)[]).filter(k => k === "all" || on.some(a => a.kind === k) || items?.some(i => i.kind.startsWith(k)));
+  const handles = on.filter(a => a.kind === "instagram").map(a => `@${a.name}`).join(" and ");
   // Closing a thread puts focus back on its card, even when it was opened from Home.
   const close = (id: string) => {
     setOpen(undefined);
@@ -71,7 +73,9 @@ export default function Inbox() {
         const shown = items.filter(i => filter === "all" || i.kind.startsWith(filter));
         if (!shown.length) return (
           <EmptyState headingLevel={2} title={items.length ? `Nothing from ${filters[filter]} yet` : "No messages yet"}
-            description="New messages and comments show up here as they arrive." />
+            description={filter === "instagram" && handles
+              ? `Stupid reads ${handles}'s DMs and comments every few seconds while this is open. If a DM you sent doesn't show, turn on Allow access to messages in Instagram: Settings, Messages and story replies, Message controls, Connected tools.`
+              : "New messages and comments show up here as they arrive."} />
         );
         // One card per person: their newest message on the card, the rest in its popover.
         const threads = new Map<string, InboxItem[]>();
