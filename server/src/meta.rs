@@ -663,6 +663,21 @@ pub struct Event {
     pub media: Option<String>,
 }
 
+/// One log line about a webhook's shape: per change its field, business number id and how many messages and
+/// statuses (with their values). Never message text, customer numbers or tokens.
+pub fn webhook_summary(payload: &Value) -> String {
+    let changes: Vec<String> = payload["entry"].as_array().into_iter().flatten().flat_map(|entry| {
+        let messaging = entry["messaging"].as_array().map(|m| format!("messaging={}", m.len()));
+        entry["changes"].as_array().into_iter().flatten().map(|c| {
+            let v = &c["value"];
+            let statuses: Vec<&str> = v["statuses"].as_array().into_iter().flatten().filter_map(|s| s["status"].as_str()).collect();
+            format!("field={} phone_number_id={} messages={} statuses={} [{}]", c["field"].as_str().unwrap_or("-"), v["metadata"]["phone_number_id"].as_str().unwrap_or("-"),
+                v["messages"].as_array().map_or(0, Vec::len), v["statuses"].as_array().map_or(0, Vec::len), statuses.join(","))
+        }).chain(messaging).collect::<Vec<_>>()
+    }).collect();
+    format!("object={} {}", payload["object"].as_str().unwrap_or("-"), if changes.is_empty() { "no changes".into() } else { changes.join("; ") })
+}
+
 /// Incoming WhatsApp, Messenger and Instagram messages and Instagram comments.
 pub fn parse_webhook(payload: &Value) -> Vec<Event> {
     let object = payload["object"].as_str().unwrap_or_default();
@@ -764,6 +779,21 @@ mod tests {
         assert_eq!((photo["photo"].clone(), photo["voice"].clone()), (json!(true), json!(false)));
         assert_eq!(photo["draft"]["models"], json!({ "described_by": "meta-models/muse-spark-open-1026" }), "a draft not yet named has no drafted_by");
         assert_eq!((pending["photo"].clone(), pending["transcribing"].clone(), pending["draft"].clone()), (json!(true), json!("photo"), Value::Null), "a photo still being looked at");
+    }
+
+    #[test]
+    fn webhook_summary_says_the_shape_and_nothing_private() {
+        let wa = json!({"object":"whatsapp_business_account","entry":[{"id":"1","changes":[{"field":"messages","value":{"metadata":{"phone_number_id":"55","display_phone_number":"15550001234"},
+            "contacts":[{"wa_id":"919812345678","profile":{"name":"Asha"}}],"messages":[{"id":"m1","from":"919812345678","text":{"body":"secret price?"}}],
+            "statuses":[{"id":"w1","status":"failed","recipient_id":"919800000000"},{"id":"w2","status":"delivered","recipient_id":"919800000000"}]}}]}]});
+        let line = webhook_summary(&wa);
+        assert_eq!(line, "object=whatsapp_business_account field=messages phone_number_id=55 messages=1 statuses=2 [failed,delivered]");
+        for private in ["secret", "9198", "Asha", "access_token"] {
+            assert!(!line.contains(private), "{line}");
+        }
+        let ig = json!({"object":"instagram","entry":[{"id":"77","messaging":[{"sender":{"id":"9"},"message":{"mid":"x","text":"hi"}}]}]});
+        assert_eq!(webhook_summary(&ig), "object=instagram messaging=1");
+        assert_eq!(webhook_summary(&json!({})), "object=- no changes");
     }
 
     #[test]
