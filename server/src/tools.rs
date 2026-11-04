@@ -26,6 +26,10 @@ pub fn specs() -> Vec<Value> {
         tool("watch_video", "Muse Wonder watches one of the owner's own Instagram videos (an id from get_instagram) and answers a question about it.",
             json!({ "media_id": { "type": "string" }, "question": { "type": "string" } }), &["media_id", "question"]),
         tool("list_drafts", "Reply drafts already prepared, so you don't repeat one.", none.clone(), &[]),
+        tool("transcribe_voice_note", "The words of a customer's voice note (an inbox event id), transcribing it now if that hasn't happened yet.",
+            json!({ "event_id": { "type": "integer" } }), &["event_id"]),
+        tool("find_subject", "SAM 3.1 finds a subject (a short noun like \"ceramic mug\") in one of the owner's own Instagram pictures (an id from get_instagram) and returns its box in pixels.",
+            json!({ "media_id": { "type": "string" }, "subject": { "type": "string" } }), &["media_id", "subject"]),
         tool("save_reply_draft", "Save a reply draft for one inbox message. The owner reviews it and taps Send; this sends nothing.",
             json!({ "event_id": { "type": "integer" }, "text": { "type": "string", "description": "The reply, at most 1000 characters." } }), &["event_id", "text"]),
         tool("save_idea", "Save one post idea for the owner.", json!({ "hook": { "type": "string" }, "caption": { "type": "string" },
@@ -121,6 +125,31 @@ pub async fn call(s: &AppState, u: &User, ticket: Option<i64>, name: &str, args:
                 .find(|m| m["id"] == id.as_str() && m["media_type"] == "VIDEO").and_then(|m| m["media_url"].as_str()).map(str::to_owned)
                 .ok_or_else(|| format!("No video {id} on this Instagram account."))?;
             json!({ "notes": crate::reels::watch(s, &u.id, &url, &question).await.map_err(|e| e.1)? })
+        }
+        "transcribe_voice_note" => {
+            let id = args["event_id"].as_i64().ok_or("`event_id` must be a number.")?;
+            own_event(s, u, id)?;
+            let (voice, pending, text): (bool, bool, String) = lock(&s.db).query_row("SELECT voice,media IS NOT NULL,text FROM events WHERE id=?1", [id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+                .map_err(|_| "Storage failed.".to_string())?;
+            if pending {
+                let heard = crate::voice::hear(s, id).await;
+                crate::voice::store(&lock(&s.db), id, heard).map_err(|_| "Storage failed.".to_string())?;
+                let text: String = lock(&s.db).query_row("SELECT text FROM events WHERE id=?1", [id], |r| r.get(0)).map_err(|_| "Storage failed.".to_string())?;
+                json!({ "transcript": text })
+            } else if voice {
+                json!({ "transcript": text })
+            } else {
+                return Err(format!("Message {id} is text, not a voice note."));
+            }
+        }
+        "find_subject" => {
+            let id = text_arg(args, "media_id", 64)?;
+            let subject = text_arg(args, "subject", 60)?;
+            let ig = meta::instagram_data(s, u).await.map_err(|e| e.1)?;
+            let media = ig["accounts"].as_array().into_iter().flatten().flat_map(|a| a["media"].as_array().into_iter().flatten()).find(|m| m["id"] == id.as_str()).cloned()
+                .ok_or_else(|| format!("No picture {id} on this Instagram account."))?;
+            let url = if media["media_type"] == "VIDEO" { media["thumbnail_url"].as_str() } else { media["media_url"].as_str() }.ok_or("That post has no picture.")?;
+            json!({ "box": crate::crops::find(s, &u.id, url, &subject).await.map_err(|e| e.1)? })
         }
         "list_drafts" => json!(rows(s, "SELECT event_id,text,source,created FROM drafts WHERE user_id=?1 ORDER BY id DESC LIMIT 20", [&u.id],
             |r| Ok(json!({ "event_id": r.get::<_, i64>(0)?, "text": r.get::<_, String>(1)?, "source": r.get::<_, String>(2)?, "created": r.get::<_, i64>(3)? })))?),

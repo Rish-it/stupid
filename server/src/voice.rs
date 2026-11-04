@@ -43,7 +43,7 @@ pub fn store(db: &rusqlite::Connection, id: i64, heard: Result<String, String>) 
     db.execute("UPDATE events SET text=?2, voice=1, media=NULL WHERE id=?1", params![id, text]).map(drop)
 }
 
-async fn hear(s: &AppState, id: i64) -> Result<String, String> {
+pub async fn hear(s: &AppState, id: i64) -> Result<String, String> {
     let found: Option<(String, Option<String>)> = lock(&s.db)
         .query_row("SELECT asset_id,media FROM events WHERE id=?1", [id], |r| Ok((r.get(0)?, r.get(1)?)))
         .optional().map_err(|e| e.to_string())?;
