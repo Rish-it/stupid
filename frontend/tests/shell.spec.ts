@@ -232,6 +232,16 @@ test("Agents run, poll to a result and hand a reply draft to the Inbox", async (
   await expect(page.getByRole("heading", { level: 1, name: /^Home, / })).toBeAttached();
 });
 
+test("Inbox cards settle in with motion, and stay still for reduced motion", async ({ page }) => {
+  await page.route("**/api/me", route => route.fulfill(json(signedIn)));
+  await page.route("**/api/inbox", route => route.fulfill(json(inbox)));
+  await page.goto("/#inbox");
+  await expect(page.locator(".people > li").first()).toHaveCSS("animation-name", "arrive");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.reload();
+  await expect(page.locator(".people > li").first()).toHaveCSS("animation-name", "none");
+});
+
 test("Inbox offers app filters only when messages come from more than one app", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json(signedIn)));
   await page.route("**/api/inbox", route => route.fulfill(json({ items: [inbox.items[0]] })));
