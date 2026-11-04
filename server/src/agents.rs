@@ -9,13 +9,48 @@ use rusqlite::{params, OptionalExtension};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+/// Who the lead finder looks for when the person hasn't said whether they are a creator or a business.
+const LEADS: &str = "You find sales leads for a creator or small business. From the comments and messages given, list people who show buying intent or ask about price, availability, booking or collaboration.";
+/// The lead finder's rules for every persona: output shape, no invented people, no sensitive guesses, the 24-hour window.
+const LEAD_RULES: &str = "Return JSON {\"leads\":[{\"who\":string,\"channel\":string,\"said\":string,\"why\":string,\"next_step\":string}]}. Quote what they said exactly. Return an empty list if nobody qualifies. Never invent people. Never guess sensitive traits such as health, religion, ethnicity, politics, sexuality or money troubles, and never rate anyone for credit, housing, jobs or insurance. next_step is a reply the business can send now; if hours_ago is 24 or more, say that a WhatsApp template or a new message from the customer is needed first.";
 const AGENTS: &[(&str, &str)] = &[
-    ("leads", "You find sales leads for a creator or small business. From the comments and messages given, list people who show buying intent or ask about price, availability, booking or collaboration. Return JSON {\"leads\":[{\"who\":string,\"channel\":string,\"said\":string,\"why\":string,\"next_step\":string}]}. Quote what they said exactly. Return an empty list if nobody qualifies. Never invent people. Never guess sensitive traits such as health, religion, ethnicity, politics, sexuality or money troubles, and never rate anyone for credit, housing, jobs or insurance. next_step is a reply the business can send now; if hours_ago is 24 or more, say that a WhatsApp template or a new message from the customer is needed first."),
+    ("leads", LEADS),
     ("ideas", "You are a content strategist for a creator or small business. From their recent posts and how each performed, write three new post ideas in their voice. Return JSON {\"ideas\":[{\"hook\":string,\"caption\":string,\"format\":\"reel\"|\"carousel\"|\"photo\"|\"story\",\"why\":string}]}. Base \"why\" only on the numbers given."),
     ("replies", "You draft replies to customer messages for a small business. Be warm, short and specific. Never promise prices, discounts or dates that are not in the conversation; ask instead. Return JSON {\"replies\":[{\"event_id\":number,\"to\":string,\"draft\":string}]}."),
     ("reels", reels::FROM_CAPTIONS),
     ("ads", "You review Meta ad results for a small business owner who is not a marketer. Use plain words and only the numbers given. Return JSON {\"summary\":string,\"actions\":[{\"campaign\":string,\"do\":\"pause\"|\"keep\"|\"scale\"|\"fix\",\"why\":string}]}."),
 ];
+
+/// One line of who the owner is, so drafts sound like them. Empty until they pick.
+pub fn owner_line(persona: Option<&str>) -> &'static str {
+    match persona {
+        Some("creator") => "The owner is a creator: fans, followers and brands write to them, so sound like a friendly creator, not a shop. ",
+        Some("business") => "The owner is a small business: customers write about products, prices, orders and bookings. ",
+        _ => "",
+    }
+}
+
+/// The agent's instructions for this person. The lead finder hunts brand deals for creators and buyers
+/// for businesses; reply drafts learn who the owner is. Every rule in the base prompt stays.
+fn system_for(agent: &str, base: &str, persona: Option<&str>) -> String {
+    match (agent, persona) {
+        ("leads", Some("creator")) => format!("You find brand deals and sales leads for a creator. From the comments and messages given, list brands or people who offer or ask about a brand deal, collab, sponsorship, paid post or affiliate deal, and people who show buying intent or ask about price, availability or booking. {LEAD_RULES}"),
+        ("leads", Some("business")) => format!("You find sales leads for a small business. From the comments and messages given, list people who show buying intent: they ask about price, stock, availability, delivery, booking or how to order. {LEAD_RULES}"),
+        ("leads", _) => format!("{base} {LEAD_RULES}"),
+        ("replies", _) => format!("{}{base}", owner_line(persona)),
+        _ => base.to_string(),
+    }
+}
+
+/// The agents in the order this person sees them.
+pub fn order(persona: Option<&str>) -> Vec<&'static str> {
+    match persona {
+        Some("creator") => vec!["reels", "ideas", "leads", "replies", "ads"],
+        Some("business") => vec!["replies", "leads", "ads", "ideas", "reels"],
+        _ => AGENTS.iter().map(|(name, _)| *name).collect(),
+    }
+}
+
 // Baseten list price for Muse Spark Open, USD per million tokens (input, output).
 const PRICE: (f64, f64) = (1.25, 4.25);
 // Reasoning tokens count toward this limit, so it leaves room for low-effort thinking plus the answer.
@@ -171,7 +206,7 @@ pub async fn list(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Js
     drop(stmt);
     drop(db);
     let ai = ai(&s, &u.id)?;
-    Ok(Json(json!({ "runs": runs, "ai_ready": ready(&s, &ai)?, "own_key": ai.own(), "model": ai.model(&s) })))
+    Ok(Json(json!({ "runs": runs, "ai_ready": ready(&s, &ai)?, "own_key": ai.own(), "model": ai.model(&s), "order": order(u.persona.as_deref()) })))
 }
 
 pub async fn run(State(s): State<AppState>, headers: HeaderMap, Path(agent): Path<String>) -> ApiResult<Json<Value>> {
@@ -181,7 +216,8 @@ pub async fn run(State(s): State<AppState>, headers: HeaderMap, Path(agent): Pat
 
 /// Start one job for the person, from a Run tap or from Muse over MCP: same spend cap and daily limit.
 pub async fn start(s: &AppState, u: User, agent: &str) -> ApiResult<Value> {
-    let (name, system) = AGENTS.iter().find(|(n, _)| *n == agent).copied().ok_or_else(|| AppError::new(404, "Unknown agent."))?;
+    let (name, base) = AGENTS.iter().find(|(n, _)| *n == agent).copied().ok_or_else(|| AppError::new(404, "Unknown agent."))?;
+    let system = system_for(name, base, u.persona.as_deref());
     let ai = ai(s, &u.id)?;
     if ai == Ai::Workspace && s.cfg.muse_key.is_empty() {
         return Err(AppError::new(503, "Add an AI key in Settings to run agents."));
@@ -222,8 +258,8 @@ pub async fn start(s: &AppState, u: User, agent: &str) -> ApiResult<Value> {
     tokio::spawn(async move {
         let mut outcome = match name {
             "reels" => reels::direct(&state, &u.id, &context, &ai).await,
-            "ideas" => ideas(&state, system, &context, &pictures_for_ideas, &ai).await,
-            _ => muse(&state, name, system, &context, &ai).await,
+            "ideas" => ideas(&state, &system, &context, &pictures_for_ideas, &ai).await,
+            _ => muse(&state, name, &system, &context, &ai).await,
         };
         if let (Ok((result, cost)), Some(ig)) = (&mut outcome, &pictures) {
             let (pack, more) = crops::pack(&state, &u.id, ig, &ai).await;
@@ -489,6 +525,25 @@ mod tests {
         assert!(ready(&capped, &Ai::Meta).unwrap());
         lock(&s.db).execute("INSERT INTO meta_api_spend (model,usd,created) VALUES ('muse-spark-1.3',0.01,0)", []).unwrap();
         assert!(!ready(&capped, &Ai::Meta).unwrap());
+    }
+
+    #[test]
+    fn prompts_and_order_follow_the_persona() {
+        let base = |n: &str| AGENTS.iter().find(|(a, _)| *a == n).unwrap().1;
+        let leads = |p| system_for("leads", base("leads"), p);
+        assert!(leads(Some("creator")).contains("sponsorship") && leads(Some("creator")).contains("buying intent"));
+        assert!(leads(Some("business")).contains("buying intent") && !leads(Some("business")).contains("sponsorship"));
+        assert_eq!(leads(None), format!("{} {LEAD_RULES}", base("leads")));
+        for p in [Some("creator"), Some("business"), None] {
+            assert!(leads(p).contains("Never invent people") && leads(p).contains("Never guess sensitive traits") && leads(p).contains("hours_ago is 24"));
+            assert!(system_for("replies", base("replies"), p).contains("Never promise prices"));
+            assert_eq!(system_for("ads", base("ads"), p), base("ads"));
+        }
+        assert!(system_for("replies", base("replies"), Some("creator")).starts_with("The owner is a creator"));
+        assert_eq!(system_for("replies", base("replies"), None), base("replies"));
+        assert_eq!(order(Some("creator")), ["reels", "ideas", "leads", "replies", "ads"]);
+        assert_eq!(order(Some("business")), ["replies", "leads", "ads", "ideas", "reels"]);
+        assert_eq!(order(None), ["leads", "ideas", "replies", "reels", "ads"]);
     }
 
     #[test]
