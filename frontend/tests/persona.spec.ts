@@ -47,3 +47,59 @@ test("the sample setup steps ask for one thing at a time on each path", async ({
     " true 4/4",
   ]);
 });
+
+const me = (persona: string | null) => ({ signed_in: true, name: "Test", assets: [], selected: [], permissions: [], persona });
+const step = (id: string, action: string, extra = {}) => ({ id, app: "whatsapp", title: `Title ${id}`, why: "Why.", action, button: "Go", optional: false, ...extra });
+
+test("onboarding asks for the path in one card over Home when none was picked", async ({ page }) => {
+  let account = me(null);
+  const sent: unknown[] = [];
+  await page.route("**/api/me", route => route.fulfill(json(account)));
+  await page.route("**/api/me/persona", route => { sent.push(route.request().postDataJSON()); account = me("creator"); return route.fulfill(json(account)); });
+  await page.route("**/api/setup/next", route => route.fulfill(json(account.persona
+    ? { persona: "creator", done: false, progress: { done: 0, total: 3 }, step: step("instagram_connect", "connect", { app: "instagram", title: "Connect Instagram" }) }
+    : { persona: null, done: false, progress: { done: 0, total: 0 } })));
+  await page.goto("/");
+  const card = page.getByRole("dialog", { name: "What do you do on Meta?" });
+  await card.getByRole("button", { name: "I create content" }).click();
+  expect(sent).toEqual([{ persona: "creator" }]);
+  await expect(page.getByRole("dialog", { name: "Connect Instagram" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Go" })).toHaveAttribute("href", "/api/v1/meta/oauth/start");
+  await expect(page.getByText("Step 1 of 3")).toBeVisible();
+});
+
+test("a fix in Meta is checked on return, and the card closes when setup is done", async ({ page }) => {
+  let refreshed = 0;
+  await page.route("**/api/me", route => route.fulfill(json(me("business"))));
+  await page.route("**/api/connections/refresh", route => { refreshed++; return route.fulfill(json({ assets: [], selected: [], permissions: [], problems: [] })); });
+  await page.route("**/api/setup/next", route => route.fulfill(json(refreshed
+    ? { persona: "business", done: true, progress: { done: 4, total: 4 } }
+    : { persona: "business", done: false, progress: { done: 2, total: 4 }, step: step("whatsapp_payment", "fix_in_meta", { link: "https://business.facebook.com/", fix: "Add a payment method." }) })));
+  await page.goto("/");
+  const card = page.getByRole("dialog", { name: "Title whatsapp_payment" });
+  await expect(card.getByText("Add a payment method.")).toBeVisible();
+  await expect(card.getByRole("link", { name: "Go" })).toHaveAttribute("target", "_blank");
+  await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+  await expect(card).toBeHidden();
+  expect(refreshed).toBe(1);
+});
+
+test("telling the agent saves rules without flipping drafting, and the step can be skipped", async ({ page }) => {
+  let saved: unknown;
+  await page.route("**/api/me", route => route.fulfill(json(me("business"))));
+  await page.route("**/api/agent", route => route.fulfill(json({ proactive: false, rules: "", needs: [], tickets: [], watching: [], last_checked: null })));
+  await page.route("**/api/agent/settings", route => { saved = route.request().postDataJSON(); return route.fulfill(json(saved)); });
+  await page.route("**/api/setup/next", route => route.fulfill(json(saved
+    ? { persona: "business", done: true, progress: { done: 4, total: 4 } }
+    : { persona: "business", done: true, progress: { done: 3, total: 4 }, step: step("agent_facts", "tell_agent", { app: "agent", optional: true, button: "Save" }) })));
+  await page.goto("/");
+  const card = page.getByRole("dialog", { name: "Title agent_facts" });
+  await card.getByRole("button", { name: "Skip for now" }).click();
+  await expect(card).toBeHidden();
+  await page.evaluate(() => sessionStorage.clear());
+  await page.reload();
+  await card.getByLabel("About you").fill("Open 9 to 7.");
+  await card.getByRole("button", { name: "Save" }).click();
+  await expect(card).toBeHidden();
+  expect(saved).toEqual({ proactive: false, rules: "Open 9 to 7." });
+});

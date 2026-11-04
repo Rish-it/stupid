@@ -10,7 +10,7 @@ import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TopNav, TopNavHeading } from "@astryxdesign/core/TopNav";
 import type { Persona } from "./api";
-import { api, door, legal, oauthStartUrl, sample, setupDone, useLoad, useStream } from "./api";
+import { api, door, legal, oauthStartUrl, sample, useLoad, useStream } from "./api";
 import { Logo } from "./Icons";
 import Welcome from "./Welcome";
 
@@ -23,6 +23,10 @@ const Inbox = lazy(() => import("./Inbox"));
 const Agents = lazy(() => import("./Agents"));
 const Settings = lazy(() => import("./Settings"));
 const SideBar = lazy(() => import("./SideBar"));
+const Onboarding = lazy(() => import("./Onboarding"));
+// Closing the onboarding card (or skipping its optional step) holds it back for the rest of this visit.
+const later = { get: () => { try { return sessionStorage.getItem("stupid.onboarding") === "later"; } catch { return false; } },
+  set: () => { try { sessionStorage.setItem("stupid.onboarding", "later"); } catch { /* private mode: it just shows again */ } } };
 
 // Meta sends people back to /?connected=1 or /?meta_error=1. Read it once, then drop it from the address.
 // Only fixed wording is shown: text from the address could be anyone's.
@@ -31,7 +35,7 @@ const failure = query.has("meta_error") ? "Nothing was shared with Stupid. You c
 const returned = failure ? "error" : query.has("connected") ? "connected" : null;
 if (returned) {
   for (const key of ["error", "meta_error", "connected"]) query.delete(key);
-  history.replaceState(null, "", `/${query.size ? `?${query}` : ""}${returned === "connected" ? "#setup" : location.hash}`);
+  history.replaceState(null, "", `/${query.size ? `?${query}` : ""}${returned === "connected" ? "#home" : location.hash}`);
 }
 
 /** The page named in the address, or null when there is none. */
@@ -56,11 +60,8 @@ export default function App() {
   useEffect(() => {
     if (pending) api.setPersona(pending).then(next => { if (next.signed_in) setMe(next); }, () => undefined);
   }, [pending, setMe]);
-  const ready = user && setupDone(user);
-  // Until setup is done, it is home; afterwards it lives in Settings. Pin it to the address so finishing doesn't jump away.
-  const named = usePage();
-  const page = named ?? (user && !ready ? "setup" : "home");
-  useEffect(() => { if (!named && page === "setup") location.replace("#setup"); }, [named, page]);
+  const page = usePage() ?? "home";
+  const [held, setHeld] = useState(later.get);
   const [failed, setFailed] = useState(failure);
   const [connecting, setConnecting] = useState(false);
   const [passed, setPassed] = useState(false);
@@ -109,7 +110,7 @@ export default function App() {
       banner={sample && <Banner status="warning" container="section" title="Sample data" description="Nothing on this page is real. Remove ?fixtures=1 to use your own accounts." />}
       topNav={!user && <TopNav label="Main navigation" heading={<TopNavHeading logo={<Logo />} heading="Stupid" headingHref="/" />}
         endContent={welcome && <span className="sticky-mark" data-passed={passed || undefined}><Button variant="primary" size="lg" label="Sign in" onClick={() => setSignIn("any")} /></span>} />}
-      sideNav={user && <Suspense fallback={null}><SideBar page={page} setup={!ready} name={user.name} /></Suspense>}>
+      sideNav={user && <Suspense fallback={null}><SideBar page={page} name={user.name} /></Suspense>}>
       <VStack gap={6}>
         {failed && <VStack paddingInline={welcome ? 4 : 0} paddingBlockStart={welcome ? 4 : 0}>
           <Banner status="warning" isDismissable onDismiss={() => setFailed(null)} title="Facebook didn't connect" description={failed}
@@ -117,6 +118,9 @@ export default function App() {
         </VStack>}
         {reconnecting && <Text className="shimmer reconnecting" type="supporting" size="sm" role="status">Reconnecting…</Text>}
         {body}
+        {user && page === "home" && !pending && !held && <Suspense><Onboarding persona={user.persona}
+          onPersona={persona => api.setPersona(persona).then(next => { if (next.signed_in) setMe(next); })}
+          onAccount={next => setMe({ ...user, ...next })} onConnect={connect} onClose={() => { later.set(); setHeld(true); }} /></Suspense>}
         {welcome && signIn && <Suspense><SignIn persona={signIn === "any" ? undefined : signIn} instagram={me.data?.signed_in === false ? me.data.instagram_oauth_start : undefined}
           onConnect={connect} onClose={() => setSignIn(undefined)} /></Suspense>}
         {!welcome && <VStack as="footer" gap={2} hAlign="center" className="app-footer">
