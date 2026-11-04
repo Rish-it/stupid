@@ -600,6 +600,7 @@ async fn webhook(State(s): State<AppState>, headers: HeaderMap, body: Bytes) -> 
         return Err(AppError::new(403, "Invalid signature."));
     }
     let payload: Value = serde_json::from_slice(&body).map_err(|_| AppError::new(400, "Invalid JSON."))?;
+    tracing::info!("webhook {}", meta::webhook_summary(&payload));
     let events = meta::parse_webhook(&payload);
     // The lock ends before any send below is awaited.
     let (added, from_owner) = {
