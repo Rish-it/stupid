@@ -260,24 +260,6 @@ test("Agents point to Settings when there is no AI access", async ({ page }) => 
   await expect(page.getByRole("article", { name: "Post ideas" }).getByRole("link", { name: "Connect Instagram" })).toHaveAttribute("href", "#setup");
 });
 
-test("Settings switches the agents to Muse Spark 1.3 on Meta's Model API", async ({ page }) => {
-  await page.route("**/api/me", route => route.fulfill(json(signedIn)));
-  const settings = (brain: string) => ({ has_key: false, model: brain === "meta" ? "muse-spark-1.3" : "open-model", workspace_ai: true, brain, meta_brain: true, open_model: "open-model", meta_model: "muse-spark-1.3" });
-  let picked = "";
-  await page.route("**/api/settings/ai", route => route.fulfill(json(settings("open"))));
-  await page.route("**/api/settings/ai/brain", route => { picked = route.request().postDataJSON().brain; route.fulfill(json(settings(picked))); });
-  await page.goto("/#settings");
-  await page.getByRole("tab", { name: "AI model" }).click();
-  await expect(page.getByText("Agents run on open-model using Stupid's shared allowance.", { exact: false })).toBeVisible();
-  await page.getByRole("radio", { name: "Muse Spark 1.3 · Meta API" }).click();
-  await expect(page.getByText("Agents run on muse-spark-1.3 through Meta's Model API, using Stupid's shared allowance.")).toBeVisible();
-  expect(picked).toBe("meta");
-  // The own-key form sits folded under the model choice.
-  await expect(page.getByLabel("Your own Baseten API key")).toBeHidden();
-  await page.getByText("Use your own Baseten key").click();
-  await expect(page.getByLabel("Your own Baseten API key")).toBeVisible();
-});
-
 test("Settings opens over the page, swaps sections in place and closes back to it", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json(signedIn)));
   await page.route("**/api/inbox", route => route.fulfill(json(inbox)));

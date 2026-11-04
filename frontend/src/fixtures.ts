@@ -52,7 +52,14 @@ if (world) {
   };
 }
 let hasKey = false;
-let brain: "open" | "meta" = "open";
+let aiModel = "meta-models/muse-spark-open-1026";
+const aiModels = [
+  { id: "meta-models/muse-spark-open-1026", label: "Muse Spark Open 1026 · open weights", provider: "baseten", open_weights: true },
+  { id: "meta-models/muse-spark-open", label: "Muse Spark Open · open weights", provider: "baseten", open_weights: true },
+  { id: "muse-spark-1.3", label: "Muse Spark 1.3 · Meta API", provider: "meta", open_weights: false },
+  { id: "muse-spark-1.2", label: "Muse Spark 1.2 · Meta API", provider: "meta", open_weights: false },
+  { id: "muse-spark-1.1", label: "Muse Spark 1.1 · Meta API", provider: "meta", open_weights: false },
+] as const;
 let mcp: Omit<McpKey, "url"> = { has_key: false, created: null, last_used: null };
 
 const campaign = (name: string, spend: string, clicks: string, ctr: string, cpc: string) => ({
@@ -245,10 +252,11 @@ export async function answer(method: string, path: string, body: unknown): Promi
   if (fact) { home = { ...home, facts: home.facts.filter(f => f.id !== Number(fact[1])) }; return { facts: home.facts }; }
   const ticket = /^POST \/api\/agent\/tickets\/(\d+)\/answer$/.exec(route);
   if (ticket) { home = { ...home, needs: home.needs.filter(n => n.type !== "question" || n.id !== Number(ticket[1])) }; return { state: "open" }; }
-  if (route === "GET /api/settings/ai" || route === "PUT /api/settings/ai/brain") {
-    if (route.startsWith("PUT")) brain = (body as { brain: "open" | "meta" }).brain;
-    return { has_key: hasKey, model: brain === "meta" ? "muse-spark-1.3" : "sample-model", workspace_ai: true, brain, meta_brain: true, open_model: "sample-model", meta_model: "muse-spark-1.3" };
+  if (route === "GET /api/settings/ai" || route === "PUT /api/settings/ai/model") {
+    if (route.startsWith("PUT")) aiModel = (body as { model: string }).model;
+    const brain = aiModels.find(m => m.id === aiModel)?.provider === "meta" ? "meta" : "open";
+    return { has_key: hasKey, model: aiModel, workspace_ai: true, brain, meta_brain: true, open_model: aiModels[0].id, meta_model: "muse-spark-1.3", models: aiModels };
   }
-  if (route === "PUT /api/settings/ai") { hasKey = Boolean((body as { api_key: string }).api_key); return { has_key: hasKey, key_saved_at: hasKey ? Math.floor(Date.now() / 1000) : null, model: "sample-model" }; }
+  if (route === "PUT /api/settings/ai") { hasKey = Boolean((body as { api_key: string }).api_key); return { has_key: hasKey, key_saved_at: hasKey ? Math.floor(Date.now() / 1000) : null, model: aiModel }; }
   throw new ApiError(404, "Sample data has no answer for this.");
 }
