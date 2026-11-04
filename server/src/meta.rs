@@ -44,13 +44,15 @@ fn whatsapp_issues(health: &Value, business: &str, waba: &str) -> Vec<Issue> {
         let blocked = entity["can_send_message"] == "BLOCKED";
         for e in entity["errors"].as_array().into_iter().flatten() {
             let code = e["error_code"].as_i64().unwrap_or_default();
+            // A missing payment method stops only business-started template chats, which Stupid never sends.
+            let blocking = blocked && code != TEMPLATES_ONLY;
             // Calling over SIP is not something Stupid uses.
             if matches!(code, 138024 | 138025) || seen.contains(&code) {
                 continue;
             }
             seen.push(code);
             let (text, fix, link) = match code {
-                141006 => ("WhatsApp needs a payment method to start conversations.", "Stupid only replies inside the 24-hour window, so replies still go out. Add a payment method in Billing & payments if Meta asks; production replies can be charged by Meta.", format!("https://business.facebook.com/billing_hub/accounts/details/?business_id={business}&asset_id={waba}")),
+                TEMPLATES_ONLY => ("Meta wants a payment method before this account can start chats with templates.", "Replies to customers who message you still send. Stupid never sends templates. To add one anyway, open Billing & payments, select this WhatsApp account, then Payment methods. Messages can be charged by Meta.", format!("https://business.facebook.com/billing_hub/accounts/details/?business_id={business}&asset_id={waba}")),
                 141007 => ("This WhatsApp account has no time zone.", "Set a time zone for the WhatsApp account.", format!("https://business.facebook.com/latest/settings/whatsapp_account?business_id={business}")),
                 141010 => ("Your business isn't verified, so new chats per day are limited.", "Open Security Center and follow the verification steps Meta asks for. This is different from a paid Meta Verified badge.", format!("https://business.facebook.com/latest/settings/security_center?business_id={business}")),
                 131031 => ("Meta has restricted this WhatsApp account.", VERIFY, security_center(Some(business))),
@@ -59,15 +61,14 @@ fn whatsapp_issues(health: &Value, business: &str, waba: &str) -> Vec<Issue> {
                 131000 => ("Your business profile is missing its legal name, country or website.", "Fill in your business info.", format!("https://business.facebook.com/latest/settings/business_info?business_id={business}")),
                 _ => (e["error_description"].as_str().unwrap_or("Meta reported a problem with this account."), e["possible_solution"].as_str().unwrap_or("Open WhatsApp Manager to see what Meta needs."), format!("https://business.facebook.com/wa/manage/home/?business_id={business}&waba_id={waba}")),
             };
-            // A missing payment method blocks only conversations a business starts with a template; Stupid never sends one.
-            let blocking = blocked && code != 141006;
             out.push(Issue { blocking, text: text.chars().take(300).collect(), fix: fix.chars().take(300).collect(), link });
         }
     }
-    if (health["can_send_message"] == "BLOCKED"
-        || health["entities"].as_array().into_iter().flatten().any(|e| e["can_send_message"] == "BLOCKED"))
+    let payment_only = |e: &Value| e["errors"].as_array().into_iter().flatten().any(|x| x["error_code"] == TEMPLATES_ONLY);
+    let entities = || health["entities"].as_array().into_iter().flatten();
+    if ((health["can_send_message"] == "BLOCKED" && !entities().any(payment_only))
+        || entities().any(|e| e["can_send_message"] == "BLOCKED" && !payment_only(e)))
         && !out.iter().any(|issue| issue.blocking)
-        && !seen.contains(&141006)
     {
         out.push(Issue {
             blocking: true,
@@ -78,6 +79,9 @@ fn whatsapp_issues(health: &Value, business: &str, waba: &str) -> Vec<Issue> {
     }
     out
 }
+
+/// Meta's "no payment method" code, which blocks only template messages a business starts.
+const TEMPLATES_ONLY: i64 = 141006;
 
 const VERIFY: &str = "Meta has restricted your business. Open Security Center and verify your business (not the paid Meta Verified badge). \
 If Meta shows another reason, follow it in Business Support Home. Sending works here again as soon as Meta lifts it.";
@@ -1028,7 +1032,8 @@ mod tests {
             {"entity_type":"BUSINESS","can_send_message":"LIMITED","errors":[{"error_code":141010},{"error_code":999,"error_description":"Odd","possible_solution":"Do X"}]}]});
         let issues = whatsapp_issues(&health, "7", "8");
         assert_eq!(issues.len(), 3);
-        assert!(!issues[0].blocking && issues[0].link.contains("business_id=7&asset_id=8"), "a payment method only gates templates, which Stupid never sends");
+        assert!(!issues[0].blocking && issues[0].link.contains("business_id=7&asset_id=8"), "no payment method only stops templates");
+        assert!(issues.iter().all(|i| !i.blocking), "a number that replies isn't shown as restricted: {issues:?}");
         assert!(!issues[1].blocking && issues[1].text.contains("verified"));
         assert_eq!((issues[2].text.as_str(), issues[2].fix.as_str()), ("Odd", "Do X"));
         assert!(whatsapp_issues(&Value::Null, "7", "8").is_empty());
