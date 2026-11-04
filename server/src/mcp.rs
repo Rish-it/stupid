@@ -14,7 +14,12 @@ use serde_json::{json, Value};
 
 const VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
 /// Registry tools Muse may read with.
-const READS: &[&str] = &["get_today", "list_inbox", "read_thread", "list_leads", "list_drafts", "get_ad_advice"];
+/// Registry tools Muse may use that change nothing in Stupid or Meta. The media ones (Wonder, SAM, Voice
+/// Transcribe) spend from Stupid's Model API budget, under the same cap as in Stupid.
+const READS: &[&str] = &["get_today", "list_inbox", "read_thread", "get_ads", "get_instagram", "list_leads", "list_drafts", "get_ad_advice",
+    "watch_video", "find_subject", "transcribe_voice_note"];
+/// Registry tools that save work for the person to review, with the job their task belongs to.
+const SAVES: &[(&str, &str, &str)] = &[("save_idea", "ideas", "Muse saved a post idea."), ("save_ad_advice", "ads", "Muse saved ad advice.")];
 const QUEUED: &str = "Queued in Stupid. Tap Send in Stupid's Inbox to deliver.";
 
 fn unauthorized(why: &str) -> Response {
@@ -38,6 +43,9 @@ fn tool_list() -> Vec<Value> {
         .filter(|f| f["name"].as_str().is_some_and(|n| READS.contains(&n)))
         .map(|f| json!({ "name": f["name"], "description": f["description"], "inputSchema": f["parameters"], "annotations": { "readOnlyHint": true } }))
         .collect();
+    list.extend(tools::specs().into_iter().map(|t| t["function"].clone()).filter(|f| SAVES.iter().any(|(n, _, _)| f["name"] == *n))
+        .map(|f| json!({ "name": f["name"], "description": format!("{} It shows in Stupid for the owner to review.", f["description"].as_str().unwrap_or_default()),
+            "inputSchema": f["parameters"], "annotations": { "readOnlyHint": false, "destructiveHint": false } })));
     list.push(json!({ "name": "queue_reply_draft", "annotations": { "readOnlyHint": false, "destructiveHint": false },
         "description": "Queue a reply draft for one inbox message (an id from list_inbox). It is not sent: the owner checks it and taps Send in Stupid's Inbox.",
         "inputSchema": { "type": "object", "properties": { "item_id": { "type": "integer" }, "text": { "type": "string", "description": "The reply, at most 1000 characters." } }, "required": ["item_id", "text"] } }));
@@ -66,6 +74,16 @@ async fn call_tool(s: &AppState, u: User, name: &str, args: &Value) -> Result<Va
             agents::start(s, u, job).await.map_err(|e| e.1).map(|v| json!({ "status": v["status"], "message": "Started. The result shows in Stupid's Agents screen." }))
         }
         _ if READS.contains(&name) => tools::call(s, &u, None, name, args).await,
+        _ if SAVES.iter().any(|(n, _, _)| *n == name) => {
+            let (_, job, done) = SAVES.iter().find(|(n, _, _)| *n == name).copied().unwrap_or_default();
+            let ticket = {
+                let db = lock(&s.db);
+                tickets::open_explicit(&db, &u.id, &format!("muse:{job}"), "mcp", &format!("mcp:{}", random_token()), None, job).map_err(|_| "Storage failed.".to_string())?
+            };
+            let saved = tools::call(s, &u, Some(ticket), name, args).await;
+            tickets::close_job(&lock(&s.db), ticket, if saved.is_ok() { "ready" } else { "failed" }, done).map_err(|_| "Storage failed.".to_string())?;
+            saved
+        }
         _ => Err(format!("Stupid has no tool called {name}.")),
     }
 }
@@ -172,17 +190,32 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn it_lists_read_and_prepare_tools_only() {
+    async fn it_lists_read_and_prepare_tools_only_never_send() {
         let (s, _) = state_with_user();
         let key = new_key(&s).await;
         let (_, init) = rpc(&s, bearer(&key), json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-03-26" } })).await;
         assert_eq!(init["result"]["protocolVersion"], "2025-03-26");
         let (_, list) = rpc(&s, bearer(&key), json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list" })).await;
         let names: Vec<&str> = list["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap()).collect();
-        assert_eq!(names, ["get_today", "list_inbox", "read_thread", "list_leads", "get_ad_advice", "list_drafts", "queue_reply_draft", "run_agent"]);
-        assert!(names.iter().all(|n| !n.contains("send") && !n.contains("post") && !n.starts_with("save_")));
+        assert_eq!(names, ["get_today", "list_inbox", "read_thread", "get_ads", "get_instagram", "list_leads", "get_ad_advice", "watch_video", "list_drafts",
+            "transcribe_voice_note", "find_subject", "save_idea", "save_ad_advice", "queue_reply_draft", "run_agent"]);
+        assert!(names.iter().all(|n| !n.contains("send") && !n.contains("post") && *n != "save_reply_draft" && *n != "ask_person"));
         let (status, _) = rpc(&s, bearer(&key), json!({ "jsonrpc": "2.0", "method": "notifications/initialized" })).await;
         assert_eq!(status, StatusCode::ACCEPTED);
+    }
+
+    #[tokio::test]
+    async fn save_idea_leaves_an_idea_for_the_owner() {
+        let (s, _) = state_with_user();
+        let key = new_key(&s).await;
+        let idea = json!({ "hook": "Three mugs, one kiln", "caption": "Fresh from the kiln.", "format": "reel", "why": "Your kiln Reel had the most saves." });
+        let (_, done) = rpc(&s, bearer(&key), json!({ "jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": { "name": "save_idea", "arguments": idea } })).await;
+        assert_eq!(done["result"]["isError"], false);
+        let db = lock(&s.db);
+        let (job, state, kinds): (String, String, String) = db.query_row(
+            "SELECT k.job,k.state,(SELECT GROUP_CONCAT(kind) FROM reports r WHERE r.ticket_id=k.id) FROM tickets k", [], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap();
+        assert_eq!((job.as_str(), state.as_str()), ("ideas", "ended"));
+        assert_eq!(kinds, "progress,idea,ready");
     }
 
     #[tokio::test]
