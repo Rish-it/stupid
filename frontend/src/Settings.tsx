@@ -39,6 +39,7 @@ export default function Settings({ name, onSignedOut }: { name: string; onSigned
         </Row>
         <AgentRules />
         <AiAccess />
+        <UseFromMuse />
         <Account name={name} onSignedOut={onSignedOut} />
       </VStack>
     </Page>
@@ -71,6 +72,48 @@ function AgentForm({ proactive, rules, onSaved }: { proactive: boolean; rules: s
       <HStack><Button label="Save rules" isDisabled={text.trim() === rules} clickAction={() => save(on, text)} /></HStack>
     </VStack>
   );
+}
+
+const connectorPrompt = (url: string) => `Create a custom connector called Stupid.
+MCP server URL: ${url}
+Authentication: Bearer token. I'll paste my Stupid access key when you ask.
+It reads my Stupid inbox, leads, drafts and ad advice, can queue reply drafts and start Stupid's jobs. It can't send anything: I send from Stupid.`;
+
+/** A key for Muse's custom connector, shown once, with the URL and the words to paste into Muse. */
+function UseFromMuse() {
+  const status = useLoad("mcp-key", api.mcpKey);
+  const [made, setMade] = useState<string>();
+  const [error, setError] = useState("");
+  const act = (call: () => Promise<unknown>) => () => call().then(() => status.reload(), (cause: unknown) => setError(message(cause)));
+  return (
+    <Row id="muse-heading" title="Use Stupid from Muse" description="Muse can read your inbox and queue reply drafts here. Sending still needs your tap in Stupid.">
+      <Load state={status}>{k => (
+        <VStack gap={4}>
+          <Text as="p">{k.has_key
+            ? <>Muse has a key{k.created && <>, made <Timestamp value={k.created} format="relative" /></>}. {k.last_used ? <>Last used <Timestamp value={k.last_used} format="relative" />.</> : "Not used yet."}</>
+            : "No key yet. Make one, then give Muse the URL and the key."}</Text>
+          {made && <VStack gap={2}>
+            <Text as="p" weight="semibold">Your key, shown once:</Text>
+            <TextInput label="Access key" isLabelHidden value={made} onChange={() => undefined} />
+            <HStack><Copy text={made} label="Copy key" /></HStack>
+          </VStack>}
+          <TextInput label="MCP server URL" value={k.url} onChange={() => undefined} />
+          <TextArea label="Ask Muse to add Stupid" value={connectorPrompt(k.url)} onChange={() => undefined} rows={5} />
+          <HStack gap={2} wrap="wrap">
+            <Copy text={connectorPrompt(k.url)} label="Copy the words for Muse" />
+            <Button variant="primary" label={k.has_key ? "Make a new key" : "Make a key"} clickAction={() => api.createMcpKey().then(r => { setMade(r.key); setError(""); return status.reload(); }, (cause: unknown) => setError(message(cause)))} />
+            {k.has_key && <Button variant="ghost" label="Revoke the key" clickAction={act(() => api.revokeMcpKey().then(() => setMade(undefined)))} />}
+          </HStack>
+          <div aria-live="polite">{error && <Text as="p">{error}</Text>}</div>
+        </VStack>
+      )}</Load>
+    </Row>
+  );
+}
+
+function Copy({ text, label }: { text: string; label: string }) {
+  const [shown, setShown] = useState(label);
+  return <Button label={shown} clickAction={() => navigator.clipboard.writeText(text).then(() => setShown("Copied"), () => setShown("Couldn't copy"))} />;
 }
 
 function AiAccess() {
