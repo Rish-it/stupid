@@ -21,7 +21,8 @@ const money = (n: number, currency: string) => new Intl.NumberFormat(undefined, 
 export default function Numbers({ state }: { state: Connections }) {
   const on = (kind: AssetKind) => state.assets.some(a => a.kind === kind && state.selected.includes(a.key));
   const messaging = on("whatsapp") || on("messenger") || on("instagram");
-  const [open, setOpen] = useState(false);
+  // Home opens the numbers only when the person picks them, so they start open.
+  const [open, setOpen] = useState(true);
   return (
     <VStack gap={3}>
       <HStack hAlign="center"><Button variant="ghost" label="Your numbers, last 7 days" aria-expanded={open} aria-controls="home-numbers" onClick={() => setOpen(!open)}
@@ -82,7 +83,8 @@ function Messages() {
 
 function Ads() {
   const ads = useLoad("ads", api.ads);
-  const [open, setOpen] = useState(false);
+  // Home opens the numbers only when the person picks them, so they start open.
+  const [open, setOpen] = useState(true);
   const rows = ads.data?.accounts.flatMap(a => a.campaigns.map(c => ({ ...c, currency: a.currency }))) ?? [];
   return (
     <>
@@ -143,7 +145,8 @@ function AdsDetails({ isOpen, onClose, data }: { isOpen: boolean; onClose: () =>
 
 function Instagram() {
   const ig = useLoad("instagram", api.instagram);
-  const [open, setOpen] = useState(false);
+  // Home opens the numbers only when the person picks them, so they start open.
+  const [open, setOpen] = useState(true);
   return (
     <>
       <Tile icon="instagram" title="Instagram" actions={Boolean(ig.data?.accounts.length) && <Button size="sm" variant="ghost" label="Details" onClick={() => setOpen(true)} />}>

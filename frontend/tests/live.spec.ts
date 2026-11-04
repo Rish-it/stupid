@@ -88,7 +88,7 @@ test("Home numbers explain empty reporting periods without inventing results", a
   await page.route("**/api/inbox", route => route.fulfill(json({ items: [] })));
   await page.route("**/api/agent", route => route.fulfill(json({ proactive: false, rules: "", facts: [], needs: [], tickets: [], watching: [], last_checked: null })));
   await page.goto("/#home");
-  await page.getByRole("button", { name: "Your numbers, last 7 days" }).click();
+  await page.getByRole("button", { name: "Your numbers", exact: true }).click();
   await expect(page.getByText("No ad results in the last 7 days.")).toBeVisible();
   await expect(page.getByText(/select the same ad account and Last 7 days/)).toBeVisible();
   await expect(page.getByText(/An absent account doesn't tell us/)).toBeVisible();
