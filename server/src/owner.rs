@@ -134,26 +134,44 @@ pub fn e164(input: &str, tz: &str) -> Option<String> {
 
 // ---------- routes ----------
 
-/// The connected WhatsApp number, read once from Meta and kept.
+/// The business number the owner messages: the linked number while it's still switched on, else the healthiest
+/// WhatsApp number switched on now (fewest blocking issues). Read from Meta once per number; the linked one is kept.
 async fn business_number(s: &AppState, u: &User, ch: &Channel) -> Option<String> {
     if ch.channel == "messenger" {
         return None;
     }
-    if ch.business_number.is_some() {
+    let on = u.selected_assets("whatsapp");
+    let linked = ch.asset_id.as_ref().and_then(|id| on.iter().find(|a| &a.id == id).copied());
+    if linked.is_some() && ch.business_number.is_some() {
         return ch.business_number.clone();
     }
-    let asset = ch.asset_id.as_ref().and_then(|id| u.selected_assets("whatsapp").into_iter().find(|a| &a.id == id))
-        .or_else(|| u.selected_assets("whatsapp").into_iter().next())?;
-    let token = tokens(s, u).ok()?.for_asset(&asset.key).to_string();
-    let got = meta::get(s, &asset.id, &[("fields", "display_phone_number".into())], &token).await.ok()?;
-    let number = got["display_phone_number"].as_str().and_then(|n| e164(n, "UTC"))?;
-    let _ = lock(&s.db).execute("UPDATE owner_channel SET business_number=?2 WHERE user_id=?1", params![u.id, number]);
+    // A number kept from before a reconnect belongs to whatever was linked then; never show it for another one.
+    let asset = linked.or_else(|| on.iter().copied().min_by_key(|a| a.issues.iter().filter(|i| i.blocking).count()))?;
+    let key = format!("wa_number:{}", asset.id);
+    let cached = lock(&s.cache).get(&key).and_then(|(_, v)| v.as_str().map(String::from));
+    let number = match cached {
+        Some(n) => n,
+        None => {
+            let token = tokens(s, u).ok()?.for_asset(&asset.key).to_string();
+            let got = meta::get(s, &asset.id, &[("fields", "display_phone_number".into())], &token).await.ok()?;
+            let n = got["display_phone_number"].as_str().and_then(|n| e164(n, "UTC"))?;
+            lock(&s.cache).insert(key, (std::time::Instant::now(), json!(n)));
+            n
+        }
+    };
+    if linked.is_some() {
+        let _ = lock(&s.db).execute("UPDATE owner_channel SET business_number=?2 WHERE user_id=?1", params![u.id, number]);
+    }
     Some(number)
 }
 
 async fn shown(s: &AppState, u: &User) -> ApiResult<Json<Value>> {
     let mut ch = channel(&lock(&s.db), &u.id)?;
     ch.business_number = business_number(s, u, &ch).await;
+    // The business number is never the owner's own phone.
+    if ch.phone.is_some() && ch.phone == ch.business_number {
+        ch.phone = None;
+    }
     if ch.channel == "messenger" {
         ch.page_name = ch.asset_id.as_ref().and_then(|id| u.selected_assets("messenger").into_iter().find(|a| &a.id == id)).map(|a| a.name.clone());
     }
@@ -177,6 +195,13 @@ pub async fn save(State(s): State<AppState>, headers: HeaderMap, Json(body): Jso
             _ => Err(bad(&format!("Give {what} as a time like 21:00."))),
         }
     };
+    let business = match body.get("phone") {
+        Some(Value::String(_)) => {
+            let ch = channel(&lock(&s.db), &u.id)?;
+            business_number(&s, &u, &ch).await
+        }
+        _ => None,
+    };
     {
         let db = lock(&s.db);
         let ch = channel(&db, &u.id)?;
@@ -188,6 +213,9 @@ pub async fn save(State(s): State<AppState>, headers: HeaderMap, Json(body): Jso
                     Some(v.as_str().and_then(|p| e164(p, tz)).ok_or_else(|| bad("Enter your WhatsApp number with its country code, like +91 98765 43210."))?)
                 }
             };
+            if phone.is_some() && phone == business {
+                return Err(bad("That's your business number. Enter the phone you message it from."));
+            }
             if phone != ch.phone {
                 // A new number pairs again; a Messenger link stays.
                 db.execute("UPDATE owner_channel SET phone=?2,link_code=?3 WHERE user_id=?1", params![u.id, phone, new_code()])?;
@@ -435,7 +463,7 @@ pub fn receive(db: &Connection, user_id: &str, kind: &str, asset_id: &str, sende
     db.execute("UPDATE owner_channel SET channel=?2,asset_id=?3,business_number=NULL,
           phone=CASE WHEN ?2='whatsapp' THEN ?4 ELSE phone END, psid=CASE WHEN ?2='messenger' THEN ?5 ELSE psid END, psid_page=CASE WHEN ?2='messenger' THEN ?3 ELSE psid_page END,
           seen_draft=CASE WHEN linked=1 THEN MIN(seen_draft,(SELECT COALESCE(MAX(id),0) FROM drafts)) ELSE (SELECT COALESCE(MAX(id),0) FROM drafts) END,
-          seen_report=CASE WHEN linked=1 THEN seen_report ELSE (SELECT COALESCE(MAX(id),0) FROM reports) END, linked=1 WHERE user_id=?1",
+          seen_report=CASE WHEN linked=1 THEN seen_report ELSE (SELECT COALESCE(MAX(id),0) FROM reports) END, linked=1, last_error_json=NULL WHERE user_id=?1",
         params![user_id, kind, asset_id, format!("+{sender}"), sender])?;
     let place = if kind == "messenger" { "Messenger" } else { "WhatsApp" };
     tickets::note(db, user_id, None, "owner", "ready", &format!("Linked your {place}. Pings and your daily summary go there."))?;
@@ -827,8 +855,12 @@ mod tests {
                 let body: Value = serde_json::from_slice(&body).unwrap_or_default();
                 let locked = body["to"] == LOCKED;
                 kept.lock().unwrap().push((uri.path().to_string(), body));
+                // Each number's display number: p1 and p2 read differently, so a test can tell which one was shown.
+                let number = uri.query().is_some_and(|q| q.contains("display_phone_number")).then(|| if uri.path() == "/p1" { "+1 555 000 0001" } else { "+1 555 000 0002" });
                 async move {
-                    if locked {
+                    if let Some(n) = number {
+                        (StatusCode::OK, Json(json!({ "display_phone_number": n })))
+                    } else if locked {
                         (StatusCode::BAD_REQUEST, Json(json!({ "error": { "code": 131031, "message": "Business account has been locked" } })))
                     } else {
                         (StatusCode::OK, Json(json!({ "messages": [{ "id": "wamid.1" }] })))
@@ -1038,6 +1070,26 @@ mod tests {
         assert_eq!(lock(&s.db).query_row("SELECT COUNT(*) FROM agent_runs", [], |r| r.get::<_, i64>(0)).unwrap(), 1, "an agent that's off doesn't run");
         let _ = custom::delete(State(s.clone()), h, Path(id)).await.unwrap();
         assert_eq!(lock(&s.db).query_row("SELECT COUNT(*) FROM agent_runs", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn pairing_shows_the_healthy_number_connected_now_and_never_an_old_one() {
+        let (s, _) = setup("{}").await;
+        {
+            let db = lock(&s.db);
+            let assets = r#"[{"key":"whatsapp:p1","kind":"whatsapp","id":"p1","name":"Needs billing","issues":[{"blocking":true,"text":"x","fix":"y","link":"z"}]},{"key":"whatsapp:p2","kind":"whatsapp","id":"p2","name":"Shop"}]"#;
+            db.execute("UPDATE users SET assets_json=?1,selected_json='[\"whatsapp:p1\",\"whatsapp:p2\"]' WHERE id='u'", [assets]).unwrap();
+            // Kept from a number connected before a reconnect.
+            db.execute("INSERT INTO owner_channel (user_id,link_code,business_number,last_error_json) VALUES ('u','ABC234','+15550514699','{\"code\":131030,\"error\":\"old\"}')", []).unwrap();
+        }
+        let Json(ch) = get(State(s.clone()), signed_in(&s)).await.unwrap();
+        assert_eq!(ch["business_number"], "+15550000002", "the healthy number connected now, not the kept one");
+        let err = save(State(s.clone()), signed_in(&s), Json(json!({ "phone": "+1 555 000 0002" }))).await.unwrap_err();
+        assert_eq!(err.0, StatusCode::BAD_REQUEST, "the business number isn't the owner's phone");
+        // Pairing from the owner's phone clears the old number's error.
+        assert!(matches!(receive(&lock(&s.db), "u", "whatsapp", "p2", OWNER, "hi ABC234", now()).unwrap(), Step::Linked));
+        let Json(ch) = get(State(s.clone()), signed_in(&s)).await.unwrap();
+        assert_eq!((ch["business_number"].clone(), ch["phone"].clone(), ch["last_error"].clone()), (json!("+15550000002"), json!("+919876543210"), Value::Null));
     }
 
     #[tokio::test]

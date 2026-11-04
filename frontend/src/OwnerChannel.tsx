@@ -11,6 +11,7 @@ import { TextInput } from "@astryxdesign/core/TextInput";
 import { ApiError, api, chatUrl, ownerPlace, refetch, useLoad, whatsappBlock } from "./api";
 import type { Connections, Issue, OwnerChannel, Urgent } from "./api";
 import { Load } from "./Load";
+import { explainMeta, metaHelp } from "./metaHelp";
 
 const message = (cause: unknown) => cause instanceof Error ? cause.message : String(cause);
 const urgent: [Urgent, string][] = [["big_order", "Big orders"], ["complaint", "Complaints"], ["brand_deal", "Brand deals"], ["payment", "Payment problems"], ["question", "Questions only I can answer"]];
@@ -62,7 +63,7 @@ function Channel({ oc, blocked, onSaved }: { oc: OwnerChannel; blocked?: Issue; 
       <Text as="p" type="supporting" size="sm">{`Your agent pings you on ${place}${oc.page_name ? ` from ${oc.page_name}` : ""} about what matters and sends a daily summary. Anything to a customer still waits for your tap, or your "1" reply.`}</Text>
       {blocked && <Banner status="warning" title={blocked.text} description={blocked.fix}
         endContent={blocked.link ? <Button size="sm" label="Fix in Meta" href={blocked.link} target="_blank" rel="noopener noreferrer" /> : undefined} />}
-      {oc.last_error && !blocked && <Text as="p" size="sm" className="owner-error">{`The last ping didn't arrive: ${oc.last_error.error.replace(/^Meta: /, "")}`}</Text>}
+      {oc.last_error && <LastError error={oc.last_error} />}
       <section aria-labelledby="owner-link" className="owner-block">
         {oc.linked && <Heading level={3} id="owner-link">{place === "Messenger" ? "Your Messenger" : "Your number"}</Heading>}
         <Text as="p" size="sm" className="status-line"><span className="live-dot" data-ok={open(oc) || undefined} aria-hidden />{status(oc)}</Text>
@@ -115,6 +116,19 @@ function Channel({ oc, blocked, onSaved }: { oc: OwnerChannel; blocked?: Issue; 
         <div aria-live="polite">{said("test")}</div>
       </HStack>
     </VStack>
+  );
+}
+
+/** Why the last ping didn't arrive, in plain words, with Meta's fix when there is one. */
+function LastError({ error }: { error: NonNullable<OwnerChannel["last_error"]> }) {
+  const help = error.code === 131030
+    ? { text: "Meta only lets this test number message phones on its allowed list. Add your number in Meta > WhatsApp > API Setup > To.", link: metaHelp.testRecipient.link }
+    : { text: `The last ping didn't arrive: ${error.error.replace(/^Meta: /, "")}`, link: explainMeta(error.error).link };
+  return (
+    <HStack gap={3} align="center" wrap="wrap">
+      <Text as="p" size="sm" className="owner-error">{help.text}</Text>
+      {help.link && <Button size="sm" label="Fix in Meta" href={help.link} target="_blank" rel="noopener noreferrer" />}
+    </HStack>
   );
 }
 
