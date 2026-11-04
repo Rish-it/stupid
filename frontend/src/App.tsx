@@ -10,7 +10,7 @@ import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TopNav, TopNavHeading } from "@astryxdesign/core/TopNav";
 import type { Persona } from "./api";
-import { api, door, legal, oauthStartUrl, sample, useLoad, useStream } from "./api";
+import { api, door, legal, oauthStartUrl, refetch, sample, useLoad, useStream } from "./api";
 import { Logo } from "./Icons";
 import Welcome from "./Welcome";
 
@@ -27,7 +27,8 @@ const Onboarding = lazy(() => import("./Onboarding"));
 const Toasts = lazy(() => import("./Toasts"));
 // Closing the onboarding card (or skipping its optional step) holds it back for the rest of this visit.
 const later = { get: () => { try { return sessionStorage.getItem("stupid.onboarding") === "later"; } catch { return false; } },
-  set: () => { try { sessionStorage.setItem("stupid.onboarding", "later"); } catch { /* private mode: it just shows again */ } } };
+  set: () => { try { sessionStorage.setItem("stupid.onboarding", "later"); } catch { /* private mode: it just shows again */ } },
+  clear: () => { try { sessionStorage.removeItem("stupid.onboarding"); } catch { /* private mode: nothing was kept */ } } };
 
 // Meta sends people back to /?connected=1 or /?meta_error=1. Read it once, then drop it from the address.
 // Only fixed wording is shown: text from the address could be anyone's.
@@ -68,8 +69,15 @@ export default function App() {
   const [behind, setBehind] = useState<Page>(page === "settings" ? "home" : page);
   if (page !== "settings" && page !== behind) setBehind(page);
   const shown = page === "settings" ? behind : page;
-  const setPersona = (persona: Persona) => api.setPersona(persona).then(next => { if (next.signed_in) setMe(next); });
   const [held, setHeld] = useState(later.get);
+  // A new path brings its own steps and agent order: show its onboarding again and reload what depends on it.
+  const setPersona = (persona: Persona) => api.setPersona(persona).then(next => {
+    if (!next.signed_in) return;
+    setMe(next);
+    later.clear();
+    setHeld(false);
+    for (const key of ["agents", "setup-next"]) refetch(key);
+  });
   const [failed, setFailed] = useState(failure);
   const [connecting, setConnecting] = useState(false);
   const [passed, setPassed] = useState(false);
