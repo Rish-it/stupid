@@ -345,6 +345,10 @@ async fn discover(state: &AppState, token: &str) -> Grant {
             return;
         }
         let key = format!("{kind}:{id}");
+        // Meta can list one WhatsApp account under more than one business.
+        if assets.iter().any(|a: &Asset| a.key == key) {
+            return;
+        }
         if let Some(t) = token {
             page_tokens.insert(key.clone(), t.to_string());
         }
