@@ -129,6 +129,10 @@ body { background: var(--color-background-body); }
 .prefs-panel .astryx-segmented-control { max-width: 100%; }
 .prefs-panel .astryx-segmented-control-item { min-width: 0; height: auto; white-space: normal; text-align: center; }
 .settings-row + .settings-row { margin-block-start: 2rem; }
+/* Model choices: one card per model, set apart by space and tone. The panel scrolls, never the page. */
+.model-list [role=radiogroup] { gap: 8px; }
+.model-list [role=radiogroup] > * { padding: 12px 14px; border-radius: 12px; background: var(--color-background-muted); }
+.model-list [role=radiogroup] > :not(:has(input:checked)) .astryx-radio-indicator { background: color-mix(in srgb, var(--color-text-secondary) 30%, transparent); }
 
 /* Home, after the "Today" reference: a centred status line and date, then two quiet panels. */
 .home { max-width: 1040px; }

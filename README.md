@@ -56,6 +56,11 @@ data-deletion callback removes a person's data in one transaction. AI spend stop
   logs one `muse call` line per call: agent, model, prompt and completion tokens, cost and time.
 - Calls use `reasoning_effort: "low"` and a 4,000-token cap. A model id containing `contributor`
   is refused at startup, because contributor-tier models may train on what they receive.
+- The person picks the model for their agents in Settings → AI model, from every Meta chat model
+  the server can reach: Baseten's `meta-models/muse-spark-open*` (open weights) and the Model API's
+  Muse Spark 1.3, 1.2 and 1.1 (`PUT /api/settings/ai/model`). The list is read from each provider's
+  `/models` at most every 10 minutes, with known defaults when a provider can't be reached.
+  Contributor-tier models and Muse Image are never offered or called.
 
 ## Use Stupid from Muse (MCP)
 

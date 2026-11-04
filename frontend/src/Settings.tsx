@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import { AlertDialog } from "@astryxdesign/core/AlertDialog";
+import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
 import { Dialog } from "@astryxdesign/core/Dialog";
 import { Icon } from "@astryxdesign/core/Icon";
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Link } from "@astryxdesign/core/Link";
+import { RadioList, RadioListItem } from "@astryxdesign/core/RadioList";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
@@ -15,7 +17,7 @@ import { TextArea } from "@astryxdesign/core/TextArea";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { api, useLoad } from "./api";
-import type { Account, AiSettings, Fact, Persona } from "./api";
+import type { Account, AiModel, AiSettings, Fact, Persona } from "./api";
 import { Load } from "./Load";
 import Setup from "./Setup";
 
@@ -282,17 +284,8 @@ function AiAccess() {
     <Row id="ai-heading" title="AI access" description="What runs your agents.">
       <Load state={ai}>{s => (
         <VStack gap={4}>
-          {s.meta_brain && (
-            <VStack gap={2}>
-              <SegmentedControl label="Model that runs your agents" value={s.brain}
-                onChange={v => void api.setBrain(v as AiSettings["brain"]).then(next => ai.setData(next), (cause: unknown) => setStatus({ type: "error", message: message(cause) }))}>
-                <SegmentedControlItem value="open" label="Muse Spark Open" />
-                <SegmentedControlItem value="meta" label="Muse Spark 1.3 · Meta API" />
-              </SegmentedControl>
-              <Text as="p" type="supporting" size="sm">Both see pictures and use the same tools. Muse Spark 1.3 runs on Meta's Model API with Stupid's key.</Text>
-            </VStack>
-          )}
-          {s.brain === "meta" ? <Text as="p">Agents run on {s.meta_model} through Meta's Model API, using Stupid's shared allowance.</Text> : <Text as="p">
+          {s.models?.length > 0 && <Models s={s} onSaved={next => ai.setData(next)} />}
+          {s.brain === "meta" ? <Text as="p">Agents run on {s.model} through Meta's Model API, using Stupid's shared allowance.</Text> : <Text as="p">
             {s.has_key ? `Agents run on ${s.model} with your own Baseten API key.`
               : s.workspace_ai ? `Agents run on ${s.model} using Stupid's shared allowance. Add your own Baseten API key to run them on your account instead.`
               : "Add your own Baseten API key so agents can run."}
@@ -331,6 +324,24 @@ function AiAccess() {
         </VStack>
       )}</Load>
     </Row>
+  );
+}
+
+/** Every Meta chat model this server can run, one tap to switch. */
+function Models({ s, onSaved }: { s: AiSettings; onSaved: (next: AiSettings) => void }) {
+  const [error, setError] = useState("");
+  const provider = (m: AiModel) => m.provider === "meta" ? "Meta Model API · Stupid's key" : `Baseten · ${s.has_key ? "your key" : "Stupid's key"}`;
+  return (
+    <VStack gap={2}>
+      <RadioList label="Model that runs your agents" value={s.model} containerClassName="model-list"
+        onChange={v => void api.setModel(v).then(next => { setError(""); onSaved(next); }, (cause: unknown) => setError(message(cause)))}>
+        {s.models.map(m => <RadioListItem key={m.id} value={m.id} label={m.label.split(" · ")[0]} description={provider(m)}
+          endContent={m.open_weights ? <Badge label="open weights" /> : undefined} />)}
+      </RadioList>
+      <div aria-live="polite">{error && <Text as="p">{error}</Text>}</div>
+      <Text as="p" type="supporting" size="sm">All see pictures and use the same tools.</Text>
+      {s.meta_brain && <Text as="p" type="supporting" size="sm">Also used: Muse Wonder (videos), Muse Voice Transcribe (voice notes), SAM 3.1 (ad crops).</Text>}
+    </VStack>
   );
 }
 

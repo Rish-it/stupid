@@ -304,7 +304,7 @@ mod tests {
     async fn a_customer_photo_is_matched_to_one_of_the_owners_posts_in_one_call() {
         let (base, seen) = stub(r#"{"sees":"A red ceramic mug with a chip on the rim.","match":2}"#).await;
         let s = with_muse(base);
-        let (sees, matched) = compare(&s, &agents::Ai::Workspace, "data:image/jpeg;base64,AAAA", &posts()).await.unwrap();
+        let (sees, matched) = compare(&s, &agents::Ai::Workspace("meta-models/muse-spark-open-1026".into()), "data:image/jpeg;base64,AAAA", &posts()).await.unwrap();
         assert_eq!(sees, "A red ceramic mug with a chip on the rim.");
         assert_eq!(matched, json!({ "matched": true, "post_id": "m2", "permalink": "https://instagram.com/p/b", "caption": "Our red ceramic mug, hand-glazed in small batches",
             "posted": "2026-10-20T18:30:00+0000", "thumbnail": "/api/instagram/media/m2/image" }));
@@ -334,13 +334,13 @@ mod tests {
     async fn no_match_says_so_and_a_made_up_post_number_is_no_match() {
         for answer in [r#"{"sees":"A pair of sneakers.","match":null}"#, r#"{"sees":"A pair of sneakers.","match":7}"#, r#"{"sees":"A pair of sneakers.","match":0}"#] {
             let (base, _) = stub(answer).await;
-            let (sees, matched) = compare(&with_muse(base), &agents::Ai::Workspace, "data:image/jpeg;base64,AAAA", &posts()).await.unwrap();
+            let (sees, matched) = compare(&with_muse(base), &agents::Ai::Workspace("meta-models/muse-spark-open-1026".into()), "data:image/jpeg;base64,AAAA", &posts()).await.unwrap();
             assert_eq!((sees.as_str(), matched.clone()), ("A pair of sneakers.", json!({ "matched": false })), "{answer}");
             assert_eq!(photo_line(&matched).as_deref(), Some("The customer's photo is not one of your posts."));
         }
         assert_eq!(photo_line(&Value::Null), None, "a photo never compared says nothing");
         let (base, _) = stub(r#"{"match":1}"#).await;
-        assert!(compare(&with_muse(base), &agents::Ai::Workspace, "data:image/jpeg;base64,AAAA", &posts()).await.is_err(), "no description falls back to looking alone");
+        assert!(compare(&with_muse(base), &agents::Ai::Workspace("meta-models/muse-spark-open-1026".into()), "data:image/jpeg;base64,AAAA", &posts()).await.is_err(), "no description falls back to looking alone");
         assert_eq!(excerpt(&json!("x".repeat(200))).chars().count(), 141);
     }
 
@@ -361,10 +361,10 @@ mod tests {
         ];
         let bytes = download(&s, &format!("{raw}/rust/rust.png"), None).await.unwrap();
         let photo = format!("data:image/png;base64,{}", STANDARD.encode(&bytes));
-        let (sees, matched) = compare(&s, &agents::Ai::Workspace, &photo, &posts).await.unwrap();
+        let (sees, matched) = compare(&s, &agents::Ai::Workspace("meta-models/muse-spark-open-1026".into()), &photo, &posts).await.unwrap();
         println!("SEES {sees}\nMATCHED {matched}\nLINE {:?}", photo_line(&matched));
         let other = download(&s, &format!("{raw}/go/go.png"), None).await.unwrap();
-        let (sees, matched) = compare(&s, &agents::Ai::Workspace, &format!("data:image/png;base64,{}", STANDARD.encode(&other)), &posts).await.unwrap();
+        let (sees, matched) = compare(&s, &agents::Ai::Workspace("meta-models/muse-spark-open-1026".into()), &format!("data:image/png;base64,{}", STANDARD.encode(&other)), &posts).await.unwrap();
         println!("SEES {sees}\nMATCHED {matched}\nLINE {:?}", photo_line(&matched));
     }
 

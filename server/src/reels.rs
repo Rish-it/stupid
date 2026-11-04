@@ -106,7 +106,7 @@ mod tests {
         let s = AppState { cfg: std::sync::Arc::new(cfg), ..s };
         let ig = json!({ "accounts": [{ "media": [{ "media_type": "VIDEO", "media_product_type": "REELS", "media_url": "https://www.w3schools.com/html/mov_bbb.mp4",
             "permalink": "https://www.instagram.com/", "caption": "A bunny wakes up in the meadow", "like_count": 40, "comments_count": 3 }] }] });
-        let (result, cost) = direct(&s, "u", &context(&ig), &crate::agents::Ai::Workspace).await.unwrap();
+        let (result, cost) = direct(&s, "u", &context(&ig), &crate::agents::Ai::Workspace(s.cfg.muse_model.clone())).await.unwrap();
         println!("REELS ${cost:.4}\nWATCHED {}", serde_json::to_string_pretty(&result["watched"]).unwrap());
         for script in result["scripts"].as_array().into_iter().flatten() {
             println!("SCRIPT {} | hook: {} | {} shots", script["title"], script["hook"], script["shots"].as_array().map_or(0, Vec::len));
