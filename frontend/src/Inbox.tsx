@@ -18,6 +18,7 @@ import MetaProblem from "./MetaProblem";
 
 const filters = { all: "All", messenger: "Messenger", instagram: "Instagram", whatsapp: "WhatsApp" } as const;
 const where = { whatsapp: "WhatsApp", messenger: "Messenger", instagram: "Instagram DM", instagram_comment: "Instagram comment" } as const;
+const working = { voice: "Transcribing the voice note…", photo: "Looking at the photo…", video: "Watching the video…" } as const;
 type Mark = "Sending…" | "Sent";
 
 export default function Inbox() {
@@ -65,7 +66,7 @@ export default function Inbox() {
                   <ListItem key={item.id} align="start" isSelected={open === item.id} onClick={() => setOpen(item.id)}
                     startContent={<Avatar name={senderName(item)} size="md" tooltip={false} aria-hidden status={<SourceIcon source={item.kind} size={14} />} />}
                     label={<HStack gap={2} align="center" wrap="wrap"><Text weight="semibold">{senderName(item)}</Text><Text type="supporting" size="sm">{where[item.kind]}</Text><VoiceMark item={item} /></HStack>}
-                    description={<Text type="supporting" maxLines={1}>{item.transcribing ? "Transcribing the voice note…" : item.text}</Text>}
+                    description={<Text type="supporting" maxLines={1}>{item.transcribing ? working[item.transcribing] : item.text}</Text>}
                     endContent={<VStack gap={1} hAlign="end"><Timestamp value={item.created} format="relative" type="supporting" size="sm" />{tag}</VStack>} />
                 );
               })}
@@ -81,6 +82,7 @@ export default function Inbox() {
 
 /** Voice notes say so, since their text is a transcript by Muse Voice Transcribe. */
 function VoiceMark({ item }: { item: InboxItem }) {
+  if (item.transcribing === "photo" || item.transcribing === "video") return <HStack><Token size="sm" label={item.transcribing === "photo" ? "Photo · looking" : "Video · watching"} /></HStack>;
   if (!item.voice && !item.transcribing) return null;
   return <HStack><Token size="sm" label={item.transcribing ? "Voice note · transcribing" : "Voice note · transcript"} /></HStack>;
 }
@@ -116,7 +118,7 @@ function Conversation({ item, mark, onClose, onStatus }: { item: InboxItem; mark
         <Button variant="primary" label="Send" isDisabled={!text.trim()} isLoading={sending} onClick={() => void send()} />
       </> : <Button label="Close" onClick={close} />}>
       <VoiceMark item={item} />
-      <div className="bubble"><Text as="p">{item.transcribing ? "Transcribing the voice note…" : item.text}</Text></div>
+      <div className="bubble"><Text as="p">{item.transcribing ? working[item.transcribing] : item.text}</Text></div>
       {item.replied && <Text as="p" type="supporting">You've replied to this one.</Text>}
       {failed && <MetaProblem issue={failed} kind={item.kind} title="Your reply didn't arrive" />}
       {error && <MetaProblem issue={error} kind={item.kind} />}

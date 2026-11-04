@@ -431,16 +431,19 @@ pub async fn pull(state: &AppState, u: &User) -> ApiResult<()> {
         let token = t.for_asset(&a.key).to_string();
         let fetched = cached(state, format!("{}:pull:{}", u.id, a.key), Duration::from_secs(15), || async {
             let mut rows: Vec<Pulled> = Vec::new();
-            let fields = "messages.limit(10){id,message,from,created_time,attachments{mime_type,file_url}}".to_string();
+            let fields = "messages.limit(10){id,message,from,created_time,attachments{mime_type,file_url,image_data,video_data}}".to_string();
             let conversations = get(state, "me/conversations", &[("platform", a.kind.clone()), ("fields", fields), ("limit", "20".into())], &token).await?;
             for conv in conversations["data"].as_array().into_iter().flatten() {
                 for m in conv["messages"]["data"].as_array().into_iter().flatten() {
                     let from = &m["from"];
                     let (id, handle) = (from["id"].as_str().unwrap_or_default(), from["username"].as_str().or(from["name"].as_str()).unwrap_or_default());
                     let text = m["message"].as_str().unwrap_or_default();
-                    // A voice note comes as an audio attachment with no text; it is transcribed after it is stored.
-                    let audio = m["attachments"]["data"].as_array().into_iter().flatten()
-                        .find(|x| x["mime_type"].as_str().is_some_and(|t| t.starts_with("audio/"))).and_then(|x| x["file_url"].as_str()).map(|u| format!("url:{u}"));
+                    // A voice note, photo or video comes as an attachment; it is put into words after it is stored.
+                    let audio = m["attachments"]["data"].as_array().into_iter().flatten().find_map(|x| {
+                        let mime = x["mime_type"].as_str()?;
+                        let prefix = if mime.starts_with("audio/") { "" } else if mime.starts_with("image/") { "photo:" } else if mime.starts_with("video/") { "video:" } else { return None };
+                        x["file_url"].as_str().or(x["image_data"]["url"].as_str()).or(x["video_data"]["url"].as_str()).map(|u| format!("{prefix}url:{u}"))
+                    });
                     // Skip the account's own messages and anything the 30-day sweep would remove.
                     let created = m["created_time"].as_str().and_then(graph_time).unwrap_or_else(now);
                     if (text.is_empty() && audio.is_none()) || id.is_empty() || id == a.id || handle == a.name || created < oldest {
@@ -501,13 +504,15 @@ pub fn inbox_rows(state: &AppState, u: &User) -> ApiResult<Vec<Value>> {
     let marks = (1..=ids.len()).map(|i| format!("?{i}")).collect::<Vec<_>>().join(",");
     let db = lock(&state.db);
     let mut stmt = db.prepare(&format!("SELECT id,kind,asset_id,sender,text,created,EXISTS(SELECT 1 FROM replies r WHERE r.event_id=events.id AND r.error IS NULL),sender_name,
-          (SELECT error FROM replies r WHERE r.event_id=events.id),voice,media IS NOT NULL,
+          (SELECT error FROM replies r WHERE r.event_id=events.id),voice,media,
           (SELECT text FROM drafts d WHERE d.event_id=events.id AND d.user_id=?{u} ORDER BY d.id DESC LIMIT 1),
           (SELECT source FROM drafts d WHERE d.event_id=events.id AND d.user_id=?{u} ORDER BY d.id DESC LIMIT 1)
           FROM events WHERE asset_id IN ({marks}) ORDER BY created DESC, id DESC LIMIT 100", u = ids.len() + 1))?;
     let rows = stmt.query_map(rusqlite::params_from_iter(ids.iter().chain([&u.id])), |r| {
         Ok(json!({ "id": r.get::<_, i64>(0)?, "kind": r.get::<_, String>(1)?, "asset_id": r.get::<_, String>(2)?, "sender": r.get::<_, String>(3)?, "text": r.get::<_, String>(4)?, "created": r.get::<_, i64>(5)?, "replied": r.get::<_, bool>(6)?, "sender_name": r.get::<_, Option<String>>(7)?, "reply_error": r.get::<_, Option<String>>(8)?,
-            "voice": r.get::<_, bool>(9)?, "transcribing": r.get::<_, bool>(10)?,
+            "voice": r.get::<_, bool>(9)?,
+            // A voice note, photo or video still being put into words.
+            "transcribing": r.get::<_, Option<String>>(10)?.map(|m| crate::voice::media_kind(&m).0).map(|k| match k { crate::voice::Media::Voice => "voice", crate::voice::Media::Photo => "photo", crate::voice::Media::Video => "video" }),
             "draft": r.get::<_, Option<String>>(11)?.map(|text| -> rusqlite::Result<Value> { Ok(json!({ "text": text, "source": r.get::<_, String>(12)? })) }).transpose()? }))
     })?;
     Ok(rows.collect::<Result<_, _>>()?)
@@ -616,7 +621,8 @@ pub struct Event {
     pub sender_name: String,
     pub text: String,
     pub dedupe: String,
-    /// A voice note waiting to be transcribed: `wa:<media id>` or `url:<attachment url>`.
+    /// A voice note, photo or video waiting to be put into words: `wa:<media id>` or `url:<attachment url>`,
+    /// after `photo:` or `video:` for those.
     pub media: Option<String>,
 }
 
@@ -633,8 +639,11 @@ pub fn parse_webhook(payload: &Value) -> Vec<Event> {
                 let phone = clip(&v["metadata"]["phone_number_id"]);
                 let contacts = v["contacts"].as_array().map(Vec::as_slice).unwrap_or_default();
                 for m in v["messages"].as_array().into_iter().flatten() {
-                    let text = clip(&m["text"]["body"]);
-                    let media = Some(clip(&m["audio"]["id"])).filter(|id| m["type"] == "audio" && !id.is_empty()).map(|id| format!("wa:{id}"));
+                    // A photo or video may carry a caption, which stays as the text.
+                    let kind = clip(&m["type"]);
+                    let text = Some(clip(&m["text"]["body"])).filter(|t| !t.is_empty()).unwrap_or_else(|| clip(&m[kind.as_str()]["caption"]));
+                    let prefix = match kind.as_str() { "audio" => Some(""), "image" => Some("photo:"), "video" => Some("video:"), _ => None };
+                    let media = prefix.zip(Some(clip(&m[kind.as_str()]["id"])).filter(|id| !id.is_empty())).map(|(p, id)| format!("{p}wa:{id}"));
                     if !text.is_empty() || media.is_some() {
                         let sender = clip(&m["from"]);
                         let sender_name = contacts.iter().find(|c| clip(&c["wa_id"]) == sender).map(|c| clip(&c["profile"]["name"])).unwrap_or_default();
@@ -649,8 +658,10 @@ pub fn parse_webhook(payload: &Value) -> Vec<Event> {
         for m in entry["messaging"].as_array().into_iter().flatten() {
             let message = &m["message"];
             let text = clip(&message["text"]);
-            let media = message["attachments"].as_array().into_iter().flatten()
-                .find(|x| x["type"] == "audio").map(|x| clip(&x["payload"]["url"])).filter(|u| !u.is_empty()).map(|u| format!("url:{u}"));
+            let media = message["attachments"].as_array().into_iter().flatten().find_map(|x| {
+                let prefix = match x["type"].as_str()? { "audio" => "", "image" => "photo:", "video" => "video:", _ => return None };
+                Some(clip(&x["payload"]["url"])).filter(|u| !u.is_empty()).map(|u| format!("{prefix}url:{u}"))
+            });
             if (text.is_empty() && media.is_none()) || message["is_echo"].as_bool() == Some(true) {
                 continue;
             }
@@ -708,6 +719,13 @@ mod tests {
         assert_eq!((e[0].text.as_str(), e[0].media.as_deref()), ("", Some("wa:777")));
         let dm = json!({"object":"page","entry":[{"id":"5","messaging":[{"sender":{"id":"9"},"message":{"mid":"z","attachments":[{"type":"audio","payload":{"url":"https://cdn.example/a.mp4"}}]}}]}]});
         assert_eq!(parse_webhook(&dm)[0].media.as_deref(), Some("url:https://cdn.example/a.mp4"));
+        let photo = json!({"object":"whatsapp_business_account","entry":[{"id":"1","changes":[{"field":"messages","value":{"metadata":{"phone_number_id":"55"},"messages":[{"id":"m3","from":"91","type":"image","image":{"id":"888","mime_type":"image/jpeg","caption":"this one in blue?"}},{"id":"m4","from":"91","type":"video","video":{"id":"999"}},{"id":"m5","from":"91","type":"sticker","sticker":{"id":"1"}}]}}]}]});
+        let e = parse_webhook(&photo);
+        assert_eq!(e.len(), 2, "a sticker alone is not a message to answer");
+        assert_eq!((e[0].text.as_str(), e[0].media.as_deref()), ("this one in blue?", Some("photo:wa:888")));
+        assert_eq!(e[1].media.as_deref(), Some("video:wa:999"));
+        let dm = json!({"object":"instagram","entry":[{"id":"5","messaging":[{"sender":{"id":"9"},"message":{"mid":"p","attachments":[{"type":"image","payload":{"url":"https://cdn.example/p.jpg"}}]}}]}]});
+        assert_eq!(parse_webhook(&dm)[0].media.as_deref(), Some("photo:url:https://cdn.example/p.jpg"));
         let st = json!({"entry":[{"changes":[{"value":{"statuses":[{"status":"delivered"},{"status":"failed","id":"wamid.1","recipient_id":"91","errors":[{"code":131031,"title":"Business Account locked","error_data":{"details":"Business account has been locked."}}]}]}}]}]});
         assert_eq!(failed_sends(&st), vec![("wamid.1".to_string(), "Business account has been locked. (131031)".to_string())]);
     }

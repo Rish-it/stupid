@@ -357,15 +357,19 @@ test("Settings turns drafting off and saves the agent's rules", async ({ page })
   expect(saved).toEqual([{ proactive: false, rules: "" }, { proactive: false, rules: "Open 10 to 7, closed Sundays." }]);
 });
 
-test("a voice note shows its transcript, marked as one", async ({ page }) => {
+test("voice notes and photos show what they say, marked while being read", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json(signedIn)));
   await page.route("**/api/inbox", route => route.fulfill(json({ items: [
     { id: "v1", kind: "whatsapp", asset_id: "1", sender: "15550003", sender_name: "Priya", text: "Hi, how much is the blue mug?", created: 1, replied: false, voice: true },
-    { id: "v2", kind: "whatsapp", asset_id: "1", sender: "15550004", sender_name: "Dev", text: "", created: 1, replied: false, transcribing: true },
+    { id: "v2", kind: "whatsapp", asset_id: "1", sender: "15550004", sender_name: "Dev", text: "", created: 1, replied: false, transcribing: "voice" },
+    { id: "p1", kind: "messenger", asset_id: "1", sender: "15550005", sender_name: "Sam", text: "", created: 1, replied: false, transcribing: "photo" },
+    { id: "p2", kind: "instagram", asset_id: "1", sender: "15550006", sender_name: "Ria", text: "Same in blue?\n(Photo: A red ceramic mug.)", created: 1, replied: false },
   ] })));
   await page.goto("/#inbox");
   await expect(page.getByText("Voice note · transcript")).toBeVisible();
   await expect(page.getByText("Transcribing the voice note…")).toBeVisible();
+  await expect(page.getByText("Photo · looking")).toBeVisible();
+  await expect(page.getByText("Looking at the photo…")).toBeVisible();
   await page.getByText("Hi, how much is the blue mug?").click();
   await expect(page.getByRole("dialog").getByText("Voice note · transcript")).toBeVisible();
 });

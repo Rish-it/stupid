@@ -27,7 +27,7 @@ pub fn specs() -> Vec<Value> {
         tool("watch_video", "Muse Wonder watches one of the owner's own Instagram videos (an id from get_instagram) and answers a question about it.",
             json!({ "media_id": { "type": "string" }, "question": { "type": "string" } }), &["media_id", "question"]),
         tool("list_drafts", "Reply drafts already prepared, so you don't repeat one.", none.clone(), &[]),
-        tool("transcribe_voice_note", "The words of a customer's voice note (an inbox event id), transcribing it now if that hasn't happened yet.",
+        tool("transcribe_voice_note", "The words of a customer's voice note, or what their photo or video shows (an inbox event id), working it out now if that hasn't happened yet.",
             json!({ "event_id": { "type": "integer" } }), &["event_id"]),
         tool("find_subject", "SAM 3.1 finds a subject (a short noun like \"ceramic mug\") in one of the owner's own Instagram pictures (an id from get_instagram) and returns its box in pixels.",
             json!({ "media_id": { "type": "string" }, "subject": { "type": "string" } }), &["media_id", "subject"]),
@@ -132,11 +132,11 @@ pub async fn call(s: &AppState, u: &User, ticket: Option<i64>, name: &str, args:
         "transcribe_voice_note" => {
             let id = args["event_id"].as_i64().ok_or("`event_id` must be a number.")?;
             own_event(s, u, id)?;
-            let (voice, pending, text): (bool, bool, String) = lock(&s.db).query_row("SELECT voice,media IS NOT NULL,text FROM events WHERE id=?1", [id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            let (voice, pending, text): (bool, Option<String>, String) = lock(&s.db).query_row("SELECT voice,media,text FROM events WHERE id=?1", [id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
                 .map_err(|_| "Storage failed.".to_string())?;
-            if pending {
+            if let Some(media) = pending {
                 let heard = crate::voice::hear(s, id).await;
-                crate::voice::store(&lock(&s.db), id, heard).map_err(|_| "Storage failed.".to_string())?;
+                crate::voice::store(&lock(&s.db), id, crate::voice::media_kind(&media).0, heard).map_err(|_| "Storage failed.".to_string())?;
                 let text: String = lock(&s.db).query_row("SELECT text FROM events WHERE id=?1", [id], |r| r.get(0)).map_err(|_| "Storage failed.".to_string())?;
                 json!({ "transcript": text })
             } else if voice {
