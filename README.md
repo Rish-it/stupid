@@ -37,6 +37,7 @@ data-deletion callback removes a person's data in one transaction. AI spend stop
 |---|---|---|
 | Lead finder, post ideas, reply drafts, ad watcher (`server/src/agents.rs`) | Muse Spark Open, `meta-models/muse-spark-open-1026` | Baseten Model APIs (`STUPID_MUSE_BASE_URL`) |
 | The agent on new messages: intake decision (`tickets.rs`) and a tool-calling executor that drafts replies or asks you one question (`executor.rs`, `tools.rs`) | Muse Spark Open, same model | Baseten Model APIs |
+| Customer voice notes on WhatsApp, Messenger and Instagram become text the agent reads (`voice.rs`) | Muse Voice Transcribe, `muse-voice-transcribe-1.0` | Meta Model API (`STUPID_META_API_KEY`, its own cap `STUPID_META_API_BUDGET_USD`) |
 
 - One chat call per agent run, from the server only. The browser never sees a model key.
 - On a new message, a gate with no model call filters it (account on, inside 24 hours, not replied,
@@ -53,10 +54,11 @@ data-deletion callback removes a person's data in one transaction. AI spend stop
 
 ## Service providers
 
-Stupid sends Meta Platform Data to one model provider, only to do the work the person asked for:
+Stupid sends Meta Platform Data to these model providers, only to do the work the person asked for:
 
 | Provider | What it gets | Retention | Agreement |
 |---|---|---|---|
+| Meta Model API (Muse Voice Transcribe) | The audio of a customer's voice note, once, to turn it into words. The audio isn't stored by Stupid; only the words are, for 30 days | Standard tier: not used for training; Meta may keep requests for safety review | [Model API terms](https://dev.meta.ai/legal/terms-of-service) |
 | Baseten (model inference) | For the agent a person runs: message and comment text with the sender's first name, Instagram bio, captions and post counts, ad campaign totals. Never phone numbers, Meta IDs or tokens | Zero data retention on Model APIs; no training on customer data | [DPA](https://www.baseten.co/dpa/), [security practices](https://www.baseten.co/security-practices/) |
 | The person's own Baseten account | The same, only after they save their own Baseten API key in Settings and tick the consent box (the time is stored) | Their account's terms | Their own account |
 
@@ -65,7 +67,9 @@ site's HTTPS traffic to that server. Agent results expire after 30 days, like me
 
 ## Run it
 
-Needs Rust 1.95 and Node.js 22.12 or newer (CI uses 24).
+Needs Rust 1.95 and Node.js 22.12 or newer (CI uses 24). Voice notes also need `ffmpeg` on the
+server's PATH, to turn WhatsApp's Opus and Instagram's AAC into the WAV Voice Transcribe reads;
+without it a voice note says it couldn't be transcribed. The Docker image doesn't include it.
 
 ```bash
 cp .env.example .env    # fill in the Meta app values; never commit .env
