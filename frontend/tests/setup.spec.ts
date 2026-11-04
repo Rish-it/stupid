@@ -119,6 +119,7 @@ test("a failed tutorial refresh leaves the issue and progress in place", async (
 test("Before you start explains the account requirements before sign-in", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json({ signed_in: false })));
   await page.goto("/");
+  await page.getByRole("button", { name: "I create content" }).click();
   await page.getByText("Before you start", { exact: true }).click();
   await expect(page.getByText(/For Instagram, have a public Professional account/)).toBeVisible();
   await expect(page.getByText(/Business verification is needed only when Meta asks/)).toBeVisible();

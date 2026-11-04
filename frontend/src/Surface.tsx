@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import { Card } from "@astryxdesign/core/Card";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
@@ -53,6 +54,13 @@ export function Modal({ isOpen, onClose, title, subtitle, footer, width = 560, p
   isOpen: boolean; onClose: () => void; title: string; subtitle?: ReactNode; footer?: ReactNode; width?: number; purpose?: "info" | "form"; children: ReactNode;
 }) {
   const change = (open: boolean) => { if (!open) onClose(); };
+  // Most modals unmount on close; give focus back to whatever opened them.
+  // Read during the first render, before the dialog moves focus inside itself.
+  const [opener] = useState(() => document.activeElement);
+  useEffect(() => {
+    if (!isOpen) return;
+    return () => { if (opener instanceof HTMLElement && opener.isConnected) requestAnimationFrame(() => opener.focus()); };
+  }, [isOpen, opener]);
   return (
     <Dialog isOpen={isOpen} onOpenChange={change} width={width} purpose={purpose} maxHeight="85dvh">
       <Layout
