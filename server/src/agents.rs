@@ -1,5 +1,5 @@
 //! Background agents on Muse Spark Open. Each run prepares work for the person; nothing is sent or changed.
-use crate::{crops, lock, meta, now, reels, tickets, user, ApiResult, AppError, AppState, User};
+use crate::{attention, crops, lock, meta, now, reels, tickets, user, ApiResult, AppError, AppState, User};
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
@@ -12,11 +12,11 @@ use serde_json::{json, Value};
 /// Who the lead finder looks for when the person hasn't said whether they are a creator or a business.
 const LEADS: &str = "You find sales leads for a creator or small business. From the comments and messages given, list people who show buying intent or ask about price, availability, booking or collaboration.";
 /// The lead finder's rules for every persona: output shape, no invented people, no sensitive guesses, the 24-hour window.
-const LEAD_RULES: &str = "Return JSON {\"leads\":[{\"who\":string,\"channel\":string,\"said\":string,\"why\":string,\"next_step\":string}]}. Quote what they said exactly. Return an empty list if nobody qualifies. Never invent people. Never guess sensitive traits such as health, religion, ethnicity, politics, sexuality or money troubles, and never rate anyone for credit, housing, jobs or insurance. next_step is a reply the business can send now; if hours_ago is 24 or more, say that a WhatsApp template or a new message from the customer is needed first.";
+const LEAD_RULES: &str = "Return JSON {\"leads\":[{\"who\":string,\"channel\":string,\"said\":string,\"why\":string,\"next_step\":string}]}. Quote what they said exactly. Return an empty list if nobody qualifies. Never invent people. Never guess sensitive traits such as health, religion, ethnicity, politics, sexuality or money troubles, and never rate anyone for credit, housing, jobs or insurance. next_step is a reply the business can send now; if hours_ago is 24 or more, say that a WhatsApp template or a new message from the customer is needed first. owner_facts are answers the owner gave before, such as prices or terms; use them in next_step instead of guessing.";
 const AGENTS: &[(&str, &str)] = &[
     ("leads", LEADS),
     ("ideas", "You are a content strategist for a creator or small business. From their recent posts and how each performed, write three new post ideas in their voice. Return JSON {\"ideas\":[{\"hook\":string,\"caption\":string,\"format\":\"reel\"|\"carousel\"|\"photo\"|\"story\",\"why\":string}]}. Base \"why\" only on the numbers given."),
-    ("replies", "You draft replies to customer messages for a small business. Be warm, short and specific. Never promise prices, discounts or dates that are not in the conversation; ask instead. Return JSON {\"replies\":[{\"event_id\":number,\"to\":string,\"draft\":string}]}."),
+    ("replies", "You draft replies to customer messages for a small business. Be warm, short and specific. Never promise prices, discounts or dates that are not in the conversation or owner_facts; ask instead. owner_facts are answers the owner gave before; when a draft relies on one, set its fact_id, otherwise null. Return JSON {\"replies\":[{\"event_id\":number,\"to\":string,\"draft\":string,\"fact_id\":number|null}]}."),
     ("reels", reels::FROM_CAPTIONS),
     ("ads", "You review Meta ad results for a small business owner who is not a marketer. Use plain words and only the numbers given. Return JSON {\"summary\":string,\"actions\":[{\"campaign\":string,\"do\":\"pause\"|\"keep\"|\"scale\"|\"fix\",\"why\":string}]}."),
 ];
@@ -252,6 +252,11 @@ pub async fn start(s: &AppState, u: User, agent: &str) -> ApiResult<Value> {
         _ => meta::ads_data(s, &u).await?,
     };
     let empty = context.as_object().is_some_and(|o| o.values().all(|v| v.as_array().is_some_and(|a| a.is_empty())));
+    let mut context = context;
+    // What the owner told the agent before; added after the empty check, since facts alone are nothing to read.
+    if matches!(name, "leads" | "replies") {
+        context["owner_facts"] = json!(attention::facts_for_model(&lock(&s.db), &u.id)?);
+    }
     // Ad watcher also brings an ad creative pack cut from the creator's own best pictures.
     let pictures = if name == "ads" && !u.selected_assets("instagram").is_empty() { meta::instagram_data(s, &u).await.ok() } else { None };
     let (id, ticket) = {
@@ -334,8 +339,8 @@ fn keep_drafts(db: &rusqlite::Connection, user_id: &str, ticket: i64, inbox: &[S
         let (Some(event), Some(text)) = (event, r["draft"].as_str().filter(|t| !t.trim().is_empty())) else { continue };
         let asset: Option<String> = db.query_row("SELECT asset_id FROM events WHERE id=?1", [event], |r| r.get(0)).optional()?;
         if asset.is_some_and(|a| inbox.contains(&a)) {
-            db.execute("INSERT INTO drafts (user_id,ticket_id,event_id,text,source,created) VALUES (?1,?2,?3,?4,'agent',?5)",
-                params![user_id, ticket, event, text.chars().take(1000).collect::<String>(), now()])?;
+            db.execute("INSERT INTO drafts (user_id,ticket_id,event_id,text,source,created,learned_id) VALUES (?1,?2,?3,?4,'agent',?5,(SELECT id FROM learned WHERE id=?6 AND user_id=?1))",
+                params![user_id, ticket, event, text.chars().take(1000).collect::<String>(), now(), r["fact_id"].as_i64()])?;
         }
     }
     Ok(())

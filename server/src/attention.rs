@@ -18,14 +18,16 @@ pub async fn home(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Js
     let (proactive, rules): (bool, String) = db.query_row("SELECT agent_proactive,agent_rules FROM users WHERE id=?1", [&u.id], |r| Ok((r.get(0)?, r.get(1)?)))?;
     // The newest draft per message, while the message can still be answered and nobody has.
     let mut stmt = db.prepare(
-        "SELECT d.id,d.event_id,d.text,d.source,d.created,e.kind,e.asset_id,e.sender,e.sender_name,e.text FROM drafts d JOIN events e ON e.id=d.event_id
+        "SELECT d.id,d.event_id,d.text,d.source,d.created,e.kind,e.asset_id,e.sender,e.sender_name,e.text,l.answer,l.created FROM drafts d JOIN events e ON e.id=d.event_id
+         LEFT JOIN learned l ON l.id=d.learned_id AND l.user_id=d.user_id
          WHERE d.id IN (SELECT MAX(id) FROM drafts WHERE user_id=?1 GROUP BY event_id)
            AND NOT EXISTS (SELECT 1 FROM replies r WHERE r.event_id=d.event_id AND r.error IS NULL)
            AND (e.kind='instagram_comment' OR e.created>?2)
          ORDER BY d.id DESC LIMIT 20")?;
     let drafts = stmt.query_map(params![u.id, now() - 86_400], |r| Ok((r.get::<_, String>(6)?, json!({ "type": "draft", "id": r.get::<_, i64>(0)?,
         "event_id": r.get::<_, i64>(1)?, "text": r.get::<_, String>(2)?, "source": r.get::<_, String>(3)?, "created": r.get::<_, i64>(4)?,
-        "message": { "kind": r.get::<_, String>(5)?, "sender": r.get::<_, String>(7)?, "sender_name": r.get::<_, Option<String>>(8)?, "text": r.get::<_, String>(9)? } }))))?
+        "message": { "kind": r.get::<_, String>(5)?, "sender": r.get::<_, String>(7)?, "sender_name": r.get::<_, Option<String>>(8)?, "text": r.get::<_, String>(9)? },
+        "used": r.get::<_, Option<String>>(10)?.map(|a| -> rusqlite::Result<Value> { Ok(json!({ "answer": a, "told": r.get::<_, i64>(11)? })) }).transpose()? }))))?
         .collect::<Result<Vec<_>, _>>()?
         .into_iter().filter(|(asset, _)| ids.contains(asset)).map(|(_, v)| v);
     let mut stmt = db.prepare(
@@ -50,7 +52,42 @@ pub async fn home(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Js
     }
     let needs: Vec<Value> = questions.into_iter().chain(drafts).collect();
     let (watching, last_checked) = watching(&db, &u)?;
-    Ok(Json(json!({ "needs": needs, "tickets": tickets, "proactive": proactive, "rules": rules, "watching": watching, "last_checked": last_checked })))
+    let facts = facts(&db, &u.id)?;
+    Ok(Json(json!({ "needs": needs, "tickets": tickets, "proactive": proactive, "rules": rules, "facts": facts, "watching": watching, "last_checked": last_checked })))
+}
+
+/// The most facts kept per person; the oldest goes first.
+pub const MAX_FACTS: i64 = 50;
+
+/// Keep what the owner told the agent, once per question; the same question again replaces the old answer.
+fn learn(db: &rusqlite::Connection, user_id: &str, question: &str, answer: &str) -> rusqlite::Result<()> {
+    db.execute("INSERT INTO learned (user_id,question,answer,created) VALUES (?1,?2,?3,?4)
+                ON CONFLICT(user_id,question) DO UPDATE SET answer=excluded.answer, created=excluded.created", params![user_id, question, answer, now()])?;
+    db.execute("DELETE FROM learned WHERE user_id=?1 AND id NOT IN (SELECT id FROM learned WHERE user_id=?1 ORDER BY created DESC, id DESC LIMIT ?2)", params![user_id, MAX_FACTS])?;
+    Ok(())
+}
+
+/// What the owner told the agent, newest first: `[{id, question, answer, created}]`.
+pub fn facts(db: &rusqlite::Connection, user_id: &str) -> rusqlite::Result<Vec<Value>> {
+    let mut stmt = db.prepare("SELECT id,question,answer,created FROM learned WHERE user_id=?1 ORDER BY created DESC, id DESC")?;
+    let rows = stmt.query_map([user_id], |r| Ok(json!({ "id": r.get::<_, i64>(0)?, "question": r.get::<_, String>(1)?, "answer": r.get::<_, String>(2)?, "created": r.get::<_, i64>(3)? })))?;
+    rows.collect()
+}
+
+/// The facts as the model reads them: owner text with the day it was told and the id a draft cites.
+pub fn facts_for_model(db: &rusqlite::Connection, user_id: &str) -> rusqlite::Result<Vec<Value>> {
+    Ok(facts(db, user_id)?.into_iter().map(|f| json!({ "fact_id": f["id"], "told_on": f["created"].as_i64().map(|t| executor::today(t)[..10].to_string()),
+        "question": f["question"], "answer": f["answer"] })).collect())
+}
+
+/// DELETE /api/agent/facts/{id}: the agent forgets one thing it was told. Drafts that used it keep their text.
+pub async fn forget(State(s): State<AppState>, headers: HeaderMap, Path(id): Path<i64>) -> ApiResult<Json<Value>> {
+    let u = user(&s, &headers)?;
+    let db = lock(&s.db);
+    if db.execute("DELETE FROM learned WHERE id=?1 AND user_id=?2", params![id, u.id])? == 0 {
+        return Err(AppError::new(404, "That fact is already gone."));
+    }
+    Ok(Json(json!({ "facts": facts(&db, &u.id)? })))
 }
 
 /// The switched-on channels the agent reads, and when a message last arrived or Stupid last read them from Meta.
@@ -89,6 +126,11 @@ pub async fn answer(State(s): State<AppState>, headers: HeaderMap, Path(id): Pat
             return Ok(Json(json!({ "state": "ended" })));
         }
         db.execute("INSERT INTO reports (ticket_id,kind,text,created) VALUES (?1,'answer',?2,?3)", params![id, text, now()])?;
+        // Remembered past this ticket, so the agent asks once.
+        let question: Option<String> = db.query_row("SELECT text FROM reports WHERE ticket_id=?1 AND kind='question' ORDER BY id DESC LIMIT 1", [id], |r| r.get(0)).optional()?;
+        if let Some(q) = question {
+            learn(&db, &u.id, &q, text)?;
+        }
         db.execute("INSERT INTO reports (ticket_id,kind,text,created) VALUES (?1,'progress','Working with your answer.',?2)", params![id, now()])?;
         thread
     };
@@ -174,6 +216,65 @@ mod tests {
         assert_eq!(super::home(State(s.clone()), h.clone()).await.unwrap().0["last_checked"], t - 5);
         lock(&s.db).execute("UPDATE users SET selected_json='[]' WHERE id='u'", []).unwrap();
         assert_eq!(super::home(State(s.clone()), h).await.unwrap().0["watching"], json!([]));
+    }
+
+    #[tokio::test]
+    async fn an_answer_is_remembered_used_in_the_next_draft_and_deletable() {
+        let (s, u) = state_with_user();
+        let h = signed_in(&s);
+        {
+            let db = lock(&s.db);
+            for id in [1, 2] {
+                db.execute("INSERT INTO events (id,kind,asset_id,sender,sender_name,text,created) VALUES (?1,'whatsapp','p1','9198','Asha','price of the tote?',?2)", params![id, now()]).unwrap();
+                db.execute("INSERT INTO triggers (id,user_id,thread_id,source,ref,event_id,created) VALUES (?1,'u',1,'inbox',?1,?1,?2)", params![id, now()]).unwrap();
+                db.execute("INSERT INTO tickets (id,user_id,thread_id,trigger_id,job,created) VALUES (?1,'u',1,?1,'replies',?2)", params![id, now()]).unwrap();
+            }
+            for (kind, text) in [("question", "What does the tote cost?"), ("waiting", "Waiting for your answer.")] {
+                db.execute("INSERT INTO reports (ticket_id,kind,text,created) VALUES (1,?1,?2,?3)", params![kind, text, now()]).unwrap();
+            }
+        }
+        assert_eq!(answer(State(s.clone()), h.clone(), Path(1), Json(Answer { text: " ₹450 ".into(), skip: false })).await.unwrap().0["state"], "open");
+        let Json(home) = super::home(State(s.clone()), h.clone()).await.unwrap();
+        let fact = home["facts"][0].clone();
+        assert_eq!((fact["question"].as_str(), fact["answer"].as_str()), (Some("What does the tote cost?"), Some("₹450")));
+
+        // The next message's ticket reads it, with the day it was told.
+        let input = executor::context(&lock(&s.db), "u", 2, 2).unwrap();
+        assert_eq!(input["owner_facts"][0]["answer"], "₹450");
+        assert_eq!(input["owner_facts"][0]["told_on"].as_str().unwrap(), &executor::today(now())[..10]);
+        assert_eq!(input["owner_answers"], json!([]), "this ticket's own answers stay its own");
+
+        // A draft that relies on it says so on its card; a fact id that isn't theirs is dropped.
+        crate::tools::save_draft(&s, &u, Some(2), 2, "It's ₹450.", "agent", fact["id"].as_i64()).unwrap();
+        crate::tools::save_draft(&s, &u, Some(2), 1, "Hello.", "agent", Some(999)).unwrap();
+        let Json(home) = super::home(State(s.clone()), h.clone()).await.unwrap();
+        let used: Vec<&Value> = home["needs"].as_array().unwrap().iter().map(|n| &n["used"]).collect();
+        assert_eq!(used, [&Value::Null, &json!({ "answer": "₹450", "told": fact["created"] })]);
+
+        // The same question again replaces the answer; deleting forgets it, and only the owner can.
+        lock(&s.db).execute("INSERT INTO reports (ticket_id,kind,text,created) VALUES (2,'question','What does the tote cost?',?1),(2,'waiting','Waiting for your answer.',?1)", [now()]).unwrap();
+        assert_eq!(answer(State(s.clone()), h.clone(), Path(2), Json(Answer { text: "₹500".into(), skip: false })).await.unwrap().0["state"], "open");
+        let all = facts(&lock(&s.db), "u").unwrap();
+        assert_eq!((all.len(), all[0]["answer"].as_str()), (1, Some("₹500")));
+        lock(&s.db).execute("INSERT INTO learned (user_id,question,answer,created) VALUES ('someone','q','a',1)", []).unwrap();
+        let other: i64 = lock(&s.db).query_row("SELECT id FROM learned WHERE user_id='someone'", [], |r| r.get(0)).unwrap();
+        assert!(forget(State(s.clone()), h.clone(), Path(other)).await.is_err());
+        let Json(left) = forget(State(s.clone()), h.clone(), Path(all[0]["id"].as_i64().unwrap())).await.unwrap();
+        assert_eq!(left["facts"], json!([]));
+        assert_eq!(executor::context(&lock(&s.db), "u", 2, 2).unwrap()["owner_facts"], json!([]));
+        assert!(forget(State(s), h, Path(all[0]["id"].as_i64().unwrap())).await.is_err(), "already gone");
+    }
+
+    #[test]
+    fn facts_are_capped() {
+        let (s, _) = state_with_user();
+        let db = lock(&s.db);
+        for i in 0..MAX_FACTS + 3 {
+            learn(&db, "u", &format!("q{i}"), "a").unwrap();
+        }
+        let kept = facts(&db, "u").unwrap();
+        assert_eq!(kept.len() as i64, MAX_FACTS);
+        assert_eq!(kept[0]["question"], format!("q{}", MAX_FACTS + 2), "newest kept, oldest dropped");
     }
 
     #[tokio::test]

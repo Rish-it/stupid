@@ -72,6 +72,7 @@ const runs = new Map<AgentId, AgentRun>();
 const customer = { kind: "whatsapp" as const, sender: "15550000001", sender_name: "Sample customer" };
 let home: AgentHome = {
   proactive: true, rules: "", watching: ["whatsapp", "instagram"], last_checked: now() - 120,
+  facts: [{ id: 1, question: "Sample question: do you deliver on Sundays?", answer: "Sample answer: yes, before noon.", created: now() - 86400 }],
   needs: [
     { type: "question", id: 2, question: "Sample question: what does delivery to Pune cost?", created: now() - 300, message: { ...customer, sender_name: "Sample buyer", text: "Sample: how much is delivery to Pune?" } },
     { type: "draft", id: 1, event_id: "m1", text: "Sample draft: yes, we're open until 7 today.", source: "agent", created: now() - 540, message: { ...customer, text: "Hi, are you open today?" } },
@@ -129,7 +130,7 @@ const messages: Record<Persona, InboxItem[]> = {
 const order: Record<Persona, AgentId[]> = { creator: ["reels", "ideas", "leads", "replies", "ads"], business: ["replies", "leads", "ads", "ideas", "reels"] };
 if (world) {
   const watching = me.signed_in ? [...new Set(me.assets.filter(a => a.kind !== "ads").map(a => a.kind))] : [];
-  home = { proactive: true, rules: stage === "ready" || stage === "busy" ? "Sample rules." : "", needs: [], tickets: [], watching, last_checked: watching.length ? now() - 120 : null };
+  home = { proactive: true, rules: stage === "ready" || stage === "busy" ? "Sample rules." : "", facts: [], needs: [], tickets: [], watching, last_checked: watching.length ? now() - 120 : null };
   if (stage === "busy" && persona) {
     home.needs = ask[persona];
     home.tickets = ask[persona].map(n => ({ id: n.id, job: "replies", state: n.type === "question" ? "open" : "ended", created: n.created, message: n.message,
@@ -222,6 +223,8 @@ export async function answer(method: string, path: string, body: unknown): Promi
   if (route === "DELETE /api/mcp/key") { mcp = { has_key: false, created: null, last_used: null }; return { has_key: false }; }
   if (route === "GET /api/agent") return home;
   if (route === "PUT /api/agent/settings") { home = { ...home, ...(body as { proactive: boolean; rules: string }) }; return { proactive: home.proactive, rules: home.rules }; }
+  const fact = /^DELETE \/api\/agent\/facts\/(\d+)$/.exec(route);
+  if (fact) { home = { ...home, facts: home.facts.filter(f => f.id !== Number(fact[1])) }; return { facts: home.facts }; }
   if (/^POST \/api\/agent\/tickets\/\d+\/answer$/.test(route)) { home = { ...home, needs: home.needs.filter(n => n.type !== "question") }; return { state: "open" }; }
   if (route === "GET /api/settings/ai" || route === "PUT /api/settings/ai/brain") {
     if (route.startsWith("PUT")) brain = (body as { brain: "open" | "meta" }).brain;

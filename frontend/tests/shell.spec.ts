@@ -400,7 +400,7 @@ test("legal pages are plain HTML that works without JavaScript", async ({ reques
 
 const now = () => Math.floor(Date.now() / 1000);
 const agentHome = () => ({
-  proactive: true, rules: "", watching: ["whatsapp", "messenger"], last_checked: now() - 120,
+  proactive: true, rules: "", facts: [], watching: ["whatsapp", "messenger"], last_checked: now() - 120,
   needs: [
     { type: "question", id: 7, question: "What does delivery to Pune cost?", created: now() - 60, message: { kind: "whatsapp", sender: "15550002", sender_name: "Priya", text: "How much is delivery to Pune?" } },
     { type: "draft", id: 3, event_id: "w1", text: "Yes, we're open until 7 today.", source: "agent", created: now() - 120, message: { kind: "whatsapp", sender: "15550001", sender_name: "Ana", text: "Are you open?" } },
@@ -471,7 +471,7 @@ test("Ready for you shows the actual results in the path's order, each naming it
 
 test("with nothing waiting, Home says so plainly", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json({ ...signedIn, selected: ["instagram:1"] })));
-  await page.route("**/api/agent", route => route.fulfill(json({ proactive: true, rules: "", needs: [], tickets: [], watching: [], last_checked: null })));
+  await page.route("**/api/agent", route => route.fulfill(json({ proactive: true, rules: "", facts: [], needs: [], tickets: [], watching: [], last_checked: null })));
   await page.goto("/#home");
   await expect(page.getByText("Not watching any messages yet")).toBeVisible();
   await expect(page.getByText(/Nothing waits for you/)).toBeVisible();
@@ -492,7 +492,7 @@ test("Settings turns drafting off and saves the agent's rules", async ({ page })
   const saved: unknown[] = [];
   await page.route("**/api/me", route => route.fulfill(json(signedIn)));
   await page.route("**/api/settings/ai", route => route.fulfill(json({ has_key: false, model: "test-model", workspace_ai: true })));
-  await page.route("**/api/agent", route => route.fulfill(json({ proactive: true, rules: "", needs: [], tickets: [], watching: [], last_checked: null })));
+  await page.route("**/api/agent", route => route.fulfill(json({ proactive: true, rules: "", facts: [], needs: [], tickets: [], watching: [], last_checked: null })));
   await page.route("**/api/agent/settings", route => { const body = route.request().postDataJSON(); saved.push(body); return route.fulfill(json(body)); });
   await page.goto("/#settings");
   await page.getByRole("tab", { name: "Your agent" }).click();
@@ -502,6 +502,23 @@ test("Settings turns drafting off and saves the agent's rules", async ({ page })
   await page.getByRole("button", { name: "Save rules" }).click();
   await expect(page.getByText("Saved.")).toBeVisible();
   expect(saved).toEqual([{ proactive: false, rules: "" }, { proactive: false, rules: "Open 10 to 7, closed Sundays." }]);
+});
+
+test("Settings lists what the owner told the agent and forgets one on request", async ({ page }) => {
+  const forgotten: string[] = [];
+  const fact = { id: 4, question: "What does delivery to Pune cost?", answer: "₹80, free over ₹999.", created: now() - 3600 };
+  await page.route("**/api/me", route => route.fulfill(json(signedIn)));
+  await page.route("**/api/settings/ai", route => route.fulfill(json({ has_key: false, model: "test-model", workspace_ai: true })));
+  await page.route("**/api/agent", route => route.fulfill(json({ proactive: true, rules: "", facts: [fact], needs: [], tickets: [], watching: [], last_checked: null })));
+  await page.route("**/api/agent/facts/*", route => { forgotten.push(route.request().method() + " " + new URL(route.request().url()).pathname); return route.fulfill(json({ facts: [] })); });
+  await page.goto("/#settings");
+  await page.getByRole("tab", { name: "Your agent" }).click();
+  await expect(page.getByText("What does delivery to Pune cost?")).toBeVisible();
+  await expect(page.getByText("₹80, free over ₹999.")).toBeVisible();
+  await page.getByRole("button", { name: "Forget: ₹80, free over ₹999." }).click();
+  await expect(page.getByText("₹80, free over ₹999.")).toBeHidden();
+  await expect(page.getByText(/Nothing yet. When you answer one of its questions/)).toBeVisible();
+  expect(forgotten).toEqual(["DELETE /api/agent/facts/4"]);
 });
 
 test("voice notes and photos show what they say, marked while being read", async ({ page }) => {
@@ -523,7 +540,7 @@ test("voice notes and photos show what they say, marked while being read", async
 
 test("Reel director shows what works, labelled guesses and scripts to copy", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json({ ...signedIn, selected: ["instagram:1"] })));
-  await page.route("**/api/agent", route => route.fulfill(json({ proactive: true, rules: "", needs: [], tickets: [], watching: [], last_checked: null })));
+  await page.route("**/api/agent", route => route.fulfill(json({ proactive: true, rules: "", facts: [], needs: [], tickets: [], watching: [], last_checked: null })));
   await page.route("**/api/agents", route => route.fulfill(json({ ai_ready: true, own_key: false, model: "test-model", order: ["leads", "ideas", "replies", "reels", "ads"], runs: [{ agent: "reels", status: "done", error: null, models: [], cost_usd: 0.045, created: 1, finished: 2, result: {
     from_captions_only: false,
     watched: [{ video: 1, caption: "Morning bake", permalink: "https://www.instagram.com/p/x", works: [{ at: "0:00-0:02", what: "Hands pull the bread apart in the first second." }], drop_off_guesses: [{ at: "0:09", what: "Guess: the oven shot is slow." }] }],
@@ -543,7 +560,7 @@ test("Reel director shows what works, labelled guesses and scripts to copy", asy
 
 test("Ad watcher adds a creative pack cropped around what SAM found", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json(signedIn)));
-  await page.route("**/api/agent", route => route.fulfill(json({ proactive: true, rules: "", needs: [], tickets: [], watching: [], last_checked: null })));
+  await page.route("**/api/agent", route => route.fulfill(json({ proactive: true, rules: "", facts: [], needs: [], tickets: [], watching: [], last_checked: null })));
   await page.route("**/api/instagram/media/**", route => route.fulfill({ status: 404, body: "" }));
   await page.route("**/api/agents", route => route.fulfill(json({ ai_ready: true, own_key: false, model: "test-model", order: ["leads", "ideas", "replies", "reels", "ads"], runs: [{ agent: "ads", status: "done", error: null, models: [], cost_usd: 0.01, created: 1, finished: 2, result: {
     summary: "One campaign works.", actions: [],
@@ -567,7 +584,7 @@ test("Settings makes a key for Muse, shows it once, and revokes it", async ({ pa
   let key: { has_key: boolean; created: number | null; last_used: number | null } = { has_key: false, created: null, last_used: null };
   await page.route("**/api/me", route => route.fulfill(json(signedIn)));
   await page.route("**/api/settings/ai", route => route.fulfill(json({ has_key: false, model: "test-model", workspace_ai: true })));
-  await page.route("**/api/agent", route => route.fulfill(json({ proactive: true, rules: "", needs: [], tickets: [], watching: [], last_checked: null })));
+  await page.route("**/api/agent", route => route.fulfill(json({ proactive: true, rules: "", facts: [], needs: [], tickets: [], watching: [], last_checked: null })));
   await page.route("**/api/mcp/key", route => {
     const method = route.request().method();
     if (method === "POST") { key = { has_key: true, created: Math.floor(Date.now() / 1000), last_used: null }; return route.fulfill(json({ key: "stupid_test_key", created: key.created })); }
@@ -600,7 +617,7 @@ test("a draft queued from Muse opens prefilled and marked From Muse", async ({ p
 
 test("Post ideas say how many of the creator's pictures they looked at", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json({ ...signedIn, selected: ["instagram:1"] })));
-  await page.route("**/api/agent", route => route.fulfill(json({ proactive: true, rules: "", needs: [], tickets: [], watching: [], last_checked: null })));
+  await page.route("**/api/agent", route => route.fulfill(json({ proactive: true, rules: "", facts: [], needs: [], tickets: [], watching: [], last_checked: null })));
   await page.route("**/api/agents", route => route.fulfill(json({ ai_ready: true, own_key: false, model: "test-model", order: ["leads", "ideas", "replies", "reels", "ads"], runs: [{ agent: "ideas", status: "done", error: null, models: [], cost_usd: 0.004, created: 1, finished: 2,
     result: { looked_at: 4, ideas: [{ hook: "Crab sticker unboxing", caption: "New drop", format: "reel", why: "Your second picture, the close-up, got the most comments." }] } }] })));
   await page.goto("/#agents");
@@ -635,7 +652,7 @@ test("Inbox shows each person as a card with the app, the words, when, and what'
 
 test("Agents are laid out in the path's order, each naming the models behind its last run", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json({ ...signedIn, selected: ["instagram:1"], persona: "business" })));
-  await page.route("**/api/agent", route => route.fulfill(json({ proactive: true, rules: "", needs: [], tickets: [], watching: [], last_checked: null })));
+  await page.route("**/api/agent", route => route.fulfill(json({ proactive: true, rules: "", facts: [], needs: [], tickets: [], watching: [], last_checked: null })));
   await page.route("**/api/agents", route => route.fulfill(json({ ai_ready: true, own_key: false, model: "m", order: ["replies", "leads", "ads", "ideas", "reels"], runs: [
     { agent: "reels", status: "done", error: null, models: ["Muse Wonder"], cost_usd: 0, created: 1, finished: 2, result: { from_captions_only: false, watched: [], scripts: [] } },
   ] })));
