@@ -68,7 +68,7 @@ test("the footer mascot loads on its own and gets busy over the doors", async ({
 test("a signed-in person moves between destinations", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json({ signed_in: true, name: "Test", assets: [], selected: [] })));
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Set up Stupid" })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: /^Home, / })).toBeVisible();
   await page.getByRole("link", { name: "Inbox" }).click();
   await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Inbox" })).toHaveAttribute("aria-current", "page");
@@ -79,7 +79,7 @@ const signedIn = { signed_in: true, name: "Test", selected: ["ads:act_1"], asset
   { key: "instagram:1", kind: "instagram", id: "1", name: "Test Instagram" },
 ] };
 
-test("returning from Meta opens Setup and saves account switches", async ({ page }) => {
+test("returning from Meta lands on Home, and Setup saves account switches", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json(signedIn)));
   let saved: unknown;
   await page.route("**/api/connections", route => {
@@ -87,7 +87,8 @@ test("returning from Meta opens Setup and saves account switches", async ({ page
     route.fulfill(json({ assets: signedIn.assets, selected: (saved as { selected: string[] }).selected }));
   });
   await page.goto("/?connected=1");
-  await expect(page).toHaveURL(/\/#setup$/);
+  await expect(page).toHaveURL(/\/#home$/);
+  await page.goto("/#setup");
   await page.getByRole("button", { name: "Connect WhatsApp" }).click();
   await expect(page.getByRole("link", { name: "Continue with Facebook" })).toHaveAttribute("href", "/api/v1/meta/oauth/start");
   await page.getByRole("button", { name: "Cancel" }).click();
