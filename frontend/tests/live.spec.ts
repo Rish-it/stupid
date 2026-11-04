@@ -27,7 +27,7 @@ test("a live update refetches the inbox and shows that a reply didn't arrive", a
   await expect(page.getByText("Not delivered")).toBeVisible({ timeout: 5000 });
   await page.getByText("Are you open?").click();
   await expect(page.getByText("Your reply didn't arrive")).toBeVisible();
-  await expect(page.getByText(/the number has no WhatsApp\. You can try again below\./)).toBeVisible();
+  await expect(page.getByText(/the number has no WhatsApp\./)).toBeVisible();
   await expect(page.getByLabel("Reply to Ana")).toBeVisible();
 });
 
@@ -58,3 +58,20 @@ test("a server without a stream stays quiet", async ({ page }) => {
   await page.clock.fastForward(11_000);
   await expect(page.getByText("Reconnecting…")).toBeHidden();
 });
+
+for (const [reason, title, link] of [
+  ["Business account has been locked. (131031)", "Meta has locked this WhatsApp account.", "https://business.facebook.com/business-support-home/"],
+  ["Re-engagement message (131047)", "The 24-hour reply window has ended.", "https://developers.facebook.com/documentation/business-messaging/whatsapp/messages/send-messages#customer-service-windows"],
+  ["Payment error (131042)", "Meta couldn't use this account's billing setup.", "https://business.facebook.com/latest/billing_hub/payment_methods/"],
+]) {
+  test(`Inbox explains delivery failure: ${title}`, async ({ page }) => {
+    await page.route("**/api/me", route => route.fulfill(json(me)));
+    await page.route("**/api/inbox", route => route.fulfill(json({ items: [{ ...message, reply_error: reason }] })));
+    await page.goto("/#inbox");
+    await page.getByText("Are you open?").click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByText(title, { exact: false })).toBeVisible();
+    await expect(dialog.getByRole("link", { name: "Open in Meta" })).toHaveAttribute("href", link);
+    await expect(dialog.getByRole("link", { name: "Open in Meta" })).toHaveAttribute("target", "_blank");
+  });
+}

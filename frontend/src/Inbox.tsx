@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Avatar } from "@astryxdesign/core/Avatar";
-import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { List, ListItem } from "@astryxdesign/core/List";
@@ -15,6 +14,7 @@ import type { InboxItem } from "./api";
 import { Load } from "./Load";
 import SourceIcon from "./SourceIcon";
 import { Modal, Page } from "./Surface";
+import MetaProblem from "./MetaProblem";
 
 const filters = { all: "All", messenger: "Messenger", instagram: "Instagram", whatsapp: "WhatsApp" } as const;
 const where = { whatsapp: "WhatsApp", messenger: "Messenger", instagram: "Instagram DM", instagram_comment: "Instagram comment" } as const;
@@ -110,7 +110,8 @@ function Conversation({ item, mark, onClose, onStatus }: { item: InboxItem; mark
       </> : <Button label="Close" onClick={close} />}>
       <div className="bubble"><Text as="p">{item.text}</Text></div>
       {item.replied && <Text as="p" type="supporting">You've replied to this one.</Text>}
-      {failed && <Banner status="warning" title="Your reply didn't arrive" description={`${failed} You can try again below.`} />}
+      {failed && <MetaProblem issue={failed} kind={item.kind} title="Your reply didn't arrive" />}
+      {error && <MetaProblem issue={error} kind={item.kind} />}
       {canReply && draft?.source === "agent" && <HStack><Token size="sm" label="Drafted by AI · check before sending" /></HStack>}
       {canReply && (
         <TextArea label={`Reply to ${senderName(item)}`} value={text} onChange={v => { setText(v); setError(""); }}
