@@ -53,13 +53,13 @@ pub async fn find(s: &AppState, user_id: &str, image_url: &str, subject: &str) -
 }
 
 /// The ad creative pack: for each of the best pictures, the subject and where it is. Returns it and the Baseten cost.
-pub async fn pack(s: &AppState, user_id: &str, ig: &Value, own_key: Option<&str>) -> (Vec<Value>, f64) {
+pub async fn pack(s: &AppState, user_id: &str, ig: &Value, ai: &agents::Ai) -> (Vec<Value>, f64) {
     let media = best(ig, MAX_IMAGES);
     if media.is_empty() {
         return (Vec::new(), 0.0);
     }
     let captions: Vec<Value> = media.iter().map(|m| m["caption"].clone()).collect();
-    let (subjects, cost) = match agents::muse(s, "crops", NAMING, &json!({ "captions": captions }), own_key).await {
+    let (subjects, cost) = match agents::muse(s, "crops", NAMING, &json!({ "captions": captions }), ai).await {
         Ok((v, cost)) => (v["subjects"].as_array().cloned().unwrap_or_default(), cost),
         Err(_) => (Vec::new(), 0.0),
     };

@@ -105,13 +105,13 @@ struct Muse<'a> {
     s: &'a AppState,
     u: User,
     ticket: i64,
-    own_key: Option<String>,
+    ai: agents::Ai,
     tools: Vec<Value>,
 }
 
 impl Brain for Muse<'_> {
     async fn step(&mut self, messages: &[Value]) -> ApiResult<(Value, f64)> {
-        agents::chat(self.s, "executor", messages, Some(&self.tools), self.own_key.as_deref()).await
+        agents::chat(self.s, "executor", messages, Some(&self.tools), &self.ai).await
     }
     async fn tool(&mut self, name: &str, args: &Value) -> Result<Value, String> {
         tools::call(self.s, &self.u, Some(self.ticket), name, args).await
@@ -136,7 +136,7 @@ pub async fn work(s: &AppState, ticket: i64) -> ApiResult<()> {
         let answers: Vec<Value> = said.windows(2).filter(|w| w[0].0 == "question" && w[1].0 == "answer").map(|w| json!({ "question": w[0].1, "answer": w[1].1 })).collect();
         (rules, answers)
     };
-    let mut brain = Muse { s, u: user_by_id(s, &user_id)?, ticket, own_key: agents::own_key(s, &user_id)?, tools: tools::specs() };
+    let mut brain = Muse { s, u: user_by_id(s, &user_id)?, ticket, ai: agents::ai(s, &user_id)?, tools: tools::specs() };
     let messages = vec![
         json!({ "role": "system", "content": REPLY_JOB }),
         json!({ "role": "user", "content": json!({ "event_id": event_id, "owner_rules": rules, "owner_answers": answers, "today_utc": today(now()) }).to_string() }),

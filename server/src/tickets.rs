@@ -186,8 +186,8 @@ fn decision(answer: &Value) -> (&'static str, String) {
 
 /// Gate every waiting trigger on one thread, then judge what passed with a single Muse call.
 async fn eval_thread(s: &AppState, user_id: &str, thread_id: i64) -> ApiResult<()> {
-    let own_key = agents::own_key(s, user_id)?;
-    let ai_ready = own_key.is_some() || agents::workspace_ready(s)?;
+    let ai = agents::ai(s, user_id)?;
+    let ai_ready = agents::ready(s, &ai)?;
     let (batch, messages, tickets, rules) = {
         let db = lock(&s.db);
         let Some((assets, selected, proactive, rules)) = db.query_row("SELECT assets_json,selected_json,agent_proactive,agent_rules FROM users WHERE id=?1", [user_id],
@@ -233,7 +233,7 @@ async fn eval_thread(s: &AppState, user_id: &str, thread_id: i64) -> ApiResult<(
         (batch, agents::for_model(rows), tickets, rules)
     };
     let context = json!({ "owner_rules": rules, "open_work": tickets, "messages": messages });
-    let (decided, reason, cost) = match agents::muse(s, "eval", EVAL, &context, own_key.as_deref()).await {
+    let (decided, reason, cost) = match agents::muse(s, "eval", EVAL, &context, &ai).await {
         Ok((answer, cost)) => { let (d, r) = decision(&answer); (d, r, cost) }
         Err(e) => ("unavailable", e.1, 0.0),
     };
