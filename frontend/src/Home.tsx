@@ -49,7 +49,7 @@ export default function Home({ state, persona }: { state: Connections; persona: 
         </VStack>
         <div className="home-panels">
           <Load state={home}>{data => <NeedsYou data={data} reload={home.reload} />}</Load>
-          <Load state={runs}>{data => <ReadyForYou runs={data.runs} order={data.order} persona={persona} />}</Load>
+          <Load state={runs}>{data => <ReadyForYou runs={data.runs} order={data.order} persona={persona} waiting={home.data?.needs.length ?? 0} />}</Load>
           {sample && persona && <Suspense fallback={null}><SamplePhone persona={persona} /></Suspense>}
         </div>
         {home.data && <AgentChat needs={home.data.needs} />}
@@ -203,10 +203,11 @@ function Draft({ need, onDone }: { need: Extract<Need, { type: "draft" }>; onDon
 const thin = (result: AgentResult) => "empty" in result || ("leads" in result && !result.leads.length) || ("ideas" in result && !result.ideas.length)
   || ("replies" in result && !result.replies.length) || ("scripts" in result && !result.scripts.length);
 
-function ReadyForYou({ runs, order, persona }: { runs: AgentRun[]; order: AgentId[]; persona: Persona | null }) {
+function ReadyForYou({ runs, order, persona, waiting }: { runs: AgentRun[]; order: AgentId[]; persona: Persona | null; waiting: number }) {
   const [open, setOpen] = useState<AgentRun>();
   // A result with nothing in it (no leads, no ideas) isn't ready work; its agent nudges instead.
-  const done = order.map(id => runs.find(r => r.agent === id && r.status === "done" && r.result && !thin(r.result))).filter(r => r !== undefined);
+  // Reply drafts already sent or dropped aren't ready work: they show only while Needs you still holds some.
+  const done = order.map(id => runs.find(r => r.agent === id && r.status === "done" && r.result && !thin(r.result) && (id !== "replies" || waiting > 0))).filter(r => r !== undefined);
   const own = runs.filter(r => r.agent.startsWith("custom:") && r.status === "done" && r.result).sort((a, b) => (b.finished ?? 0) - (a.finished ?? 0));
   const working = order.filter(id => runs.some(r => r.agent === id && r.status === "running"));
   // The path's first three agents nudge when they have nothing yet.
