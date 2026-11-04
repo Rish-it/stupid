@@ -137,7 +137,7 @@ const BASETEN_MODELS: &[&str] = &["meta-models/muse-spark-open-1026", "meta-mode
 const META_MODELS: &[&str] = &["muse-spark-1.3", "muse-spark-1.2", "muse-spark-1.1"];
 
 /// "meta-models/muse-spark-open-1026" -> "Muse Spark Open 1026".
-fn title(id: &str) -> String {
+pub(crate) fn title(id: &str) -> String {
     id.trim_start_matches("meta-models/").split('-').map(|w| {
         let mut c = w.chars();
         c.next().map_or_else(String::new, |f| f.to_uppercase().chain(c).collect())
@@ -500,7 +500,7 @@ fn keep_drafts(db: &rusqlite::Connection, user_id: &str, ticket: i64, inbox: &[S
 }
 
 /// Refuse a second run of the same agent, and more than the daily limit of runs and evals per person.
-fn busy(db: &rusqlite::Connection, user_id: &str, agent: &str) -> ApiResult<()> {
+pub(crate) fn busy(db: &rusqlite::Connection, user_id: &str, agent: &str) -> ApiResult<()> {
     let running: i64 = db.query_row("SELECT COUNT(*) FROM agent_runs WHERE user_id=?1 AND agent=?2 AND status='running'", params![user_id, agent], |r| r.get(0))?;
     if running > 0 {
         return Err(AppError::new(409, "This agent is already working."));

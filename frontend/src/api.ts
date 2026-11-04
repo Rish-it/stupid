@@ -118,7 +118,8 @@ export type AgentResult =
   | { scripts: ReelScript[]; watched: Watched[]; from_captions_only: boolean; skipped?: { caption?: string; permalink?: string; why: string }[] }
   | { summary: string; actions: { campaign: string; do: "pause" | "keep" | "scale" | "fix"; why: string }[]; creative_pack?: Crop[] };
 export type AgentRun = {
-  agent: AgentId; status: "running" | "done" | "failed"; result: AgentResult | null; error: string | null;
+  /** A built-in agent, or `custom:<id>` for one the owner wrote. */
+  agent: AgentId | `custom:${number}`; status: "running" | "done" | "failed"; result: AgentResult | null; error: string | null;
   cost_usd: number | null; created: number; finished: number | null;
   /** The Meta models that made this result, e.g. "Muse Spark Open", "Muse Wonder", "SAM 3.1". */
   models: string[];
@@ -128,6 +129,10 @@ export type Agents = { runs: AgentRun[]; ai_ready: boolean; own_key: boolean; mo
 /** How far one agent goes on its own: off (never runs), ask before preparing anything, or draft for review. `note` is one sentence from the person. */
 export type AgentMode = "off" | "ask" | "draft";
 export type AgentControl = { mode: AgentMode; note: string };
+/** An agent the owner wrote in plain English: when it runs each day (local "HH:MM"), what it reads and what it does. */
+export type CustomAgent = { id: number; name: string; job: string; at: string; channels: AssetKind[]; does: string; on: boolean; created: number };
+/** What one run of a custom agent left: its answer to the owner and how many drafts wait for a tap. */
+export type CustomResult = { name: string; summary: string; drafts: number };
 /** A Meta chat model the person can run their agents on, from what Baseten and Meta's Model API list. */
 export type AiModel = { id: string; label: string; provider: "baseten" | "meta"; open_weights: boolean };
 export type AiSettings = { has_key: boolean; key_saved_at?: number | null; model: string; workspace_ai: boolean; brain: "open" | "meta"; meta_brain: boolean; open_model: string; meta_model: string; models: AiModel[] };
@@ -155,7 +160,7 @@ export type Fact = { id: number; question: string; answer: string; created: numb
 export type AgentHome = { needs: Need[]; tickets: Ticket[]; proactive: boolean; rules: string; facts: Fact[]; watching: string[]; last_checked: number | null };
 /** The last thing a ticket said that a person would read. */
 export const lastReport = (t: Ticket) => t.reports.filter(r => !["question", "answer", "idea", "advice"].includes(r.kind)).at(-1);
-export const jobNames: Record<string, string> = { replies: "Reply drafts", leads: "Lead finder", ideas: "Post ideas", reels: "Reel director", ads: "Ad watcher" };
+export const jobNames: Record<string, string> = { replies: "Reply drafts", leads: "Lead finder", ideas: "Post ideas", reels: "Reel director", ads: "Ad watcher", custom: "Your own agent" };
 
 const relative = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
 /** "2 minutes ago", as plain text: no tab stop or tooltip, unlike a Timestamp. */
@@ -232,6 +237,11 @@ export const api = {
   agents: () => call<Agents>("GET", "/api/agents"),
   control: (agent: AgentId, mode: AgentMode, note: string) => call<AgentControl & { agent: AgentId }>("PUT", `/api/agents/${agent}/control`, { mode, note }),
   run: (agent: AgentId) => call<{ agent: AgentId; status: string }>("POST", `/api/agents/${agent}/run`),
+  customAgents: () => call<{ agents: CustomAgent[] }>("GET", "/api/custom-agents"),
+  createAgent: (job: string) => call<CustomAgent>("POST", "/api/custom-agents", { job }),
+  switchAgent: (id: number, on: boolean) => call<CustomAgent>("PUT", `/api/custom-agents/${id}`, { on }),
+  deleteAgent: (id: number) => call<{ deleted: number }>("DELETE", `/api/custom-agents/${id}`),
+  runAgent: (id: number) => call<{ agent: string; status: string }>("POST", `/api/custom-agents/${id}/run`),
   aiSettings: () => call<AiSettings>("GET", "/api/settings/ai"),
   setAiKey: (api_key: string, consent = false) => call<Omit<AiSettings, "workspace_ai">>("PUT", "/api/settings/ai", { api_key, consent }),
   setModel: (model: string) => call<AiSettings>("PUT", "/api/settings/ai/model", { model }),

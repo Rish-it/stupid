@@ -3,6 +3,7 @@ mod agents;
 mod attention;
 mod control;
 mod crops;
+mod custom;
 mod digest;
 #[cfg(test)]
 mod eval;
@@ -269,6 +270,10 @@ ALTER TABLE users ADD COLUMN agent_rules TEXT NOT NULL DEFAULT '';
      ALTER TABLE owner_channel ADD COLUMN psid_page TEXT; UPDATE owner_channel SET psid_page=asset_id WHERE channel='messenger';",
     // The owner's Instagram post a comment is on, for its picture in the Inbox.
     "ALTER TABLE events ADD COLUMN post_id TEXT;",
+    // Agents the owner wrote in their own words; last_day is the local day it last ran on its schedule.
+    "CREATE TABLE custom_agents (id INTEGER PRIMARY KEY, user_id TEXT NOT NULL, name TEXT NOT NULL, job TEXT NOT NULL, at TEXT NOT NULL,
+       channels_json TEXT NOT NULL, does TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1, last_day INTEGER, created INTEGER NOT NULL);
+     CREATE INDEX custom_agents_user ON custom_agents(user_id);",
 ];
 
 /// The built app. A missing hashed asset answers 404, so a stale page fails loudly instead of loading
@@ -541,7 +546,7 @@ fn delete_user(s: &AppState, id: &str) -> rusqlite::Result<()> {
         tx.execute("DELETE FROM sessions WHERE user_id=?1", [id])?;
         tx.execute("DELETE FROM agent_runs WHERE user_id=?1", [id])?;
         tx.execute("DELETE FROM reports WHERE ticket_id IN (SELECT id FROM tickets WHERE user_id=?1)", [id])?;
-        for table in ["drafts", "tickets", "evals", "triggers", "threads", "learned", "agent_controls", "owner_channel", "owner_pings"] {
+        for table in ["drafts", "tickets", "evals", "triggers", "threads", "learned", "agent_controls", "owner_channel", "owner_pings", "custom_agents"] {
             tx.execute(&format!("DELETE FROM {table} WHERE user_id=?1"), [id])?;
         }
         tx.execute("DELETE FROM access_keys WHERE user_id=?1", [id])?;
@@ -766,13 +771,14 @@ async fn main() {
         }
     });
     owner::start_worker(state.clone());
-    // Urgent pings, pings held over quiet hours and the daily summary, for owners who linked their WhatsApp.
+    // Urgent pings, pings held over quiet hours and the daily summary for owners who linked their WhatsApp, and agents owners wrote.
     let pinging = state.clone();
     tokio::spawn(async move {
         let mut every = tokio::time::interval(Duration::from_secs(30));
         loop {
             every.tick().await;
             owner::tick(&pinging).await;
+            custom::tick(&pinging).await;
         }
     });
 
@@ -800,6 +806,9 @@ async fn main() {
         .route("/api/agents", get(agents::list))
         .route("/api/agents/{agent}/run", post(agents::run))
         .route("/api/agents/{agent}/control", put(control::save))
+        .route("/api/custom-agents", get(custom::list).post(custom::create))
+        .route("/api/custom-agents/{id}", put(custom::switch).delete(custom::delete))
+        .route("/api/custom-agents/{id}/run", post(custom::run_now))
         .route("/api/agent", get(attention::home))
         .route("/api/agent/settings", put(attention::settings))
         .route("/api/agent/tickets/{id}/answer", post(attention::answer))
