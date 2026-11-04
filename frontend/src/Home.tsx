@@ -91,7 +91,7 @@ export default function Home({ state, persona }: { state: Connections; persona: 
       urgent: need?.urgent ? urgency[need.urgent] ?? "Urgent" : undefined,
       key: `t:${key}`, group: (last?.replied || last?.skipped) && !need ? "done" : last?.transcribing && !need ? "working" : "needs", who, tag: apps[kind] ?? kind, source: kind,
       preview: last ? (last.transcribing ? working[last.transcribing] : last.text) : need?.message.text ?? "", when: Math.max(last?.created ?? 0, need?.created ?? 0), state,
-      pane: <Conversation key={key} who={who} kind={kind} thread={thread} need={need} />,
+      pane: <Conversation key={key} who={who} kind={kind} thread={thread} need={need} ask={ask} />,
     });
   }
   for (const need of needs) if (need.type === "question") rows.push({
@@ -245,7 +245,7 @@ function Again({ run, ask, name }: { run: AgentRun; ask?: string; name: string }
 }
 
 /** A person's conversation, oldest first, with the agent's draft ready to send, change or write from scratch. */
-function Conversation({ who, kind, thread, need }: { who: string; kind: InboxKind; thread: InboxItem[]; need?: Extract<Need, { type: "draft" }> }) {
+function Conversation({ who, kind, thread, need, ask }: { who: string; kind: InboxKind; thread: InboxItem[]; need?: Extract<Need, { type: "draft" }>; ask?: string }) {
   const last = thread[0];
   const draft = need?.text ?? (last && !last.replied ? last.draft?.text : undefined);
   const [text, setText] = useState(draft ?? "");
@@ -260,9 +260,11 @@ function Conversation({ who, kind, thread, need }: { who: string; kind: InboxKin
   // Skipping sends nothing: the message moves to Done and its draft leaves Needs you.
   const skip = () => api.skip(id!).then(() => { setSkipped(true); refetch("inbox"); refetch("agent"); }, (cause: unknown) => setError(message(cause)));
   const kept = need ?? last?.draft ?? undefined;
+  const asking = ask && <Button variant="ghost" size="sm" label="Ask your agent" href={chatUrl(ask, `About ${who}: `)} target="_blank" rel="noopener noreferrer" />;
   const failed = last && !last.replied && !sent ? last.reply_error : undefined;
   return (
-    <Pane who={who} tag={apps[kind] ?? kind} when={last?.created ?? need?.created ?? 0} source={kind}>
+    <Pane who={who} tag={apps[kind] ?? kind} when={last?.created ?? need?.created ?? 0} source={kind}
+      actions={!canReply && asking}>
       <VStack gap={2}>
         {(thread.length ? [...thread].reverse() : [{ id: need!.event_id, text: need!.message.text ?? "", replied: false } as InboxItem]).map(m => <VStack key={m.id} gap={2}>
           <div className="bubble"><Text as="p">{m.transcribing ? working[m.transcribing] : m.text}</Text></div>
@@ -287,6 +289,7 @@ function Conversation({ who, kind, thread, need }: { who: string; kind: InboxKin
           <Button variant="primary" size="sm" label={sample ? sampleSend : "Send"} isDisabled={sample || !text.trim()} clickAction={send} />
           {draft && !editing && <Button variant="ghost" size="sm" label="Edit" onClick={() => setEditing(true)} />}
           <Button variant="ghost" size="sm" label="Skip" clickAction={skip} />
+          {asking}
         </HStack>
         <div aria-live="polite">{error && <Text as="p" size="sm">{error}</Text>}</div>
       </VStack>}
