@@ -7,7 +7,7 @@ import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
-import { ago, api, chatUrl, drafts, jobNames, ownerPlace, sample, sampleSend, senderName, useLoad, whatsappBlock } from "./api";
+import { ago, api, chatUrl, drafts, jobNames, mediaImage, ownerPlace, sample, sampleSend, senderName, useLoad, whatsappBlock } from "./api";
 import type { AgentHome, AgentId, AgentResult, AgentRun, Connections, CustomResult, Need, Persona } from "./api";
 import { Check } from "./Icons";
 import Trace from "./Trace";
@@ -210,9 +210,13 @@ function Draft({ need, onDone }: { need: Extract<Need, { type: "draft" }>; onDon
   );
 }
 
+const thin = (result: AgentResult) => "empty" in result || ("leads" in result && !result.leads.length) || ("ideas" in result && !result.ideas.length)
+  || ("replies" in result && !result.replies.length) || ("scripts" in result && !result.scripts.length);
+
 function ReadyForYou({ runs, order, persona }: { runs: AgentRun[]; order: AgentId[]; persona: Persona | null }) {
   const [open, setOpen] = useState<AgentRun>();
-  const done = order.map(id => runs.find(r => r.agent === id && r.status === "done" && r.result && !("empty" in r.result))).filter(r => r !== undefined);
+  // A result with nothing in it (no leads, no ideas) isn't ready work; its agent nudges instead.
+  const done = order.map(id => runs.find(r => r.agent === id && r.status === "done" && r.result && !thin(r.result))).filter(r => r !== undefined);
   const own = runs.filter(r => r.agent.startsWith("custom:") && r.status === "done" && r.result).sort((a, b) => (b.finished ?? 0) - (a.finished ?? 0));
   const working = order.filter(id => runs.some(r => r.agent === id && r.status === "running"));
   // The path's first three agents nudge when they have nothing yet.
@@ -268,13 +272,46 @@ function Made({ run, onOpen }: { run: AgentRun; onOpen: () => void }) {
   );
 }
 
+/** Up to four of the creator's own posts the agent looked at, small. */
+function Looked({ posts }: { posts: { id?: string; permalink?: string; caption?: string }[] }) {
+  const shown = posts.filter(p => p.id).slice(0, 4);
+  return shown.length ? <HStack gap={1} align="center" wrap="wrap">
+    <Text type="supporting" size="sm">Looked at</Text>
+    {shown.map(p => <img key={p.id} className="trace-thumb ready-thumb" src={mediaImage(p.id!)} alt={p.caption?.split("\n")[0] || "Your post"} title={p.caption} width={28} height={28} loading="lazy" />)}
+  </HStack> : null;
+}
+
 function Preview({ result }: { result: Exclude<AgentResult, { empty: true }> }) {
   if ("scripts" in result) {
     const s = result.scripts[0];
-    return s ? <VStack gap={1}><Text as="p" weight="semibold">{s.title}</Text><Text as="p" type="supporting" size="sm">Hook: {s.hook} · {s.shots.length} shots</Text></VStack> : null;
+    return s ? <VStack gap={2}>
+      <Text as="p" weight="semibold">{s.title}</Text>
+      <Text as="p" size="sm">“{s.hook}”</Text>
+      <Text as="p" type="supporting" size="sm">{s.shots.length} shots{result.scripts.length > 1 ? ` · ${result.scripts.length - 1} more ${result.scripts.length === 2 ? "script" : "scripts"}` : ""}{result.from_captions_only ? " · from your captions, no Reels to watch yet" : ""}</Text>
+      <Looked posts={result.watched} />
+    </VStack> : null;
   }
-  if ("ideas" in result) return <VStack gap={1}>{result.ideas.slice(0, 2).map((idea, i) => <Text key={i} as="p">{idea.hook} <Text type="supporting" size="sm">· {idea.format}</Text></Text>)}</VStack>;
-  if ("leads" in result) return result.leads.length ? <VStack gap={1}>{result.leads.slice(0, 2).map((l, i) => <Text key={i} as="p"><strong>{l.who}</strong> <Text type="supporting">said “{l.said}”</Text></Text>)}</VStack> : <Text as="p" type="supporting">No one ready to buy yet.</Text>;
-  if ("replies" in result) return <Text as="p">{result.replies.length} {result.replies.length === 1 ? "reply" : "replies"} drafted. Send {result.replies.length === 1 ? "it" : "them"} from Needs you or the Inbox.</Text>;
-  return <Text as="p">{result.summary}</Text>;
+  if ("ideas" in result) {
+    const idea = result.ideas[0];
+    return idea ? <VStack gap={2}>
+      <HStack gap={2} align="center" wrap="wrap"><Text weight="semibold">{idea.hook}</Text><span className="kind">{idea.format}</span></HStack>
+      <Text as="p" size="sm" className="ready-clamp">{idea.caption}</Text>
+      {result.ideas.length > 1 && <Text as="p" type="supporting" size="sm">{`${result.ideas.length - 1} more ${result.ideas.length === 2 ? "idea" : "ideas"}`}</Text>}
+      {result.looked_at_posts?.length ? <Looked posts={result.looked_at_posts} />
+        : result.looked_at ? <Text as="p" type="supporting" size="sm">{`After looking at ${result.looked_at} of your pictures.`}</Text>
+        : <Text as="p" type="supporting" size="sm">Written without seeing your pictures: Instagram shared none this time.</Text>}
+    </VStack> : null;
+  }
+  if ("leads" in result) return <VStack gap={1}>{result.leads.slice(0, 2).map((l, i) => <Text key={i} as="p"><strong>{l.who}</strong> <Text type="supporting">said “{l.said}”</Text></Text>)}</VStack>;
+  if ("replies" in result) {
+    const first = result.replies[0];
+    return <VStack gap={1}>
+      {first && <Text as="p" size="sm" className="ready-clamp"><strong>To {first.to || "a customer"}:</strong> {first.draft}</Text>}
+      <Text as="p" type="supporting" size="sm">{result.replies.length === 1 ? "Send it from Needs you or the Inbox." : `${result.replies.length} replies drafted. Send them from Needs you or the Inbox.`}</Text>
+    </VStack>;
+  }
+  return <VStack gap={1}>
+    <Text as="p" className="ready-clamp">{result.summary}</Text>
+    {result.actions.length > 0 && <Text as="p" type="supporting" size="sm">{`${result.actions.length} ${result.actions.length === 1 ? "suggestion" : "suggestions"} for your ads`}</Text>}
+  </VStack>;
 }
