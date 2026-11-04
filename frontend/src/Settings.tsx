@@ -37,6 +37,8 @@ function Row({ id, title, description, children }: { id: string; title: string; 
 const sections = ["Your work", "Connections", "Your agent", "AI model", "Muse", "Account"] as const;
 type Section = typeof sections[number];
 
+const focusRail = () => document.querySelector<HTMLElement>(".rail-me")?.focus();
+
 /** Settings is a window over the app: sections on the left, the chosen one on the right. Nothing scrolls the page. */
 export default function Settings({ name, persona, account, onAccount, onConnect, onPersona, onSignedOut, onClose }: {
   name: string; persona: Persona | null; account: Account; onAccount: (next: Account) => void; onConnect: () => void;
@@ -44,7 +46,9 @@ export default function Settings({ name, persona, account, onAccount, onConnect,
 }) {
   const [section, setSection] = useState<Section>("Your work");
   // Closing hands focus back to the rail's Settings link, which opened it.
-  useEffect(() => () => void requestAnimationFrame(() => document.querySelector<HTMLElement>(".rail-me")?.focus()), []);
+  // A closing transition waits for this unmount: the page behind is then in place (rAF doesn't run during one).
+  const closed = useRef<() => void>(undefined);
+  useEffect(() => () => { closed.current?.(); requestAnimationFrame(focusRail); }, []);
   const tabs = useRef<HTMLDivElement>(null);
   // Arrow keys move between sections, as in any tab list.
   const move = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -63,10 +67,8 @@ export default function Settings({ name, persona, account, onAccount, onConnect,
   // Closing fades the window into the page behind it (a View Transition); without one, or with reduced motion, it just closes.
   const close = () => {
     if (!document.startViewTransition || matchMedia("(prefers-reduced-motion: reduce)").matches) return onClose();
-    document.startViewTransition(() => new Promise<void>(done => {
-      addEventListener("hashchange", () => requestAnimationFrame(() => requestAnimationFrame(() => done())), { once: true });
-      onClose();
-    }));
+    // The transition's snapshot drops focus to the page; hand it back once the fade is over.
+    void document.startViewTransition(() => new Promise<void>(done => { closed.current = done; onClose(); })).finished.then(focusRail);
   };
   const change = (open: boolean) => { if (!open) close(); };
   return (

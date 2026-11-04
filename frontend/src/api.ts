@@ -153,8 +153,13 @@ export class ApiError extends Error {
   }
 }
 
-/** Dev builds only: ?fixtures=1 answers from labelled sample data instead of the server. */
-export const sample = import.meta.env.DEV && new URLSearchParams(location.search).has("fixtures");
+/**
+ * ?fixtures=1 answers from labelled sample data instead of the server, loaded only then. It is how people without a
+ * Meta login try Stupid ("See a sample desk"). It never calls the server, so it never touches a real session.
+ */
+export const sample = new URLSearchParams(location.search).has("fixtures");
+/** Sample mode has nothing to send to: every send button says so and stays off. */
+export const sampleSend = "Sample: nothing is sent";
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   if (sample) return (await import("./fixtures")).answer(method, path, body) as Promise<T>;
