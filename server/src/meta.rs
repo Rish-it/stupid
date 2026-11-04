@@ -139,6 +139,23 @@ pub fn add_refusals(db: &rusqlite::Connection, assets: &mut [Asset]) -> rusqlite
     Ok(())
 }
 
+/// With several WhatsApp numbers switched on, only one is judged: the one the owner is paired on, else the healthiest.
+/// The others' problems stay listed on them but no longer block or warn, so an old broken number can't hide a working one.
+pub fn judge_numbers(assets: &mut [Asset], selected: &[String], paired: Option<&str>) {
+    let on: Vec<usize> = (0..assets.len()).filter(|&i| assets[i].kind == "whatsapp" && selected.contains(&assets[i].key)).collect();
+    if on.len() < 2 {
+        return;
+    }
+    let blocks = |a: &Asset| a.issues.iter().filter(|i| i.blocking).count();
+    let judged = on.iter().copied().find(|&i| Some(assets[i].id.as_str()) == paired)
+        .or_else(|| on.iter().copied().min_by_key(|&i| blocks(&assets[i])));
+    for i in on.into_iter().filter(|&i| Some(i) != judged) {
+        for issue in &mut assets[i].issues {
+            issue.blocking = false;
+        }
+    }
+}
+
 /// Per WhatsApp number in a status webhook: a business-level refusal, or None once a message was sent.
 pub fn whatsapp_states(payload: &Value) -> Vec<(String, Option<(String, i64)>)> {
     let values = payload["entry"].as_array().into_iter().flatten().flat_map(|e| e["changes"].as_array().into_iter().flatten()).map(|c| &c["value"]);
@@ -1098,6 +1115,22 @@ mod tests {
             assert!(issues[0].blocking && issues[0].fix.contains("hasn't shared"));
         }
         assert!(whatsapp_issues(&json!({"can_send_message":"AVAILABLE"}), "7", "8").is_empty());
+    }
+
+    #[test]
+    fn an_old_broken_number_does_not_block_the_working_one() {
+        let issue = |blocking| Issue { blocking, text: "Not registered".into(), fix: "x".into(), link: "x".into() };
+        let number = |id: &str, issues: Vec<Issue>| Asset { key: format!("whatsapp:{id}"), kind: "whatsapp".into(), id: id.into(), name: id.into(), issues, business: None };
+        let on = vec!["whatsapp:old".to_string(), "whatsapp:new".to_string()];
+        let mut assets = vec![number("old", vec![issue(true)]), number("new", vec![])];
+        judge_numbers(&mut assets, &on, None);
+        assert!(!assets[0].issues[0].blocking, "the healthy number is judged when nobody is paired");
+        let mut assets = vec![number("old", vec![issue(true)]), number("new", vec![issue(true)])];
+        judge_numbers(&mut assets, &on, Some("new"));
+        assert!(!assets[0].issues[0].blocking && assets[1].issues[0].blocking, "the paired number is judged, even when broken");
+        let mut one = vec![number("old", vec![issue(true)])];
+        judge_numbers(&mut one, &on[..1], None);
+        assert!(one[0].issues[0].blocking, "a single broken number still says so");
     }
 
     #[test]

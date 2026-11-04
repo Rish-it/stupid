@@ -146,7 +146,7 @@ async fn business_number(s: &AppState, u: &User, ch: &Channel) -> Option<String>
         return ch.business_number.clone();
     }
     // A number kept from before a reconnect belongs to whatever was linked then; never show it for another one.
-    let asset = linked.or_else(|| on.iter().copied().min_by_key(|a| a.issues.iter().filter(|i| i.blocking).count()))?;
+    let asset = linked.or_else(|| on.iter().copied().min_by_key(|a| (a.issues.iter().filter(|i| i.blocking).count(), a.issues.len())))?;
     let key = format!("wa_number:{}", asset.id);
     let cached = lock(&s.cache).get(&key).and_then(|(_, v)| v.as_str().map(String::from));
     let number = match cached {

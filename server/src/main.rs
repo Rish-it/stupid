@@ -353,6 +353,11 @@ pub fn user_by_id(state: &AppState, id: &str) -> ApiResult<User> {
     let mut seen = std::collections::HashSet::new();
     selected.retain(|k| seen.insert(k.clone()));
     meta::add_refusals(&lock(&state.db), &mut assets)?;
+    let paired: Option<String> = lock(&state.db)
+        .query_row("SELECT asset_id FROM owner_channel WHERE user_id=?1 AND channel='whatsapp'", [id], |r| r.get(0))
+        .optional()?
+        .flatten();
+    meta::judge_numbers(&mut assets, &selected, paired.as_deref());
     Ok(User {
         id: id.to_string(),
         name,
