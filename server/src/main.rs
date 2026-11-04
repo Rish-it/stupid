@@ -225,6 +225,8 @@ ALTER TABLE users ADD COLUMN agent_rules TEXT NOT NULL DEFAULT '';
     "ALTER TABLE users ADD COLUMN ai_brain TEXT NOT NULL DEFAULT 'open';",
     // Who Stupid works for: `creator` or `business`; NULL until the person picks.
     "ALTER TABLE users ADD COLUMN persona TEXT;",
+    // Which Meta models made each run, and when Stupid last read the person's inboxes from Meta.
+    "ALTER TABLE agent_runs ADD COLUMN models_json TEXT NOT NULL DEFAULT '[]'; ALTER TABLE users ADD COLUMN last_pull INTEGER;",
 ];
 
 fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
