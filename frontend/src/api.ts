@@ -165,9 +165,12 @@ export function ago(unix: number) {
 /** status 0 = server unreachable; 401 = signed out; any other 4xx carries a message written for the person. */
 export class ApiError extends Error {
   status: number;
-  constructor(status: number, message: string) {
+  /** The server's whole answer, for errors that say more than a message (e.g. `{ needs: "link" }`). */
+  body?: unknown;
+  constructor(status: number, message: string, body?: unknown) {
     super(message);
     this.status = status;
+    this.body = body;
   }
 }
 
@@ -199,7 +202,7 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   const data = (await res.json().catch(() => undefined)) as (T & { message?: string }) | undefined;
   // A non-JSON reply is either a dev proxy with no server behind it, or the server's page fallback for a route it doesn't have yet.
   if (data === undefined) throw res.status >= 500 ? new ApiError(0, "Stupid can't reach its server right now.") : new ApiError(404, "This isn't available yet.");
-  if (!res.ok) throw new ApiError(res.status, data.message ?? `Request failed (${res.status}).`);
+  if (!res.ok) throw new ApiError(res.status, data.message ?? `Request failed (${res.status}).`, data);
   return data;
 }
 
@@ -234,6 +237,22 @@ export const api = {
   style: () => call<Style>("GET", "/api/agent/style"),
   forgetStyle: () => call<{ style: null; message: string }>("DELETE", "/api/agent/style"),
   forgetFact: (id: number) => call<{ facts: Fact[] }>("DELETE", `/api/agent/facts/${id}`),
+  ownerChannel: () => call<OwnerChannel>("GET", "/api/owner-channel"),
+  setOwnerChannel: (change: Partial<Pick<OwnerChannel, "phone" | "digest_time" | "tz" | "quiet" | "urgent">>) => call<OwnerChannel>("PUT", "/api/owner-channel", change),
+  testOwnerChannel: () => call<{ sent: true }>("POST", "/api/owner-channel/test"),
+};
+
+/** Pings the owner can ask for on their own WhatsApp. */
+export type Urgent = "big_order" | "complaint" | "brand_deal" | "payment" | "question";
+/**
+ * The owner's own WhatsApp: the agent messages them there (pings, a daily summary) inside the 24-hour window
+ * they open by messaging the business number. Anything to a customer still waits for their tap or a "1" reply.
+ */
+export type OwnerChannel = {
+  phone: string | null; link_code: string; linked: boolean; business_number: string | null;
+  /** Unix seconds: the owner's last message to the business number plus 24 hours. */
+  window_until: number | null;
+  digest_time: string | null; tz: string; quiet: { from: string; to: string } | null; urgent: Urgent[]; last_ping: number | null;
 };
 
 /** A reply waiting in the Inbox. `source` marks text an agent wrote, so the person sees it came from AI. */

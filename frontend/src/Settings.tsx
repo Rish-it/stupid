@@ -19,6 +19,7 @@ import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { api, useLoad } from "./api";
 import type { Account, AiModel, AiSettings, Fact, Persona } from "./api";
 import { Load } from "./Load";
+import OnYourWhatsApp from "./OwnerChannel";
 import Setup from "./Setup";
 
 const message = (cause: unknown) => cause instanceof Error ? cause.message : String(cause);
@@ -36,7 +37,7 @@ function Row({ id, title, description, children }: { id: string; title: string; 
   );
 }
 
-const sections = ["Your work", "Connections", "Your agent", "AI model", "Muse", "Account"] as const;
+const sections = ["On your WhatsApp", "Your work", "Connections", "Your agent", "AI model", "Muse", "Account"] as const;
 type Section = typeof sections[number];
 
 const focusRail = () => document.querySelector<HTMLElement>(".rail-me")?.focus();
@@ -46,7 +47,7 @@ export default function Settings({ name, persona, account, onAccount, onConnect,
   name: string; persona: Persona | null; account: Account; onAccount: (next: Account) => void; onConnect: () => void;
   onPersona: (persona: Persona) => Promise<void>; onSignedOut: () => void; onClose: () => void;
 }) {
-  const [section, setSection] = useState<Section>("Your work");
+  const [section, setSection] = useState<Section>("On your WhatsApp");
   // Closing hands focus back to the rail's Settings link, which opened it.
   // A closing transition waits for this unmount: the page behind is then in place (rAF doesn't run during one).
   const closed = useRef<() => void>(undefined);
@@ -91,6 +92,7 @@ export default function Settings({ name, persona, account, onAccount, onConnect,
             <Button variant="ghost" label="Close settings" isIconOnly icon={<Icon icon="close" />} onClick={close} />
           </HStack>
           <div key={section} id="prefs-panel" role="tabpanel" aria-labelledby={`tab-${section}`} className="prefs-panel">
+            {section === "On your WhatsApp" && <OnYourWhatsApp />}
             {section === "Your work" && <Path persona={persona} onPersona={onPersona} />}
             {section === "Connections" && <Row id="setup-heading" title="Apps and accounts" description="Which accounts Stupid reads, and anything Meta still needs.">
               <Setup state={account} persona={persona} onChange={onAccount} onConnect={onConnect} embedded />

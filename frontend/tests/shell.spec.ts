@@ -280,15 +280,16 @@ test("Settings opens over the page, swaps sections in place and closes back to i
   await page.goto("/#inbox");
   await page.getByRole("link", { name: "Settings" }).click();
   const settings = page.getByRole("dialog", { name: "Settings" });
-  await expect(settings.getByRole("heading", { name: "Your work", exact: true })).toBeVisible();
+  // It opens on the first section, your own WhatsApp.
+  await expect(settings.getByRole("heading", { name: "On your WhatsApp", exact: true })).toBeVisible();
   await expect(page.getByText("Are you open?")).toBeAttached();
-  await settings.getByRole("tab", { name: "Your work" }).press("ArrowDown");
-  await expect(settings.getByRole("tab", { name: "Connections" })).toBeFocused();
-  await expect(settings.getByRole("tab", { name: "Connections" })).toHaveAttribute("aria-selected", "true");
-  await settings.getByRole("tab", { name: "Connections" }).press("End");
+  await settings.getByRole("tab", { name: "On your WhatsApp" }).press("ArrowDown");
+  await expect(settings.getByRole("tab", { name: "Your work" })).toBeFocused();
+  await expect(settings.getByRole("tab", { name: "Your work" })).toHaveAttribute("aria-selected", "true");
+  await settings.getByRole("tab", { name: "Your work" }).press("End");
   await expect(settings.getByRole("tab", { name: "Account" })).toBeFocused();
   await settings.getByRole("tab", { name: "Account" }).press("Home");
-  await expect(settings.getByRole("tab", { name: "Your work" })).toHaveAttribute("aria-selected", "true");
+  await expect(settings.getByRole("tab", { name: "On your WhatsApp" })).toHaveAttribute("aria-selected", "true");
   // One window, no page scroll, at desktop and phone sizes.
   for (const size of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(size);
@@ -325,6 +326,7 @@ test("Settings changes the path between creator and business", async ({ page }) 
   await page.route("**/api/me", route => route.fulfill(json(account)));
   await page.route("**/api/me/persona", route => { sent.push(route.request().postDataJSON()); account = { ...account, persona: "business" }; return route.fulfill(json(account)); });
   await page.goto("/#settings");
+  await page.getByRole("tab", { name: "Your work" }).click();
   await expect(page.getByRole("radio", { name: "Create content" })).toBeChecked();
   await page.getByRole("radio", { name: "Run a business" }).click();
   await expect(page.getByRole("radio", { name: "Run a business" })).toBeChecked();
@@ -1023,4 +1025,70 @@ test("See results opens over its app's window and Escape steps back one level at
   await expect(page.getByRole("button", { name: "Instagram", exact: true })).toBeFocused();
   // The sample names a real model (QA 9-3).
   await expect(page.getByText("Agents run on Muse Spark Open (sample).")).toBeVisible();
+});
+
+test("Settings opens on your own WhatsApp: linked with the window open, and every setting saves", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto("http://127.0.0.1:8032/?fixtures=1&persona=business&stage=ready#settings");
+  const panel = page.getByRole("dialog", { name: "Settings" }).getByRole("tabpanel");
+  await expect(page.getByRole("tab").first()).toHaveText("On your WhatsApp");
+  await expect(panel.getByText(/^Linked · I can message you until \d\d:\d\d$/)).toBeVisible();
+  // Only the last four digits show.
+  await expect(panel.getByText("•••• 0001")).toBeVisible();
+  await expect(panel.getByText("+919800000001")).toHaveCount(0);
+  await expect(panel.getByRole("switch", { name: "Daily summary" })).toBeChecked();
+  await expect(panel.getByLabel("Summary time")).toHaveValue("21:00");
+  await expect(panel.getByLabel("From")).toHaveValue("23:00");
+  await expect(panel.getByRole("checkbox", { name: "Big orders" })).toBeChecked();
+  await panel.getByRole("checkbox", { name: "Brand deals" }).check();
+  await expect(panel.getByText("Saved")).toBeVisible();
+  await panel.getByRole("button", { name: "Send a test" }).click();
+  await expect(panel.getByText("Sent. Check your WhatsApp.")).toBeVisible();
+  // The whole section fits the Settings window on a laptop.
+  expect(await panel.evaluate(el => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
+  // A new number has to be linked again: the link opens WhatsApp with the code typed in.
+  await panel.getByRole("button", { name: "Change number" }).click();
+  await panel.getByRole("textbox", { name: "Your WhatsApp number" }).fill("+91 98000 00002");
+  await panel.getByRole("button", { name: "Save number" }).click();
+  await expect(panel.getByText("Not linked")).toBeVisible();
+  await expect(panel.getByRole("link", { name: "Link it" })).toHaveAttribute("href", "https://wa.me/15550100000?text=hi%20N3W5PH");
+  await expect(panel.getByText("or send hi N3W5PH to +15550100000 from your phone")).toBeVisible();
+  await panel.getByRole("button", { name: "Send a test" }).click();
+  await expect(panel.getByText(/^Link your WhatsApp first/)).toBeVisible();
+  // Daily summary off: its time goes.
+  await panel.getByRole("switch", { name: "Daily summary" }).click();
+  await expect(panel.getByLabel("Summary time")).toHaveCount(0);
+});
+
+test("a closed window says how to reopen it, and the test says exactly what's needed", async ({ page }) => {
+  const owner = { phone: "+919800000001", link_code: "K7Q2XM", linked: true, business_number: "+15550100000", window_until: now() - 60,
+    digest_time: null, tz: "Asia/Kolkata", quiet: null, urgent: [], last_ping: null };
+  await page.route("**/api/me", route => route.fulfill(json(signedIn)));
+  await page.route("**/api/owner-channel", route => route.fulfill(json(owner)));
+  await page.route("**/api/owner-channel/test", route => route.fulfill({ status: 409, ...json({ needs: "window" }) }));
+  await page.goto("/#settings");
+  const panel = page.getByRole("dialog", { name: "Settings" }).getByRole("tabpanel");
+  await expect(panel.getByText("Window closed: send any message to reopen")).toBeVisible();
+  await panel.getByRole("button", { name: "Send a test" }).click();
+  await expect(panel.getByText(/within 24 hours of your last message\. Send any message to the business number/)).toBeVisible();
+});
+
+test("Home says when it's pinging you on WhatsApp", async ({ page }) => {
+  await page.goto("http://127.0.0.1:8032/?fixtures=1&persona=business&stage=busy#home");
+  await expect(page.getByText(/· Pinging you on WhatsApp/)).toBeVisible();
+});
+
+test("not linked yet: Home offers one tap to set it up, and onboarding offers it as an optional last step", async ({ page }) => {
+  const owner = { phone: null, link_code: "R4N8TB", linked: false, business_number: "+15550100000", window_until: null, digest_time: null, tz: "Asia/Kolkata", quiet: null, urgent: [], last_ping: null };
+  await page.route("**/api/me", route => route.fulfill(json({ ...signedIn, persona: "business" })));
+  await page.route("**/api/agent", route => route.fulfill(json(agentHome())));
+  await page.route("**/api/owner-channel", route => route.fulfill(json(owner)));
+  await page.route("**/api/setup/next", route => route.fulfill(json({ persona: "business", done: true, step: null, progress: { done: 3, total: 3 } })));
+  await page.goto("/#home");
+  // Onboarding offers it once the server's steps are done, and it can wait.
+  const card = page.getByRole("dialog", { name: "Get pinged on your own WhatsApp" });
+  await expect(card.getByRole("link", { name: "Set it up" })).toHaveAttribute("href", "#settings");
+  await card.getByRole("button", { name: "Skip for now" }).click();
+  await expect(card).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Get pinged on your WhatsApp" })).toHaveAttribute("href", "#settings");
 });
