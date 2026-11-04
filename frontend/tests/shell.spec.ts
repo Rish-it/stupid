@@ -11,45 +11,58 @@ test("shows a clear offline state when the server is down", async ({ page }) => 
   await expect(page.getByText("Not an official Meta product.")).toBeVisible();
 });
 
-test("the landing page offers two doors, each with its own sign-in", async ({ page }) => {
+test("the welcome page offers two doors, each with its own sign-in", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json({ signed_in: false })));
   await page.goto("/");
-  await expect(page.getByRole("heading", { level: 1, name: "Stupid does your Meta busywork" })).toBeVisible();
   await expect(page.getByText("Stupid only reads what you allow.")).toBeVisible();
   await expect(page.getByText("Not an official Meta product.")).toBeVisible();
   for (const [name, href] of [["Privacy", "/privacy.html"], ["Terms", "/terms.html"], ["Data deletion", "/deletion.html"]])
     await expect(page.getByRole("link", { name, exact: true })).toHaveAttribute("href", href);
   await expect(page.getByRole("link", { name: "Continue with Facebook" })).toHaveCount(0);
 
-  await page.getByRole("button", { name: "I run a business" }).click();
+  const business = page.getByRole("button", { name: "I run a business" }).first();
+  await business.click();
   const dialog = page.getByRole("dialog", { name: "Connect your business" });
   await expect(dialog.getByText("Your WhatsApp Business number.")).toBeVisible();
   await expect(dialog.getByRole("link", { name: "Continue with Facebook" })).toHaveAttribute("href", "/api/v1/meta/oauth/start");
   await expect(dialog.getByRole("link", { name: "Privacy policy" })).toHaveAttribute("href", "/privacy.html");
   expect(await page.evaluate(() => sessionStorage.getItem("stupid.persona"))).toBeNull();
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("button", { name: "I run a business" })).toBeFocused();
+  await expect(business).toBeFocused();
 
-  await page.getByRole("button", { name: "I create content" }).click();
+  await page.getByRole("button", { name: "I create content" }).first().click();
   await expect(page.getByRole("dialog", { name: "Connect as a creator" }).getByText(/Your Instagram account/)).toBeVisible();
   // The door is kept only once the person continues; a plain sign-in clears it.
   await page.route("**/api/v1/meta/oauth/start", route => route.fulfill({ status: 204 }));
   await page.getByRole("link", { name: "Continue with Facebook" }).click({ noWaitAfter: true });
   await expect.poll(() => page.evaluate(() => sessionStorage.getItem("stupid.persona"))).toBe("creator");
   await page.goto("/");
-  await page.getByRole("button", { name: "Already use Stupid? Sign in" }).click();
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
   await page.getByRole("link", { name: "Continue with Facebook" }).click({ noWaitAfter: true });
   await expect.poll(() => page.evaluate(() => sessionStorage.getItem("stupid.persona"))).toBeNull();
 });
 
-test("how it works switches between the creator and business paths", async ({ page }) => {
+test("the welcome headline cycles, and holds still for reduced motion", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json({ signed_in: false })));
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Stupid watches and writes" })).toBeVisible();
-  await page.getByRole("radio", { name: "Businesses" }).click();
-  await expect(page.getByRole("heading", { name: "Stupid listens and drafts" })).toBeVisible();
-  for (const model of ["Muse Spark", "Voice Transcribe", "Wonder", "SAM 3.1"]) await expect(page.getByText(model, { exact: true })).toBeVisible();
-  await expect(page.getByText("Works with Muse and Muse Code")).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "Stupid, AI that does your Meta busywork", exact: true })).toBeVisible();
+  const shown = page.locator(".rebus-phrase:not([hidden])");
+  await expect(shown).toHaveText("does your Meta busywork");
+  await expect(shown.last()).toHaveText("answers your customers", { timeout: 5000 });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.reload();
+  await page.waitForTimeout(4000);
+  await expect(shown).toHaveText("does your Meta busywork");
+});
+
+test("the footer mascot loads on its own and gets busy over the doors", async ({ page }) => {
+  await page.route("**/api/me", route => route.fulfill(json({ signed_in: false })));
+  await page.goto("/");
+  const footer = page.locator("footer.outro");
+  await footer.scrollIntoViewIfNeeded();
+  await expect(footer.locator(".mascot-stage canvas")).toBeVisible();
+  await footer.getByRole("button", { name: "I run a business" }).hover();
+  await expect(footer.locator(".mascot-stage canvas")).toHaveAttribute("aria-label", /working/i);
 });
 
 test("a signed-in person moves between destinations", async ({ page }) => {
@@ -107,7 +120,7 @@ test("continuing with Facebook shows a full-screen loader on the way out and bac
   await page.goto("/?connected=1");
   await expect(page.getByText("Connecting to Meta…")).toBeVisible();
   answer();
-  await page.getByRole("button", { name: "I create content" }).click();
+  await page.getByRole("button", { name: "I create content" }).first().click();
   await expect(page.getByRole("link", { name: "Continue with Instagram" })).toHaveAttribute("href", "/api/v1/instagram/oauth/start");
   await page.route("**/api/v1/meta/oauth/start", route => route.fulfill({ status: 204 })); // 204 keeps the page where it is
   await page.getByRole("link", { name: "Continue with Facebook" }).click({ noWaitAfter: true });
@@ -261,7 +274,7 @@ test("Settings saves an AI key, confirms before deleting and signs out", async (
   expect(deleted).toBe(false);
   await page.getByRole("button", { name: "Disconnect and delete my data" }).click();
   await page.getByRole("button", { name: "Yes, delete everything" }).click();
-  await expect(page.getByRole("button", { name: "I run a business" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "I run a business" }).first()).toBeVisible();
   expect(deleted).toBe(true);
 });
 

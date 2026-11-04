@@ -59,7 +59,7 @@ export default function Inbox() {
               return (
                 <li key={item.id}>
                   <button type="button" className="person" data-app={item.kind.startsWith("instagram") ? "instagram" : item.kind} onClick={() => setOpen(item.id)}>
-                    <span className="tag">{where[item.kind]}</span>
+                    <span className="kind">{where[item.kind]}</span>
                     <span className="person-text">{item.transcribing ? working[item.transcribing] : item.text}</span>
                     <span className="person-foot">
                       <strong>{senderName(item)}</strong>

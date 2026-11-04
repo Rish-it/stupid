@@ -167,7 +167,7 @@ function Made({ run, onOpen }: { run: AgentRun; onOpen: () => void }) {
     <VStack gap={2}>
       <HStack gap={2} align="center" wrap="wrap">
         <Text weight="semibold" size="sm">{jobNames[run.agent]}</Text>
-        {run.models?.length ? <span className="tag">{list(run.models)}</span> : null}
+        {run.models?.length ? <span className="kind">{list(run.models)}</span> : null}
         {run.finished && <Text type="supporting" size="sm">{ago(run.finished)}</Text>}
       </HStack>
       <Preview result={result} />
