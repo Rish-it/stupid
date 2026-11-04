@@ -815,8 +815,8 @@ pub mod tests_support {
     pub fn state_with_user() -> (AppState, User) {
         let mut conn = Connection::open_in_memory().unwrap();
         migrate(&mut conn).unwrap();
-        conn.execute("INSERT INTO users (id,meta_user_id,name,token_blob,token_expires,assets_json,selected_json) VALUES ('u','1','n','b',0,?1,'[\"wa:p1\"]')",
-            [r#"[{"key":"wa:p1","kind":"whatsapp","id":"p1","name":"Shop"}]"#]).unwrap();
+        conn.execute("INSERT INTO users (id,meta_user_id,name,token_blob,token_expires,assets_json,selected_json) VALUES ('u','1','n','b',0,?1,'[\"whatsapp:p1\"]')",
+            [r#"[{"key":"whatsapp:p1","kind":"whatsapp","id":"p1","name":"Shop"}]"#]).unwrap();
         let mut cfg = Config::load();
         cfg.muse_key = String::new();
         let state = AppState { cfg: Arc::new(cfg), db: Arc::new(Mutex::new(conn)), http: reqwest::Client::new(), fernet: None, cache: Default::default(), queue: Default::default() };

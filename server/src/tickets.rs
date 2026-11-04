@@ -410,8 +410,8 @@ mod tests {
     async fn eval_gates_inbox_triggers_from_the_database() {
         let mut conn = Connection::open_in_memory().unwrap();
         crate::migrate(&mut conn).unwrap();
-        conn.execute("INSERT INTO users (id,meta_user_id,name,token_blob,token_expires,assets_json,selected_json) VALUES ('u','1','n','b',0,?1,'[\"wa:p1\"]')",
-            [r#"[{"key":"wa:p1","kind":"whatsapp","id":"p1","name":"Shop"}]"#]).unwrap();
+        conn.execute("INSERT INTO users (id,meta_user_id,name,token_blob,token_expires,assets_json,selected_json) VALUES ('u','1','n','b',0,?1,'[\"whatsapp:p1\"]')",
+            [r#"[{"key":"whatsapp:p1","kind":"whatsapp","id":"p1","name":"Shop"}]"#]).unwrap();
         for (sender, dedupe) in [("9198", "wa:a"), ("p1", "wa:b")] {
             conn.execute("INSERT INTO events (kind,asset_id,sender,sender_name,text,created,dedupe) VALUES ('whatsapp','p1',?1,'Asha','price?',?2,?3)", params![sender, now() - 600, dedupe]).unwrap();
         }
