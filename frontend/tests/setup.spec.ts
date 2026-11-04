@@ -68,3 +68,58 @@ test("Setup checks again when the tab comes back into view", async ({ page }) =>
   await expect(page.getByText("Checked just now.")).toBeVisible();
   expect(refreshed).toBe(1);
 });
+
+for (const [kind, name, instruction] of [
+  ["instagram", "Instagram", "Switch to Professional"],
+  ["whatsapp", "WhatsApp", "Find the business account and number"],
+  ["messenger", "Facebook Page", "Create a Page if you need one"],
+  ["ads", "Meta Ads", "Choose or create an ad account"],
+]) {
+  for (const stage of ["connect", "choose", "fix", "ready"]) {
+    test(`tutorial fixtures: ${name} resumes at ${stage}`, async ({ page }) => {
+      await page.goto(`http://127.0.0.1:8032/?fixtures=1&tutorial=${kind}&stage=${stage}#setup`);
+      await expect(page.getByText("Nothing on this page is real.")).toBeVisible();
+      await page.getByRole("button", { name: `${stage === "connect" ? "Connect" : "Manage"} ${name}`, exact: true }).click();
+      const dialog = page.getByRole("dialog");
+      if (stage === "connect") {
+        await expect(dialog.getByText("What you need", { exact: true })).toBeVisible();
+        await expect(dialog.getByText(instruction, { exact: true })).toBeVisible();
+        await expect(dialog.getByText(/Come back here. Stupid checks/)).toBeVisible();
+        await expect(dialog.getByRole("link", { name: "Continue with Facebook" })).toHaveAttribute("href", "/api/v1/meta/oauth/start");
+      } else if (stage === "choose") {
+        const account = dialog.getByRole("switch", { name: `Sample ${kind} account` });
+        await expect(account).not.toBeChecked();
+        await account.click();
+        await expect(account).toBeChecked();
+        await expect(dialog.getByText(`${name} is ready.`, { exact: true })).toBeVisible();
+      } else if (stage === "fix") {
+        await expect(page.getByText("Needs one step")).toBeVisible();
+        await expect(dialog.getByRole("link", { name: "Open in Meta", exact: true })).toHaveAttribute("target", "_blank");
+        await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+        await expect(dialog.getByText(`${name} is ready.`, { exact: true })).toBeVisible();
+        await expect(page.getByText("Needs one step")).toHaveCount(0);
+      } else {
+        await expect(dialog.getByText(`${name} is ready.`, { exact: true })).toBeVisible();
+        await expect(dialog.getByRole("button", { name: "Done", exact: true })).toBeVisible();
+      }
+    });
+  }
+}
+
+test("a failed tutorial refresh leaves the issue and progress in place", async ({ page }) => {
+  await page.goto("http://127.0.0.1:8032/?fixtures=1&tutorial=whatsapp&stage=fix&refresh=fail#setup");
+  await page.getByRole("button", { name: "Manage WhatsApp" }).click();
+  await page.getByRole("button", { name: "Check again" }).click();
+  await expect(page.getByText("Meta could not be reached. Try again.")).toBeVisible();
+  await expect(page.getByText("Needs one step")).toBeVisible();
+  await expect(page.getByRole("dialog").getByText("Meta has locked this WhatsApp account.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Done", exact: true })).toHaveCount(0);
+});
+
+test("Before you start explains the account requirements before sign-in", async ({ page }) => {
+  await page.route("**/api/me", route => route.fulfill(json({ signed_in: false })));
+  await page.goto("/");
+  await page.getByText("Before you start", { exact: true }).click();
+  await expect(page.getByText(/For Instagram, have a public Professional account/)).toBeVisible();
+  await expect(page.getByText(/Business verification is needed only when Meta asks/)).toBeVisible();
+});
