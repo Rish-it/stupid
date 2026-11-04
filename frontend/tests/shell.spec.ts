@@ -1047,6 +1047,7 @@ test("Settings opens on your own WhatsApp: linked with the window open, and ever
   await panel.getByRole("button", { name: "Send a test" }).click();
   await expect(panel.getByText("Sent. Check your WhatsApp.")).toBeVisible();
   // The whole section fits the Settings window on a laptop.
+  for (let i = 0; i < 8; i++) { console.log("FIT", i, JSON.stringify(await panel.evaluate(el => [el.scrollHeight, el.clientHeight, el.innerText.length]))); await page.waitForTimeout(100); }
   expect(await panel.evaluate(el => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
   // A bad number says why, on its own field.
   await panel.getByRole("button", { name: "Change number" }).click();
@@ -1112,8 +1113,9 @@ test("pairing needs only the code: the number is optional, and a failed test sho
   await expect(panel.getByRole("textbox", { name: /Your WhatsApp number/ })).toBeVisible();
   await panel.getByRole("button", { name: "Send a test" }).click();
   // Still one window on a laptop, with the code, the number and the error all showing.
-  expect(await panel.evaluate(el => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
+  // Measured once the answer is in; while the test is sending the layout is still changing.
   await expect(panel.getByText("WhatsApp refused it: the business number isn't registered yet.")).toBeVisible();
+  expect(await panel.evaluate(el => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
   // Not paired: Home has no chat strip yet.
   await page.keyboard.press("Escape");
   await expect(page.getByRole("region", { name: "Your agent on WhatsApp" })).toHaveCount(0);
