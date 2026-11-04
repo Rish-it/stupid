@@ -64,7 +64,7 @@ async fn call_tool(s: &AppState, u: User, name: &str, args: &Value) -> Result<Va
                 let db = lock(&s.db);
                 tickets::open_explicit(&db, &u.id, &format!("muse:{id}"), "mcp", &format!("mcp:{}", random_token()), Some(id), "replies").map_err(|_| "Storage failed.".to_string())?
             };
-            let saved = tools::save_draft(s, &u, Some(ticket), id, text, "muse");
+            let saved = tools::save_draft(s, &u, Some(ticket), id, text, "muse", None);
             let (kind, report) = match &saved { Ok(()) => ("ready", "Muse queued a reply draft."), Err(_) => ("failed", "Muse's draft was for a message that isn't in this inbox.") };
             tickets::close_job(&lock(&s.db), ticket, kind, report).map_err(|_| "Storage failed.".to_string())?;
             saved.map(|()| json!({ "queued": true, "message": QUEUED }))

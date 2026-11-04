@@ -21,7 +21,7 @@ use axum::{
         sse::{Event as SseEvent, KeepAlive, Sse},
         IntoResponse, Redirect, Response,
     },
-    routing::{any, get, post, put},
+    routing::{any, delete, get, post, put},
     Json, Router,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
@@ -227,6 +227,9 @@ ALTER TABLE users ADD COLUMN agent_rules TEXT NOT NULL DEFAULT '';
     "ALTER TABLE users ADD COLUMN persona TEXT;",
     // Which Meta models made each run, and when Stupid last read the person's inboxes from Meta.
     "ALTER TABLE agent_runs ADD COLUMN models_json TEXT NOT NULL DEFAULT '[]'; ALTER TABLE users ADD COLUMN last_pull INTEGER;",
+    // What the owner told the agent once, kept until they delete it; a draft names the fact it used.
+    "CREATE TABLE learned (id INTEGER PRIMARY KEY, user_id TEXT NOT NULL, question TEXT NOT NULL, answer TEXT NOT NULL, created INTEGER NOT NULL, UNIQUE(user_id, question));
+     ALTER TABLE drafts ADD COLUMN learned_id INTEGER;",
 ];
 
 fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
@@ -489,7 +492,7 @@ fn delete_user(s: &AppState, id: &str) -> rusqlite::Result<()> {
         tx.execute("DELETE FROM sessions WHERE user_id=?1", [id])?;
         tx.execute("DELETE FROM agent_runs WHERE user_id=?1", [id])?;
         tx.execute("DELETE FROM reports WHERE ticket_id IN (SELECT id FROM tickets WHERE user_id=?1)", [id])?;
-        for table in ["drafts", "tickets", "evals", "triggers", "threads"] {
+        for table in ["drafts", "tickets", "evals", "triggers", "threads", "learned"] {
             tx.execute(&format!("DELETE FROM {table} WHERE user_id=?1"), [id])?;
         }
         tx.execute("DELETE FROM access_keys WHERE user_id=?1", [id])?;
@@ -715,6 +718,7 @@ async fn main() {
         .route("/api/agent", get(attention::home))
         .route("/api/agent/settings", put(attention::settings))
         .route("/api/agent/tickets/{id}/answer", post(attention::answer))
+        .route("/api/agent/facts/{id}", delete(attention::forget))
         .route("/api/mcp/key", get(mcp::key_status).post(mcp::create_key).delete(mcp::revoke_key))
         .route("/mcp", post(mcp::handle))
         .route("/webhooks/meta", get(webhook_verify).post(webhook))

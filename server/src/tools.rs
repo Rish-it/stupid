@@ -32,7 +32,8 @@ pub fn specs() -> Vec<Value> {
         tool("find_subject", "SAM 3.1 finds a subject (a short noun like \"ceramic mug\") in one of the owner's own Instagram pictures (an id from get_instagram) and returns its box in pixels.",
             json!({ "media_id": { "type": "string" }, "subject": { "type": "string" } }), &["media_id", "subject"]),
         tool("save_reply_draft", "Save a reply draft for one inbox message. The owner reviews it and taps Send; this sends nothing.",
-            json!({ "event_id": { "type": "integer" }, "text": { "type": "string", "description": "The reply, at most 1000 characters." } }), &["event_id", "text"]),
+            json!({ "event_id": { "type": "integer" }, "text": { "type": "string", "description": "The reply, at most 1000 characters." },
+                "fact_id": { "type": "integer", "description": "The owner_facts entry the reply relies on, if any." } }), &["event_id", "text"]),
         tool("save_idea", "Save one post idea for the owner.", json!({ "hook": { "type": "string" }, "caption": { "type": "string" },
             "format": { "type": "string", "enum": ["reel", "carousel", "photo", "story"] }, "why": { "type": "string" } }), &["hook", "caption", "format", "why"]),
         tool("save_ad_advice", "Save one piece of advice about a campaign. Nothing in Ads changes.", json!({ "campaign": { "type": "string" },
@@ -169,7 +170,7 @@ pub async fn call(s: &AppState, u: &User, ticket: Option<i64>, name: &str, args:
         "save_reply_draft" => {
             let id = args["event_id"].as_i64().ok_or("`event_id` must be a number.")?;
             let text = text_arg(args, "text", 1000)?;
-            save_draft(s, u, ticket, id, &text, "agent")?;
+            save_draft(s, u, ticket, id, &text, "agent", args["fact_id"].as_i64())?;
             json!({ "saved": true, "note": "Saved as a draft. The owner reviews it and taps Send in Stupid's Inbox." })
         }
         "save_idea" => {
@@ -192,9 +193,11 @@ pub async fn call(s: &AppState, u: &User, ticket: Option<i64>, name: &str, args:
 }
 
 /// Keep a reply draft for one of the person's own messages. `source` says who wrote it: the agent, or Muse.
-pub fn save_draft(s: &AppState, u: &User, ticket: Option<i64>, event_id: i64, text: &str, source: &str) -> Result<(), String> {
+/// `fact` names the learned fact it relies on; one that isn't this person's is dropped.
+pub fn save_draft(s: &AppState, u: &User, ticket: Option<i64>, event_id: i64, text: &str, source: &str, fact: Option<i64>) -> Result<(), String> {
     own_event(s, u, event_id)?;
-    lock(&s.db).execute("INSERT INTO drafts (user_id,ticket_id,event_id,text,source,created) VALUES (?1,?2,?3,?4,?5,?6)", params![u.id, ticket, event_id, text, source, now()])
+    lock(&s.db).execute("INSERT INTO drafts (user_id,ticket_id,event_id,text,source,created,learned_id) VALUES (?1,?2,?3,?4,?5,?6,(SELECT id FROM learned WHERE id=?7 AND user_id=?1))",
+        params![u.id, ticket, event_id, text, source, now(), fact])
         .map(drop).map_err(|_| "Storage failed.".to_string())
 }
 
