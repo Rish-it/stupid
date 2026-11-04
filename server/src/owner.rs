@@ -32,6 +32,8 @@ pub struct Channel {
     pub channel: String,
     /// The owner's Messenger id on the linked Page, once they paired there.
     pub psid: Option<String>,
+    /// The Page that Messenger id belongs to.
+    pub psid_page: Option<String>,
     /// The linked Page's name, filled in for the API.
     pub page_name: Option<String>,
     pub link_code: String,
@@ -78,14 +80,14 @@ fn new_code() -> String {
 /// This owner's channel, made on first read with a fresh link code.
 pub fn channel(db: &Connection, user_id: &str) -> rusqlite::Result<Channel> {
     db.execute("INSERT OR IGNORE INTO owner_channel (user_id,link_code) VALUES (?1,?2)", params![user_id, new_code()])?;
-    db.query_row("SELECT phone,link_code,linked,asset_id,business_number,window_until,digest_time,tz,quiet_from,quiet_to,urgent_json,last_ping,last_error_json,channel,psid FROM owner_channel WHERE user_id=?1",
+    db.query_row("SELECT phone,link_code,linked,asset_id,business_number,window_until,digest_time,tz,quiet_from,quiet_to,urgent_json,last_ping,last_error_json,channel,psid,psid_page FROM owner_channel WHERE user_id=?1",
         [user_id], |r| Ok(Channel {
             phone: r.get(0)?, link_code: r.get(1)?, linked: r.get(2)?, asset_id: r.get(3)?, business_number: r.get(4)?, window_until: r.get(5)?,
             digest_time: r.get(6)?, tz: r.get(7)?,
             quiet: match (r.get::<_, Option<String>>(8)?, r.get::<_, Option<String>>(9)?) { (Some(f), Some(t)) => Some((f, t)), _ => None },
             urgent: serde_json::from_str(&r.get::<_, String>(10)?).unwrap_or_default(), last_ping: r.get(11)?,
             last_error: r.get::<_, Option<String>>(12)?.and_then(|v| serde_json::from_str(&v).ok()).unwrap_or_default(),
-            channel: r.get(13)?, psid: r.get(14)?, page_name: None,
+            channel: r.get(13)?, psid: r.get(14)?, psid_page: r.get(15)?, page_name: None,
         }))
 }
 
@@ -233,17 +235,22 @@ pub async fn test(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Re
 }
 
 /// The Graph error code in a message like "… (131031)".
-fn meta_code(message: &str) -> Option<i64> {
+pub fn meta_code(message: &str) -> Option<i64> {
     let open = message.rfind('(')?;
     message[open + 1..].strip_suffix(')').and_then(|c| c.parse().ok())
 }
 
 // ---------- sending to the owner ----------
 
-/// Send the owner one free-form WhatsApp message from their business number. `Ok(Err(needs))` when it can't go:
+/// Send the owner one free-form message on the channel they last wrote from. `Ok(Err(needs))` when it can't go:
 /// "link" before the number is linked, "window" when the owner hasn't written in 24 hours. Never a template.
+/// While Meta refuses the WhatsApp number at the business level, it goes to Messenger if the owner paired there.
 pub async fn tell(s: &AppState, user_id: &str, text: &str) -> ApiResult<Result<(), &'static str>> {
-    let ch = channel(&lock(&s.db), user_id)?;
+    let mut ch = channel(&lock(&s.db), user_id)?;
+    let refused = ch.channel == "whatsapp" && ch.asset_id.as_deref().map(|a| meta::whatsapp_blocked(&lock(&s.db), a)).transpose()?.unwrap_or(false);
+    if let (true, Some(_), Some(page)) = (refused, &ch.psid, &ch.psid_page) {
+        (ch.channel, ch.asset_id) = ("messenger".into(), Some(page.clone()));
+    }
     let to = if ch.channel == "messenger" { ch.psid.clone() } else { ch.phone.as_ref().map(|p| p.trim_start_matches('+').to_string()) };
     let (Some(to), Some(asset_id), true) = (to, &ch.asset_id, ch.linked) else { return Ok(Err("link")) };
     if !ch.open(now()) {
@@ -261,7 +268,12 @@ pub async fn tell(s: &AppState, user_id: &str, text: &str) -> ApiResult<Result<(
     };
     let sent = meta::post(s, &path, &body, &token).await;
     let error = sent.as_ref().err().map(|e| json!({ "error": e.1, "code": meta_code(&e.1), "at": now() }).to_string());
-    lock(&s.db).execute("UPDATE owner_channel SET last_error_json=?2 WHERE user_id=?1", params![user_id, error])?;
+    let db = lock(&s.db);
+    db.execute("UPDATE owner_channel SET last_error_json=?2 WHERE user_id=?1", params![user_id, error])?;
+    if let (Err(e), "whatsapp") = (&sent, ch.channel.as_str()) {
+        meta::whatsapp_refused(&db, asset_id, &e.1)?;
+    }
+    drop(db);
     sent?;
     Ok(Ok(()))
 }
@@ -402,7 +414,8 @@ pub fn receive(db: &Connection, user_id: &str, kind: &str, asset_id: &str, sende
             return Ok(Step::Ignore);
         }
         // Answers go out on the channel and from the number or Page the owner last wrote to; a number is read again.
-        db.execute("UPDATE owner_channel SET channel=?2,asset_id=?3,business_number=CASE WHEN asset_id=?3 THEN business_number END WHERE user_id=?1", params![user_id, kind, asset_id])?;
+        db.execute("UPDATE owner_channel SET channel=?2,asset_id=?3,business_number=CASE WHEN asset_id=?3 THEN business_number END,
+              psid_page=CASE WHEN ?2='messenger' THEN ?3 ELSE psid_page END WHERE user_id=?1", params![user_id, kind, asset_id])?;
         return Ok(Step::Command(text.to_string()));
     }
     if !links(text, &ch.link_code) {
@@ -420,7 +433,7 @@ pub fn receive(db: &Connection, user_id: &str, kind: &str, asset_id: &str, sende
     }
     // The number or Messenger id the code came from is the owner's. Only needs from now on are pinged.
     db.execute("UPDATE owner_channel SET channel=?2,asset_id=?3,business_number=NULL,
-          phone=CASE WHEN ?2='whatsapp' THEN ?4 ELSE phone END, psid=CASE WHEN ?2='messenger' THEN ?5 ELSE psid END,
+          phone=CASE WHEN ?2='whatsapp' THEN ?4 ELSE phone END, psid=CASE WHEN ?2='messenger' THEN ?5 ELSE psid END, psid_page=CASE WHEN ?2='messenger' THEN ?3 ELSE psid_page END,
           seen_draft=CASE WHEN linked=1 THEN MIN(seen_draft,(SELECT COALESCE(MAX(id),0) FROM drafts)) ELSE (SELECT COALESCE(MAX(id),0) FROM drafts) END,
           seen_report=CASE WHEN linked=1 THEN seen_report ELSE (SELECT COALESCE(MAX(id),0) FROM reports) END, linked=1 WHERE user_id=?1",
         params![user_id, kind, asset_id, format!("+{sender}"), sender])?;
@@ -1021,6 +1034,33 @@ mod tests {
         assert_eq!(sent[3], ("555".to_string(), "Sent to Priya ✓".to_string()));
         post_hook(&s, &page_hook("555", "help")).await;
         assert_eq!(sends(&seen)[4], ("555".to_string(), HELP.to_string()));
+    }
+
+    fn status_hook(number: &str, status: &str) -> String {
+        json!({ "object": "whatsapp_business_account", "entry": [{ "id": "1", "changes": [{ "field": "messages", "value": { "metadata": { "phone_number_id": number },
+            "statuses": [{ "id": "wamid.x", "status": status, "recipient_id": "91", "errors": [{ "code": 131031, "title": "Business Account locked",
+            "error_data": { "details": "Business account has been locked." } }] }] } }] }] }).to_string()
+    }
+
+    #[tokio::test]
+    async fn a_refused_whatsapp_number_moves_the_owner_to_messenger_until_meta_sends_again() {
+        let (s, seen) = setup("{}").await;
+        with_page(&s);
+        lock(&s.db).execute("INSERT INTO owner_channel (user_id,phone,psid,psid_page,link_code,linked,asset_id,channel,window_until) VALUES ('u','+919876543210','555','f1','ABC234',1,'p1','whatsapp',?1)", [now() + WINDOW]).unwrap();
+        // Meta takes the send, then says the business is locked, while its health check may still say AVAILABLE.
+        post_hook(&s, &status_hook("p1", "failed")).await;
+        let wa = crate::user_by_id(&s, "u").unwrap().assets.into_iter().find(|a| a.kind == "whatsapp").unwrap();
+        assert_eq!(wa.issues.len(), 1);
+        assert!(wa.issues[0].blocking && wa.issues[0].text == "Meta refused to send from this number: Business account has been locked. (131031)", "{:?}", wa.issues);
+        assert!(wa.issues[0].fix.contains("verify your business") && wa.issues[0].link.contains("security_center"));
+        tell(&s, "u", "first").await.unwrap().unwrap();
+        // Once Meta reports a message from the number as sent, WhatsApp is used again; nothing else changes.
+        post_hook(&s, &status_hook("p1", "delivered")).await;
+        assert!(crate::user_by_id(&s, "u").unwrap().assets.iter().all(|a| a.issues.is_empty()));
+        tell(&s, "u", "second").await.unwrap().unwrap();
+        let paths: Vec<String> = seen.lock().unwrap().iter().map(|(p, _)| p.clone()).collect();
+        assert_eq!(paths, ["/me/messages", "/p1/messages"]);
+        assert_eq!(sends(&seen), [("555".to_string(), "first".to_string()), (OWNER.to_string(), "second".to_string())]);
     }
 
     #[tokio::test]
