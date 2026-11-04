@@ -112,6 +112,7 @@ test("Today asks to connect missing apps and reads the ones that are on", async 
     { campaign_id: "2", campaign_name: "No clicks", spend: "5", impressions: "1", reach: "1", clicks: "0", ctr: "0", cpc: "0", date_start: "", date_stop: "" },
   ] }] })));
   await page.goto("/#today");
+  await page.getByRole("button", { name: "Your numbers, last 7 days" }).click();
   await expect(page.getByText("$15.00")).toBeVisible();
   await expect(page.getByText(/Doing best:\s*Cheap clicks/)).toBeVisible();
   await expect(page.getByText(/Costing most:\s*No clicks, \$5\.00 spent, no clicks yet/)).toBeVisible();
@@ -133,6 +134,7 @@ test("Today lists the three newest messages with who, where, when and whether th
     { ...inbox.items[3], created: now - 120 }, inbox.items[0], inbox.items[1], inbox.items[2],
   ] })));
   await page.goto("/#today");
+  await page.getByRole("button", { name: "Your numbers, last 7 days" }).click();
   await expect(page.getByText("+91 80813 88336")).toBeVisible();
   await expect(page.getByText("2 minutes ago")).toBeVisible();
   await expect(page.getByRole("img", { name: "WhatsApp" })).toHaveCount(2);
@@ -261,4 +263,82 @@ test("legal pages are plain HTML that works without JavaScript", async ({ reques
     expect(html).toContain("rishit@secndai.com");
     expect(html).not.toContain("<script");
   }
+});
+
+const now = () => Math.floor(Date.now() / 1000);
+const agentHome = () => ({
+  proactive: true, rules: "",
+  needs: [
+    { type: "question", id: 7, question: "What does delivery to Pune cost?", created: now() - 60, message: { kind: "whatsapp", sender: "15550002", sender_name: "Priya", text: "How much is delivery to Pune?" } },
+    { type: "draft", id: 3, event_id: "w1", text: "Yes, we're open until 7 today.", source: "agent", created: now() - 120, message: { kind: "whatsapp", sender: "15550001", sender_name: "Ana", text: "Are you open?" } },
+  ],
+  tickets: [
+    { id: 7, job: "replies", state: "open", created: now() - 70, message: { kind: "whatsapp", sender: "15550002", sender_name: "Priya" }, reports: [
+      { kind: "progress", text: "Asks about delivery cost.", created: now() - 70 }, { kind: "question", text: "What does delivery to Pune cost?", created: now() - 60 }, { kind: "waiting", text: "Waiting for your answer.", created: now() - 60 }] },
+    { id: 5, job: "leads", state: "ended", created: now() - 900, message: null, reports: [{ kind: "progress", text: "Working on it.", created: now() - 900 }, { kind: "ready", text: "Found 2 leads.", created: now() - 880 }] },
+  ],
+});
+
+test("Today puts what needs you first: a draft opens the reply box marked as AI", async ({ page }) => {
+  await page.route("**/api/me", route => route.fulfill(json({ ...signedIn, selected: ["instagram:1"] })));
+  await page.route("**/api/agent", route => route.fulfill(json(agentHome())));
+  await page.route("**/api/inbox", route => route.fulfill(json(inbox)));
+  await page.goto("/#today");
+  await expect(page.getByRole("heading", { name: "Needs you" })).toBeVisible();
+  await expect(page.getByText("Found 2 leads.")).toBeVisible();
+  await expect(page.getByText("Lead finder")).toBeVisible();
+  await page.getByText("Reply to Ana").click();
+  await expect(page.getByLabel("Reply to Ana")).toHaveValue("Yes, we're open until 7 today.");
+  await expect(page.getByText("Drafted by AI · check before sending")).toBeVisible();
+});
+
+test("a question from the agent opens one field, and the answer goes back to it", async ({ page }) => {
+  let answered: unknown;
+  await page.route("**/api/me", route => route.fulfill(json({ ...signedIn, selected: ["instagram:1"] })));
+  await page.route("**/api/agent", route => route.fulfill(json(answered ? { ...agentHome(), needs: [] } : agentHome())));
+  await page.route("**/api/agent/tickets/7/answer", route => { answered = route.request().postDataJSON(); return route.fulfill(json({ state: "open" })); });
+  await page.goto("/#today");
+  await page.getByText("What does delivery to Pune cost?").first().click();
+  const dialog = page.getByRole("dialog", { name: "The agent asks" });
+  await expect(dialog.getByText("How much is delivery to Pune?")).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Answer" })).toBeDisabled();
+  await dialog.getByLabel("Your answer").fill("₹60, free over ₹999");
+  await dialog.getByRole("button", { name: "Answer" }).click();
+  await expect(dialog).toBeHidden();
+  expect(answered).toEqual({ text: "₹60, free over ₹999", skip: false });
+  await expect(page.getByRole("heading", { name: "Needs you" })).toBeHidden();
+});
+
+test("with nothing waiting, Today says the agent is waiting and shows no Needs you", async ({ page }) => {
+  await page.route("**/api/me", route => route.fulfill(json({ ...signedIn, selected: ["instagram:1"] })));
+  await page.route("**/api/agent", route => route.fulfill(json({ proactive: true, rules: "", needs: [], tickets: [] })));
+  await page.goto("/#today");
+  await expect(page.getByText(/waiting for the first new message/)).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Needs you" })).toHaveCount(0);
+});
+
+test("Agents lists recent work with every report", async ({ page }) => {
+  await page.route("**/api/me", route => route.fulfill(json(signedIn)));
+  await page.route("**/api/agents", route => route.fulfill(json({ ai_ready: true, own_key: false, model: "test-model", runs: [] })));
+  await page.route("**/api/agent", route => route.fulfill(json(agentHome())));
+  await page.goto("/#agents");
+  await expect(page.getByRole("heading", { name: "Recent work" })).toBeVisible();
+  await expect(page.getByText("Reply to Priya")).toBeVisible();
+  await expect(page.getByText("Asks about delivery cost.")).toBeVisible();
+  await expect(page.getByText("Waiting for your answer.")).toBeVisible();
+});
+
+test("Settings turns drafting off and saves the agent's rules", async ({ page }) => {
+  const saved: unknown[] = [];
+  await page.route("**/api/me", route => route.fulfill(json(signedIn)));
+  await page.route("**/api/settings/ai", route => route.fulfill(json({ has_key: false, model: "test-model", workspace_ai: true })));
+  await page.route("**/api/agent", route => route.fulfill(json({ proactive: true, rules: "", needs: [], tickets: [] })));
+  await page.route("**/api/agent/settings", route => { const body = route.request().postDataJSON(); saved.push(body); return route.fulfill(json(body)); });
+  await page.goto("/#settings");
+  await page.getByLabel("Draft replies when new messages arrive").click();
+  await expect.poll(() => saved.length).toBe(1);
+  await page.getByLabel("Rules for your agent").fill("Open 10 to 7, closed Sundays.");
+  await page.getByRole("button", { name: "Save rules" }).click();
+  await expect(page.getByText("Saved.")).toBeVisible();
+  expect(saved).toEqual([{ proactive: false, rules: "" }, { proactive: false, rules: "Open 10 to 7, closed Sundays." }]);
 });

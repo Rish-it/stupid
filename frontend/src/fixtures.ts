@@ -1,6 +1,6 @@
 // Sample data for dev builds only (?fixtures=1). Every name says "Sample"; nothing here is real.
 import { ApiError } from "./api";
-import type { AgentId, AgentRun, Asset, Me } from "./api";
+import type { AgentHome, AgentId, AgentRun, Asset, Me } from "./api";
 
 const now = () => Math.floor(Date.now() / 1000);
 const assets: Asset[] = [
@@ -39,6 +39,20 @@ const results: Record<AgentId, AgentRun["result"]> = {
   ads: { summary: "Sample summary: one campaign is doing well, one is costly.", actions: [{ campaign: "Sample spring sale", do: "scale", why: "Clicks cost less than average." }, { campaign: "Sample brand video", do: "pause", why: "Spend with almost no clicks." }] },
 };
 const runs = new Map<AgentId, AgentRun>();
+const customer = { kind: "whatsapp" as const, sender: "15550000001", sender_name: "Sample customer" };
+let home: AgentHome = {
+  proactive: true, rules: "",
+  needs: [
+    { type: "question", id: 2, question: "Sample question: what does delivery to Pune cost?", created: now() - 300, message: { ...customer, sender_name: "Sample buyer", text: "Sample: how much is delivery to Pune?" } },
+    { type: "draft", id: 1, event_id: "m1", text: "Sample draft: yes, we're open until 7 today.", source: "agent", created: now() - 540, message: { ...customer, text: "Hi, are you open today?" } },
+  ],
+  tickets: [
+    { id: 2, job: "replies", state: "open", created: now() - 320, message: { ...customer, sender_name: "Sample buyer" }, reports: [
+      { kind: "progress", text: "Sample: asks about delivery cost.", created: now() - 320 }, { kind: "question", text: "Sample question: what does delivery to Pune cost?", created: now() - 300 }, { kind: "waiting", text: "Waiting for your answer.", created: now() - 300 }] },
+    { id: 1, job: "replies", state: "ended", created: now() - 600, message: customer, reports: [
+      { kind: "progress", text: "Sample: asks if the shop is open.", created: now() - 600 }, { kind: "ready", text: "Sample: drafted a reply about today's hours.", created: now() - 540 }] },
+  ],
+};
 
 export async function answer(method: string, path: string, body: unknown): Promise<unknown> {
   await new Promise(done => setTimeout(done, 300));
@@ -83,6 +97,9 @@ export async function answer(method: string, path: string, body: unknown): Promi
     runs.set(agent, { agent, status: "running", result: null, error: null, cost_usd: null, created: now(), finished: null });
     return { agent, status: "running" };
   }
+  if (route === "GET /api/agent") return home;
+  if (route === "PUT /api/agent/settings") { home = { ...home, ...(body as { proactive: boolean; rules: string }) }; return { proactive: home.proactive, rules: home.rules }; }
+  if (/^POST \/api\/agent\/tickets\/\d+\/answer$/.test(route)) { home = { ...home, needs: home.needs.filter(n => n.type !== "question") }; return { state: "open" }; }
   if (route === "GET /api/settings/ai") return { has_key: hasKey, model: "sample-model", workspace_ai: true };
   if (route === "PUT /api/settings/ai") { hasKey = Boolean((body as { api_key: string }).api_key); return { has_key: hasKey, key_saved_at: hasKey ? Math.floor(Date.now() / 1000) : null, model: "sample-model" }; }
   throw new ApiError(404, "Sample data has no answer for this.");

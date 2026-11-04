@@ -514,8 +514,11 @@ pub fn marks(state: &AppState, u: &User) -> ApiResult<Value> {
     )?;
     let replies: String = db.query_row("SELECT COUNT(*)||':'||COUNT(error) FROM replies WHERE user_id=?1", [&u.id], |r| r.get(0))?;
     let runs: String = db.query_row("SELECT IFNULL(MAX(id),0)||':'||IFNULL(SUM(status='running'),0) FROM agent_runs WHERE user_id=?1", [&u.id], |r| r.get(0))?;
+    let agent: String = db.query_row(
+        "SELECT IFNULL((SELECT MAX(r.id) FROM reports r JOIN tickets k ON k.id=r.ticket_id WHERE k.user_id=?1),0)||':'||IFNULL((SELECT MAX(id) FROM drafts WHERE user_id=?1),0)",
+        [&u.id], |r| r.get(0))?;
     let connections = format!("{}:{}:{}", to_json(&u.assets).len(), u.selected.len(), u.problems.len());
-    Ok(json!({ "inbox": inbox, "replies": replies, "runs": runs, "connections": connections }))
+    Ok(json!({ "inbox": inbox, "replies": replies, "runs": runs, "agent": agent, "connections": connections }))
 }
 
 pub async fn ads(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Value>> {
