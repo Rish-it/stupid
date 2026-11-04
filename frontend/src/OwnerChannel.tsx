@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
+import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
 import { Heading } from "@astryxdesign/core/Heading";
@@ -7,8 +8,8 @@ import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Switch } from "@astryxdesign/core/Switch";
 import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
-import { ApiError, api, chatUrl, refetch, useLoad } from "./api";
-import type { OwnerChannel, Urgent } from "./api";
+import { ApiError, api, chatUrl, ownerPlace, refetch, useLoad, whatsappBlock } from "./api";
+import type { Connections, Issue, OwnerChannel, Urgent } from "./api";
 import { Load } from "./Load";
 
 const message = (cause: unknown) => cause instanceof Error ? cause.message : String(cause);
@@ -22,14 +23,15 @@ const until = (oc: OwnerChannel) => new Date(oc.window_until! * 1000).toLocaleTi
 const status = (oc: OwnerChannel) => !oc.linked ? "Not linked" : open(oc) ? `Linked · I can message you until ${until(oc)}` : "Window closed: send any message to reopen";
 
 /** Settings › On your WhatsApp: the agent messages the owner there, and only the owner. */
-export default function OnYourWhatsApp() {
+export default function OnYourWhatsApp({ state: account }: { state: Connections }) {
   const state = useLoad("owner-channel", api.ownerChannel);
-  return <Load state={state}>{oc => <Channel oc={oc} onSaved={state.setData} />}</Load>;
+  return <Load state={state}>{oc => <Channel oc={oc} blocked={oc.channel !== "messenger" ? whatsappBlock(account) : undefined} onSaved={state.setData} />}</Load>;
 }
 
 type Place = "phone" | "settings" | "test";
 
-function Channel({ oc, onSaved }: { oc: OwnerChannel; onSaved: (next: OwnerChannel) => void }) {
+function Channel({ oc, blocked, onSaved }: { oc: OwnerChannel; blocked?: Issue; onSaved: (next: OwnerChannel) => void }) {
+  const place = ownerPlace(oc);
   const [phone, setPhone] = useState("");
   const [editing, setEditing] = useState(false);
   // One note at a time, shown where it happened: a save under the settings, a failed number on its field, a test by its button.
@@ -42,10 +44,10 @@ function Channel({ oc, onSaved }: { oc: OwnerChannel; onSaved: (next: OwnerChann
     if (number && await save({ phone: number }, "phone")) { setEditing(false); setPhone(""); }
   };
   // The server sends "Stupid is connected. I'll ping you here." A 409 says what's missing; anything else, the server's own words.
-  const test = () => api.testOwnerChannel().then(() => setNote({ at: "test", text: "Sent. Check your WhatsApp." }), (cause: unknown) => {
+  const test = () => api.testOwnerChannel().then(() => setNote({ at: "test", text: `Sent. Check your ${place}.` }), (cause: unknown) => {
     const needs = cause instanceof ApiError ? (cause.body as { needs?: string } | undefined)?.needs : undefined;
     setNote({ at: "test", bad: true, text: needs === "link" ? "Pair your WhatsApp first: send the code above to your agent."
-      : needs === "window" ? "WhatsApp only lets me message you within 24 hours of your last message. Send any message to the business number, then try again."
+      : needs === "window" ? `${place} only lets me message you within 24 hours of your last message. Send me any message there, then try again.`
       : message(cause) });
   });
   // A tick shows at once; a failed save puts the list back as the server has it.
@@ -57,9 +59,12 @@ function Channel({ oc, onSaved }: { oc: OwnerChannel; onSaved: (next: OwnerChann
   const said = (at: Place) => note?.at === at && <Text as="p" size="sm" type={note.bad ? undefined : "supporting"} className={note.bad ? "owner-error" : undefined}>{note.text}</Text>;
   return (
     <VStack gap={4}>
-      <Text as="p" type="supporting" size="sm">Your agent pings you here about what matters and sends a daily summary. Anything to a customer still waits for your tap, or your "1" reply.</Text>
+      <Text as="p" type="supporting" size="sm">{`Your agent pings you on ${place}${oc.page_name ? ` from ${oc.page_name}` : ""} about what matters and sends a daily summary. Anything to a customer still waits for your tap, or your "1" reply.`}</Text>
+      {blocked && <Banner status="warning" title={blocked.text} description={blocked.fix}
+        endContent={blocked.link ? <Button size="sm" label="Fix in Meta" href={blocked.link} target="_blank" rel="noopener noreferrer" /> : undefined} />}
+      {oc.last_error && !blocked && <Text as="p" size="sm" className="owner-error">{`The last ping didn't arrive: ${oc.last_error.error.replace(/^Meta: /, "")}`}</Text>}
       <section aria-labelledby="owner-link" className="owner-block">
-        {oc.linked && <Heading level={3} id="owner-link">Your number</Heading>}
+        {oc.linked && <Heading level={3} id="owner-link">{place === "Messenger" ? "Your Messenger" : "Your number"}</Heading>}
         <Text as="p" size="sm" className="status-line"><span className="live-dot" data-ok={open(oc) || undefined} aria-hidden />{status(oc)}</Text>
         {oc.linked ? null : oc.business_number
           ? <>
@@ -80,7 +85,7 @@ function Channel({ oc, onSaved }: { oc: OwnerChannel; onSaved: (next: OwnerChann
             <Button label="Save number" isDisabled={!phone.trim()} clickAction={savePhone} />
             <Button variant="ghost" label="Cancel" onClick={() => { setEditing(false); setPhone(""); setNote(undefined); }} />
           </HStack>
-          : oc.phone
+          : oc.phone && place === "WhatsApp"
             ? <HStack gap={3} align="center" wrap="wrap">
               <Text>{masked(oc.phone)}</Text>
               <Button size="sm" variant="ghost" label="Change number" onClick={() => setEditing(true)} />
