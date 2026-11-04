@@ -240,6 +240,8 @@ ALTER TABLE users ADD COLUMN agent_rules TEXT NOT NULL DEFAULT '';
      ALTER TABLE drafts ADD COLUMN styled INTEGER NOT NULL DEFAULT 0;",
     // Whether a customer's photo is one of the owner's Instagram posts: {"matched":true,post_id,…} or {"matched":false}.
     "ALTER TABLE events ADD COLUMN matched_json TEXT;",
+    // The chat model the person picked for their agents (see agents::choices); NULL runs `ai_brain`'s default.
+    "ALTER TABLE users ADD COLUMN ai_model TEXT;",
 ];
 
 fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
@@ -654,7 +656,8 @@ fn sweep(s: &AppState, startup: bool) {
         tracing::error!("sweep: {e}");
     }
     drop(db);
-    lock(&s.cache).retain(|_, (at, _)| at.elapsed() < meta::TTL);
+    // The longest time-to-live in the cache.
+    lock(&s.cache).retain(|_, (at, _)| at.elapsed() < meta::TTL.max(agents::MODELS_TTL));
 }
 
 async fn shutdown() {
@@ -723,6 +726,7 @@ async fn main() {
         .route("/api/inbox/{id}/reply", post(meta::reply))
         .route("/api/settings/ai", get(agents::settings).put(agents::save_key))
         .route("/api/settings/ai/brain", put(agents::save_brain))
+        .route("/api/settings/ai/model", put(agents::save_model))
         .route("/api/agents", get(agents::list))
         .route("/api/agents/{agent}/run", post(agents::run))
         .route("/api/agents/{agent}/control", put(control::save))

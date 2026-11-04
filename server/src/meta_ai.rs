@@ -30,7 +30,7 @@ pub fn cost(units: Units) -> f64 {
 /// Contributor models may train on inputs and must not get personal data (ToS 6.2); Muse Image is barred in India.
 pub fn allowed(model: &str) -> bool {
     let m = model.to_ascii_lowercase();
-    !m.contains("contributor") && !m.starts_with("muse-image")
+    !m.contains("contributor") && !m.contains("muse-image")
 }
 
 /// What a refused call means, in plain words.
@@ -210,6 +210,7 @@ mod tests {
         assert!(allowed(WONDER) && allowed(VOICE) && allowed(SAM));
         assert!(!allowed("muse-spark-1.3-contributor"));
         assert!(!allowed("muse-image-1.0"));
+        assert!(!allowed("meta-models/Muse-Image-1"));
     }
 
     #[test]
