@@ -187,9 +187,12 @@ function InstagramDetails({ isOpen, onClose, data }: { isOpen: boolean; onClose:
             </Grid>
             <Text weight="semibold">Top posts</Text>
             {top.length ? top.map(m => (
-              <Link hasUnderline key={m.id} href={m.permalink} isExternalLink maxLines={1}>
-                {`${m.caption?.split("\n")[0] || "Untitled post"} · ${count(m.like_count ?? 0)} likes, ${count(m.comments_count ?? 0)} comments`}
-              </Link>
+              <HStack key={m.id} gap={3} align="center">
+                {m.picture && <img className="match-thumb" src={m.picture} alt="" width={40} height={40} loading="lazy" />}
+                <Link hasUnderline href={m.permalink} isExternalLink maxLines={1}>
+                  {`${m.media_product_type === "REELS" ? "Reel" : "Post"}: ${m.caption?.split("\n")[0] || "no caption"} · ${count(m.like_count ?? 0)} likes, ${count(m.comments_count ?? 0)} comments`}
+                </Link>
+              </HStack>
             )) : <MetaProblem issue="instagramEmpty" />}
           </VStack>
         );

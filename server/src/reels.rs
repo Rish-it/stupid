@@ -35,17 +35,17 @@ pub fn context(ig: &Value) -> Value {
     videos.sort_by_key(|m| -score(m));
     let post = |m: &Value| json!({ "caption": m["caption"], "type": m["media_product_type"], "likes": m["like_count"], "comments": m["comments_count"], "when": m["timestamp"] });
     json!({
-        "videos": videos.iter().take(MAX_VIDEOS).map(|m| json!({ "media_url": m["media_url"], "permalink": m["permalink"], "post": post(m) })).collect::<Vec<_>>(),
+        "videos": videos.iter().take(MAX_VIDEOS).map(|m| json!({ "id": m["id"], "permalink": m["permalink"], "post": post(m) })).collect::<Vec<_>>(),
         "posts": media.iter().map(|m| post(m)).collect::<Vec<_>>(),
     })
 }
 
 /// Run the director. Returns the result and its cost: Wonder spend goes to the Model API ledger, Spark Open to Baseten's.
 pub async fn direct(s: &AppState, user_id: &str, context: &Value, ai: &agents::Ai) -> ApiResult<(Value, f64)> {
-    // Each video is read here first; one that can't be (over 16 MB, link expired) is left out, not guessed at.
+    // Each video is read here first; one that can't be (Instagram withheld the file, too large) is left out, not guessed at.
     let (mut videos, mut inline) = (Vec::new(), Vec::new());
     for v in context["videos"].as_array().into_iter().flatten() {
-        match crate::voice::inline_video(s, v["media_url"].as_str().unwrap_or_default()).await {
+        match crate::igmedia::data_url(s, user_id, v["id"].as_str().unwrap_or_default(), crate::igmedia::Part::Video).await {
             Ok(url) => { videos.push(v.clone()); inline.push(url) }
             Err(e) => tracing::warn!("reel director skipped a video: {e}"),
         }
@@ -64,6 +64,7 @@ pub async fn direct(s: &AppState, user_id: &str, context: &Value, ai: &agents::A
     // Point each note back at its post, so the person can open it.
     for w in result["watched"].as_array_mut().into_iter().flatten() {
         if let Some(v) = w["video"].as_u64().and_then(|n| videos.get((n as usize).wrapping_sub(1))) {
+            w["id"] = v["id"].clone();
             w["permalink"] = v["permalink"].clone();
             w["caption"] = v["post"]["caption"].clone();
         }
@@ -73,8 +74,8 @@ pub async fn direct(s: &AppState, user_id: &str, context: &Value, ai: &agents::A
 }
 
 /// The executor's `watch_video` tool: Wonder watches one of the creator's own videos and answers a question about it.
-pub async fn watch(s: &AppState, user_id: &str, media_url: &str, question: &str) -> ApiResult<String> {
-    let video = crate::voice::inline_video(s, media_url).await.map_err(|e| AppError::new(502, format!("Couldn't read that video: {e}.")))?;
+pub async fn watch(s: &AppState, user_id: &str, media_id: &str, question: &str) -> ApiResult<String> {
+    let video = crate::igmedia::data_url(s, user_id, media_id, crate::igmedia::Part::Video).await.map_err(|e| AppError::new(502, format!("Couldn't read that video: {e}.")))?;
     let content = vec![
         json!({ "type": "input_text", "text": format!("Watch this video from the creator's own Instagram and answer in plain words, with timestamps where they help. Label guesses as guesses. Question: {question}") }),
         json!({ "type": "input_video", "video_url": video }),
@@ -89,36 +90,19 @@ mod tests {
     #[test]
     fn the_best_videos_go_to_wonder_and_every_caption_goes_along() {
         let ig = json!({ "accounts": [{ "media": [
-            { "media_type": "IMAGE", "media_url": "https://cdn/p.jpg", "caption": "photo", "like_count": 900, "comments_count": 0 },
-            { "media_type": "VIDEO", "media_product_type": "REELS", "media_url": "https://cdn/a.mp4", "permalink": "https://ig/a", "caption": "a", "like_count": 5, "comments_count": 1 },
-            { "media_type": "VIDEO", "media_url": "https://cdn/b.mp4", "permalink": "https://ig/b", "caption": "b", "like_count": 50, "comments_count": 9 },
+            { "id": "p", "media_type": "IMAGE", "media_url": "https://cdn/p.jpg", "caption": "photo", "like_count": 900, "comments_count": 0 },
+            { "media_type": "VIDEO", "media_product_type": "REELS", "id": "a", "media_url": "https://cdn/a.mp4", "permalink": "https://ig/a", "caption": "a", "like_count": 5, "comments_count": 1 },
+            { "media_type": "VIDEO", "id": "b", "media_url": "https://cdn/b.mp4", "permalink": "https://ig/b", "caption": "b", "like_count": 50, "comments_count": 9 },
             { "media_type": "VIDEO", "caption": "no url", "like_count": 99 },
-            { "media_type": "VIDEO", "media_url": "https://cdn/c.mp4", "caption": "c", "like_count": 1 },
-            { "media_type": "VIDEO", "media_url": "https://cdn/d.mp4", "caption": "d", "like_count": 0 },
+            { "media_type": "VIDEO", "id": "c", "media_url": "https://cdn/c.mp4", "caption": "c", "like_count": 1 },
+            { "media_type": "VIDEO", "id": "d", "media_url": "https://cdn/d.mp4", "caption": "d", "like_count": 0 },
         ] }] });
         let c = context(&ig);
-        let urls: Vec<&str> = c["videos"].as_array().unwrap().iter().map(|v| v["media_url"].as_str().unwrap()).collect();
-        assert_eq!(urls, ["https://cdn/b.mp4", "https://cdn/a.mp4", "https://cdn/c.mp4"], "best first, at most three, only playable videos");
+        let ids: Vec<&str> = c["videos"].as_array().unwrap().iter().map(|v| v["id"].as_str().unwrap()).collect();
+        assert_eq!(ids, ["b", "a", "c"], "best first, at most three, only playable videos");
+        assert!(!c.to_string().contains("cdn/"), "Instagram's links stay on the server");
         assert_eq!(c["posts"].as_array().unwrap().len(), 6);
         assert!(!c["posts"].to_string().contains("cdn/"), "captions and counts only");
         assert_eq!(context(&json!({ "accounts": [] }))["videos"], json!([]));
-    }
-
-    /// One live Wonder run on a public clip. `STUPID_META_API_KEY` set; `cargo test live_reel_director -- --ignored --nocapture`.
-    #[tokio::test]
-    #[ignore]
-    async fn live_reel_director() {
-        let (s, _) = crate::tests_support::state_with_user();
-        let mut cfg = crate::Config::load();
-        cfg.muse_key = String::new();
-        let s = AppState { cfg: std::sync::Arc::new(cfg), ..s };
-        let ig = json!({ "accounts": [{ "media": [{ "media_type": "VIDEO", "media_product_type": "REELS", "media_url": "https://www.w3schools.com/html/mov_bbb.mp4",
-            "permalink": "https://www.instagram.com/", "caption": "A bunny wakes up in the meadow", "like_count": 40, "comments_count": 3 }] }] });
-        let (result, cost) = direct(&s, "u", &context(&ig), &crate::agents::Ai::Workspace(s.cfg.muse_model.clone())).await.unwrap();
-        println!("REELS ${cost:.4}\nWATCHED {}", serde_json::to_string_pretty(&result["watched"]).unwrap());
-        for script in result["scripts"].as_array().into_iter().flatten() {
-            println!("SCRIPT {} | hook: {} | {} shots", script["title"], script["hook"], script["shots"].as_array().map_or(0, Vec::len));
-        }
-        assert_eq!(result["scripts"].as_array().map(Vec::len), Some(3));
     }
 }

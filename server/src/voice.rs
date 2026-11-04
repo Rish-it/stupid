@@ -123,7 +123,7 @@ pub async fn hear(s: &AppState, id: i64) -> Result<(String, String), String> {
             let owner = owner(s, &asset)?;
             let ai = agents::ai(s, &owner).map_err(|e| e.1)?;
             let url = format!("data:{};base64,{}", mime.unwrap_or_else(|| sniff(&bytes).into()), STANDARD.encode(&bytes));
-            let posts = recent_posts(s, &owner).await;
+            let posts = crate::igmedia::inline_pictures(s, &owner, recent_posts(s, &owner).await).await;
             if !posts.is_empty() {
                 match compare(s, &ai, &url, &posts).await {
                     Ok((sees, mut matched)) => {
@@ -220,7 +220,7 @@ async fn fetch(s: &AppState, asset: &str, src: &str) -> Result<(Vec<u8>, Option<
 }
 
 /// An image's type from its first bytes, for links that don't say.
-fn sniff(bytes: &[u8]) -> &'static str {
+pub(crate) fn sniff(bytes: &[u8]) -> &'static str {
     match bytes {
         [0x89, b'P', b'N', b'G', ..] => "image/png",
         [b'R', b'I', b'F', b'F', _, _, _, _, b'W', b'E', b'B', b'P', ..] => "image/webp",
@@ -240,12 +240,6 @@ fn token_for(s: &AppState, asset: &str) -> Result<String, String> {
     let key = u.assets.iter().find(|a| a.id == asset).map(|a| a.key.clone()).ok_or("account not found")?;
     let all = tokens(s, &u).map_err(|e| e.1)?;
     Ok(all.for_asset(&key).to_string())
-}
-
-/// One of the owner's own videos, read here and handed over inline: Muse Wonder can't fetch Instagram's CDN links itself.
-pub async fn inline_video(s: &AppState, url: &str) -> Result<String, String> {
-    let url = Some(url).filter(|u| u.starts_with("https://")).ok_or("not a video link")?;
-    Ok(format!("data:video/mp4;base64,{}", STANDARD.encode(download(s, url, None).await?)))
 }
 
 async fn download(s: &AppState, url: &str, token: Option<&str>) -> Result<Vec<u8>, String> {

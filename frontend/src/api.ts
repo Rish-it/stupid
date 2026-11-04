@@ -77,12 +77,14 @@ export type Ads = { accounts: { id: string; name: string; currency: string; stat
 
 export type Media = {
   id: string; caption?: string; media_type: string; media_product_type?: string; timestamp: string;
-  like_count?: number; comments_count?: number; permalink: string; thumbnail_url?: string; media_url?: string;
+  like_count?: number; comments_count?: number; permalink: string;
+  /** Stupid's own copy of the post's picture or Reel cover; Instagram's links stay on the server. */
+  picture?: string;
 };
 export type Instagram = {
   accounts: {
     id: string;
-    profile: { username: string; name?: string; followers_count: number; follows_count: number; media_count: number; profile_picture_url?: string; biography?: string };
+    profile: { username: string; name?: string; followers_count: number; follows_count: number; media_count: number; biography?: string };
     media: Media[];
     insights: { name: "reach" | "views" | "accounts_engaged" | "total_interactions"; value: number }[];
     insights_error: string | null;
@@ -105,11 +107,11 @@ export const senderName = (item: Pick<InboxItem, "kind" | "sender" | "sender_nam
 
 export type AgentId = "leads" | "ideas" | "reels" | "replies" | "ads";
 export type ReelScript = { title: string; hook: string; caption: string; shots: { shot: string; seconds: number; on_screen: string; sound: string }[] };
-export type Watched = { video: number; caption?: string; permalink?: string; works: { at: string; what: string }[]; drop_off_guesses?: { at: string; what: string }[] };
+export type Watched = { video: number; id?: string; caption?: string; permalink?: string; works: { at: string; what: string }[]; drop_off_guesses?: { at: string; what: string }[] };
 export type AgentResult =
   | { empty: true; why?: string | null }
   | { leads: { who: string; channel: string; said: string; why: string; next_step: string }[] }
-  | { ideas: { hook: string; caption: string; format: "reel" | "carousel" | "photo" | "story"; why: string }[]; looked_at?: number }
+  | { ideas: { hook: string; caption: string; format: "reel" | "carousel" | "photo" | "story"; why: string }[]; looked_at?: number; looked_at_posts?: { id: string; permalink?: string; caption?: string }[] }
   | { replies: { event_id: string; to: string; draft: string }[] }
   | { scripts: ReelScript[]; watched: Watched[]; from_captions_only: boolean }
   | { summary: string; actions: { campaign: string; do: "pause" | "keep" | "scale" | "fix"; why: string }[]; creative_pack?: Crop[] };

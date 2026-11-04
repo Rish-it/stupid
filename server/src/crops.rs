@@ -8,11 +8,9 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde_json::{json, Value};
-use std::time::Duration;
 
 /// Images per pack, best first.
 const MAX_IMAGES: usize = 3;
-const MAX_IMAGE_BYTES: usize = 10 * 1024 * 1024;
 
 const NAMING: &str = "You help crop a creator's post images for ads. For each caption, in order, give the main product or subject \
 as a short noun phrase of one to three words that a segmentation model can find, like \"ceramic mug\" or \"woman\". \
@@ -77,24 +75,22 @@ pub async fn pack(s: &AppState, user_id: &str, ig: &Value, ai: &agents::Ai) -> (
     (out, cost)
 }
 
-/// One of the person's own post pictures, from our origin, so the browser may crop and save it. Nothing is kept.
+/// One of the person's own post pictures, from our origin and the server's cache, so the browser never loads
+/// Instagram's links and may crop and save it.
 pub async fn image(State(s): State<AppState>, headers: HeaderMap, Path(id): Path<String>) -> ApiResult<Response> {
     let u = user(&s, &headers)?;
     let ig = meta::instagram_data(&s, &u).await?;
-    let url = ig["accounts"].as_array().into_iter().flatten().flat_map(|a| a["media"].as_array().into_iter().flatten())
-        .find(|m| m["id"] == id.as_str()).and_then(picture).map(str::to_owned)
+    ig["accounts"].as_array().into_iter().flatten().flat_map(|a| a["media"].as_array().into_iter().flatten())
+        .find(|m| m["id"] == id.as_str() && picture(m).is_some())
         .ok_or_else(|| AppError::new(404, "That picture isn't on your Instagram."))?;
-    let response = s.http.get(&url).timeout(Duration::from_secs(30)).send().await.map_err(|_| AppError::new(502, "Instagram didn't send the picture."))?;
-    let kind = response.headers().get(header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).unwrap_or_default().to_string();
-    if !response.status().is_success() || !kind.starts_with("image/") {
-        return Err(AppError::new(502, "Instagram didn't send the picture."));
-    }
-    let bytes = response.bytes().await.map_err(|_| AppError::new(502, "Instagram didn't send the picture."))?;
-    if bytes.len() > MAX_IMAGE_BYTES {
-        return Err(AppError::new(502, "That picture is too large."));
-    }
+    let bytes = crate::igmedia::read(&s, &u.id, &id, crate::igmedia::Part::Picture).await.map_err(|e| {
+        tracing::warn!("post picture {id}: {e}");
+        AppError::new(502, "Instagram didn't send the picture.")
+    })?;
+    let kind = crate::voice::sniff(&bytes);
     let mut res = bytes.into_response();
-    res.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_str(&kind).unwrap_or(HeaderValue::from_static("image/jpeg")));
+    res.headers_mut().insert(header::CONTENT_TYPE, HeaderValue::from_static(kind));
+    res.headers_mut().insert(header::CACHE_CONTROL, HeaderValue::from_static("private, max-age=86400"));
     Ok(res)
 }
 

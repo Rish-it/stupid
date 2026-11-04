@@ -125,10 +125,10 @@ pub async fn call(s: &AppState, u: &User, ticket: Option<i64>, name: &str, args:
             let id = text_arg(args, "media_id", 64)?;
             let question = text_arg(args, "question", 500)?;
             let ig = meta::instagram_data(s, u).await.map_err(|e| e.1)?;
-            let url = ig["accounts"].as_array().into_iter().flatten().flat_map(|a| a["media"].as_array().into_iter().flatten())
-                .find(|m| m["id"] == id.as_str() && m["media_type"] == "VIDEO").and_then(|m| m["media_url"].as_str()).map(str::to_owned)
+            ig["accounts"].as_array().into_iter().flatten().flat_map(|a| a["media"].as_array().into_iter().flatten())
+                .find(|m| m["id"] == id.as_str() && m["media_type"] == "VIDEO")
                 .ok_or_else(|| format!("No video {id} on this Instagram account."))?;
-            json!({ "notes": crate::reels::watch(s, &u.id, &url, &question).await.map_err(|e| e.1)? })
+            json!({ "notes": crate::reels::watch(s, &u.id, &id, &question).await.map_err(|e| e.1)? })
         }
         "transcribe_voice_note" => {
             let id = args["event_id"].as_i64().ok_or("`event_id` must be a number.")?;

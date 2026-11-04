@@ -663,7 +663,28 @@ pub async fn ads(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Jso
 }
 pub async fn instagram(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Value>> {
     let u = user(&s, &headers)?;
-    Ok(Json(instagram_data(&s, &u).await?))
+    Ok(Json(for_browser(instagram_data(&s, &u).await?)))
+}
+
+/// Instagram's own file links stay on the server; each post with a picture points at Stupid's copy instead.
+fn for_browser(mut ig: Value) -> Value {
+    for a in ig["accounts"].as_array_mut().into_iter().flatten() {
+        if let Some(p) = a["profile"].as_object_mut() {
+            p.remove("profile_picture_url");
+        }
+        for m in a["media"].as_array_mut().into_iter().flatten() {
+            let picture = crate::crops::picture(m).is_some();
+            let id = m["id"].as_str().unwrap_or_default().to_string();
+            if let Some(o) = m.as_object_mut() {
+                o.remove("media_url");
+                o.remove("thumbnail_url");
+                if picture {
+                    o.insert("picture".into(), json!(format!("/api/instagram/media/{id}/image")));
+                }
+            }
+        }
+    }
+    ig
 }
 pub async fn inbox(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Value>> {
     let u = user(&s, &headers)?;
@@ -1075,6 +1096,18 @@ mod tests {
         let (path, body) = reply_request("messenger", "5", "9", "messenger:x", "yo").unwrap();
         assert_eq!((path.as_str(), body["recipient"]["id"].as_str()), ("me/messages", Some("9")));
         assert!(reply_request("other", "5", "9", "", "yo").is_none());
+    }
+
+    #[test]
+    fn instagram_links_never_reach_the_browser() {
+        let ig = json!({ "accounts": [{ "profile": { "username": "me", "profile_picture_url": "https://cdn/p.jpg" }, "media": [
+            { "id": "1", "media_type": "VIDEO", "media_url": "https://cdn/v.mp4", "thumbnail_url": "https://cdn/v.jpg", "permalink": "https://www.instagram.com/reel/x/" },
+            { "id": "2", "media_type": "VIDEO", "permalink": "https://www.instagram.com/reel/y/" }] }] });
+        let out = for_browser(ig);
+        assert!(!out.to_string().contains("cdn/"), "{out}");
+        assert_eq!(out["accounts"][0]["media"][0]["picture"], "/api/instagram/media/1/image");
+        assert!(out["accounts"][0]["media"][1].get("picture").is_none(), "no picture to show");
+        assert_eq!(out["accounts"][0]["media"][0]["permalink"], "https://www.instagram.com/reel/x/");
     }
 
     #[test]

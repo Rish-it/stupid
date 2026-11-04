@@ -7,6 +7,7 @@ mod digest;
 #[cfg(test)]
 mod eval;
 mod executor;
+mod igmedia;
 mod meta;
 mod mcp;
 mod meta_ai;
@@ -712,6 +713,7 @@ fn sweep(s: &AppState, startup: bool) {
         tracing::error!("sweep: {e}");
     }
     drop(db);
+    igmedia::sweep(s);
     // The longest time-to-live in the cache.
     lock(&s.cache).retain(|_, (at, _)| at.elapsed() < meta::TTL.max(agents::MODELS_TTL));
 }
