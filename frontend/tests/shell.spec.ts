@@ -193,6 +193,7 @@ test("Agents run, poll to a result and hand a reply draft to the Inbox", async (
 
   await page.getByRole("link", { name: "Use this reply" }).click();
   await expect(page.getByLabel("Reply to Ana")).toHaveValue("We're open until 7.");
+  await expect(page.getByText("Drafted by AI · check before sending")).toBeVisible();
 });
 
 test("Agents point to Settings when there is no AI access", async ({ page }) => {

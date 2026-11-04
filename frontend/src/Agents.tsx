@@ -140,7 +140,7 @@ function Result({ result, onLeave }: { result: AgentResult; onLeave: () => void 
     <VStack key={r.event_id} gap={2}>
       <Text weight="semibold">To {r.to}</Text>
       <div className="bubble"><Text as="p">{r.draft}</Text></div>
-      <HStack><Button size="sm" variant="primary" label="Use this reply" href="#inbox" onClick={() => { drafts.set(r.event_id, r.draft); onLeave(); }} /></HStack>
+      <HStack><Button size="sm" variant="primary" label="Use this reply" href="#inbox" onClick={() => { drafts.set(r.event_id, { text: r.draft, source: "agent" }); onLeave(); }} /></HStack>
     </VStack>
   )));
   return (

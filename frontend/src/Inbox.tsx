@@ -80,7 +80,8 @@ export default function Inbox() {
 }
 
 function Conversation({ item, mark, onClose, onStatus }: { item: InboxItem; mark?: Mark; onClose: () => void; onStatus: (label?: Mark) => void }) {
-  const [text, setText] = useState(() => drafts.get(item.id) ?? "");
+  const [draft] = useState(() => drafts.get(item.id));
+  const [text, setText] = useState(draft?.text ?? "");
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
   const failed = !item.replied && !mark && item.reply_error;
@@ -99,7 +100,7 @@ function Conversation({ item, mark, onClose, onStatus }: { item: InboxItem; mark
     }
     setSending(false);
   };
-  const close = () => { if (text.trim()) drafts.set(item.id, text); onClose(); };
+  const close = () => { if (text.trim()) drafts.set(item.id, { ...draft, text }); onClose(); };
   return (
     <Modal isOpen onClose={close} purpose="form" title={senderName(item)}
       subtitle={<HStack gap={2} align="center"><SourceIcon source={item.kind} size={14} />{where[item.kind]} · <Timestamp value={item.created} format="relative" /></HStack>}
@@ -110,6 +111,7 @@ function Conversation({ item, mark, onClose, onStatus }: { item: InboxItem; mark
       <div className="bubble"><Text as="p">{item.text}</Text></div>
       {item.replied && <Text as="p" type="supporting">You've replied to this one.</Text>}
       {failed && <Banner status="warning" title="Your reply didn't arrive" description={`${failed} You can try again below.`} />}
+      {canReply && draft?.source === "agent" && <HStack><Token size="sm" label="Drafted by AI · check before sending" /></HStack>}
       {canReply && (
         <TextArea label={`Reply to ${senderName(item)}`} value={text} onChange={v => { setText(v); setError(""); }}
           rows={4} maxLength={1000} hasAutoFocus status={error ? { type: "error", message: error } : undefined}
