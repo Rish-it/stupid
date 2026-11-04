@@ -27,16 +27,23 @@ const nudges: Record<AgentId, string> = {
 const message = (cause: unknown) => cause instanceof Error ? cause.message : String(cause);
 
 /** The agent's desk: what it's watching, what needs the person, and what it made. Not a dashboard. */
-export default function Home({ state, persona }: { state: Connections; persona: Persona | null }) {
+export default function Home({ state, persona, onSetup }: { state: Connections; persona: Persona | null; onSetup: () => void }) {
   const home = useLoad("agent", api.agent);
   const runs = useLoad("agents", api.agents);
+  // Shared with the onboarding card, so a closed card still leaves a way back while a required step is left.
+  const setup = useLoad("setup-next", api.setupNext);
+  const unfinished = setup.data?.persona && !setup.data.done && setup.data.step;
   const [today] = useState(() => new Intl.DateTimeFormat(undefined, { weekday: "short", day: "numeric", month: "short" }).format(new Date()));
   return (
     <div className="page home">
       <VStack gap={8}>
         <VStack as="header" gap={2} hAlign="center">
           {home.data && <Status data={home.data} />}
-          <Heading level={1} justify="center"><VisuallyHidden>Home, </VisuallyHidden>{today}</Heading>
+          <Heading level={1} justify="center" tabIndex={-1}><VisuallyHidden>Home, </VisuallyHidden>{today}</Heading>
+          {unfinished && <HStack gap={2} align="center" wrap="wrap" justify="center">
+            <Text type="supporting" size="sm">{`Setup isn't finished: ${unfinished.title}`}</Text>
+            <Button size="sm" variant="ghost" label="Finish setup" onClick={onSetup} />
+          </HStack>}
         </VStack>
         <div className="home-panels">
           <Load state={home}>{data => <NeedsYou data={data} reload={home.reload} />}</Load>
