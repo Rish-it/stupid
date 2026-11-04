@@ -485,3 +485,5 @@ input[role="switch"]:not(:checked) + div { background: #3a3a40; }
 }
 .agent-card a.agent-card-action { flex: none; padding: 5px 12px; border-radius: 999px; background: var(--color-background-muted); color: var(--color-text-primary); font-size: var(--font-size-sm); font-weight: 500; white-space: nowrap; text-decoration: none; }
 .agent-card a.agent-card-action:hover { background: color-mix(in srgb, var(--color-background-muted), var(--color-text-primary) 8%); }
+/* Headings take focus only to move a reader there; no ring around a title. */
+h1[tabindex="-1"]:focus-visible { outline: none; }
