@@ -278,6 +278,8 @@ ALTER TABLE users ADD COLUMN agent_rules TEXT NOT NULL DEFAULT '';
     "CREATE TABLE skips (user_id TEXT NOT NULL, event_id INTEGER NOT NULL, created INTEGER NOT NULL, PRIMARY KEY (user_id, event_id));",
     // Conversations the owner let the agent answer by itself (thread key `inbox:<kind>:<asset>:<sender>`), until it hands back.
     "CREATE TABLE pins (user_id TEXT NOT NULL, key TEXT NOT NULL, created INTEGER NOT NULL, PRIMARY KEY (user_id, key));",
+    // The two sounds Home plays: when agent work is done, and when something needs the owner. "off" for silence.
+    "ALTER TABLE users ADD COLUMN sounds_json TEXT NOT NULL DEFAULT '{\"done\":\"tick\",\"needs\":\"bell\"}';",
 ];
 
 /// The built app. A missing hashed asset answers 404, so a stale page fails loudly instead of loading
@@ -431,6 +433,26 @@ async fn save_persona(State(s): State<AppState>, headers: HeaderMap, Json(body):
     lock(&s.db).execute("UPDATE users SET persona=?1 WHERE id=?2", params![persona, u.id])?;
     u.persona = Some(persona.into());
     Ok(Json(me_json(&u)))
+}
+
+/// The sounds each moment may use; the browser makes them, so these are names only.
+const DONE_SOUNDS: [&str; 4] = ["tick", "chord", "pop", "off"];
+const NEEDS_SOUNDS: [&str; 4] = ["bell", "chime", "knock", "off"];
+
+/// `GET /api/settings/sounds`: which sound Home plays when work is done and when something needs the person.
+async fn sounds(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Value>> {
+    let u = user(&s, &headers)?;
+    let kept: String = lock(&s.db).query_row("SELECT sounds_json FROM users WHERE id=?1", [&u.id], |r| r.get(0))?;
+    Ok(Json(serde_json::from_str(&kept).unwrap_or_else(|_| json!({ "done": "tick", "needs": "bell" }))))
+}
+
+/// `PUT /api/settings/sounds` with `{done, needs}`, each one of its listed names or "off".
+async fn save_sounds(State(s): State<AppState>, headers: HeaderMap, Json(body): Json<Value>) -> ApiResult<Json<Value>> {
+    let u = user(&s, &headers)?;
+    let pick = |key: &str, from: &[&str]| body[key].as_str().filter(|v| from.contains(v)).map(str::to_owned).ok_or_else(|| AppError::new(400, "Pick one of the listed sounds, or off."));
+    let kept = json!({ "done": pick("done", &DONE_SOUNDS)?, "needs": pick("needs", &NEEDS_SOUNDS)? });
+    lock(&s.db).execute("UPDATE users SET sounds_json=?1 WHERE id=?2", params![kept.to_string(), u.id])?;
+    Ok(Json(kept))
 }
 
 async fn oauth_start(State(s): State<AppState>) -> ApiResult<Response> {
@@ -820,6 +842,7 @@ async fn main() {
         .route("/api/settings/ai", get(agents::settings).put(agents::save_key))
         .route("/api/settings/ai/brain", put(agents::save_brain))
         .route("/api/settings/ai/model", put(agents::save_model))
+        .route("/api/settings/sounds", get(sounds).put(save_sounds))
         .route("/api/agents", get(agents::list))
         .route("/api/agents/{agent}/run", post(agents::run))
         .route("/api/agents/{agent}/control", put(control::save))
@@ -852,6 +875,23 @@ async fn main() {
 }
 
 #[cfg(test)]
+#[cfg(test)]
+mod sound_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn each_person_keeps_their_own_sounds() {
+        let (s, _) = tests_support::state_with_user();
+        let h = tests_support::signed_in(&s);
+        let Json(first) = sounds(State(s.clone()), h.clone()).await.unwrap();
+        assert_eq!(first, json!({ "done": "tick", "needs": "bell" }), "on by default");
+        let Json(saved) = save_sounds(State(s.clone()), h.clone(), Json(json!({ "done": "off", "needs": "chime" }))).await.unwrap();
+        assert_eq!(saved, json!({ "done": "off", "needs": "chime" }));
+        assert_eq!(sounds(State(s.clone()), h.clone()).await.unwrap().0, saved);
+        assert!(save_sounds(State(s.clone()), h.clone(), Json(json!({ "done": "siren", "needs": "bell" }))).await.is_err_and(|e| e.0 == 400));
+    }
+}
+
 pub mod tests_support {
     use super::*;
 

@@ -19,6 +19,8 @@ import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { api, ownerPlace, useLoad } from "./api";
 import type { Account, AiModel, AiSettings, Fact, Persona } from "./api";
 import { Load } from "./Load";
+import { doneSounds, needsSounds, play } from "./sounds";
+import type { Sounds } from "./sounds";
 import { modelName } from "./Trace";
 import OnYourWhatsApp from "./OwnerChannel";
 import Setup from "./Setup";
@@ -101,7 +103,7 @@ export default function Settings({ name, persona, account, onAccount, onConnect,
             {section === "Connections" && <Row id="setup-heading" title="Apps and accounts" description="Which accounts Stupid reads, and anything Meta still needs.">
               <Setup state={account} persona={persona} onChange={onAccount} onConnect={onConnect} embedded />
             </Row>}
-            {section === "Your agent" && <AgentRules />}
+            {section === "Your agent" && <><AgentRules /><SoundChoice /></>}
             {section === "AI model" && <AiAccess />}
             {section === "Muse" && <UseFromMuse />}
             {section === "Account" && <YourAccount name={name} onSignedOut={onSignedOut} />}
@@ -128,6 +130,28 @@ function Path({ persona, onPersona }: { persona: Persona | null; onPersona: (per
         <Text as="p">{persona === "creator" ? "Your Home now starts with Reel director and Post ideas, and setup asks for Instagram." : "Your Home now starts with reply drafts and leads, and setup asks for WhatsApp and your Page."}</Text>
         <Button variant="primary" label="Go to Home" href="#home" />
       </VStack>}</div>
+    </Row>
+  );
+}
+
+/** Home's two sounds: when agent work is done, and when something needs you. Each plays once when picked. */
+function SoundChoice() {
+  const sounds = useLoad("sounds", api.sounds);
+  const [error, setError] = useState("");
+  const save = (next: Sounds, sound: string) => { play(sound); return api.setSounds(next).then(sounds.setData, (cause: unknown) => setError(message(cause))); };
+  return (
+    <Row id="sounds-heading" title="Sounds" description="Home plays these while it's open. Browsers keep it silent until you've tapped or typed on the page.">
+      <Load state={sounds}>{s => <VStack gap={2}>
+        <Text size="sm" weight="semibold">When agent work is done</Text>
+        <SegmentedControl label="When agent work is done" value={s.done} onChange={v => void save({ ...s, done: v as Sounds["done"] }, v)}>
+          {Object.entries(doneSounds).map(([value, label]) => <SegmentedControlItem key={value} value={value} label={label} />)}
+        </SegmentedControl>
+        <Text size="sm" weight="semibold">When something needs you</Text>
+        <SegmentedControl label="When something needs you" value={s.needs} onChange={v => void save({ ...s, needs: v as Sounds["needs"] }, v)}>
+          {Object.entries(needsSounds).map(([value, label]) => <SegmentedControlItem key={value} value={value} label={label} />)}
+        </SegmentedControl>
+        {error && <Text as="p" size="sm" role="alert">{error}</Text>}
+      </VStack>}</Load>
     </Row>
   );
 }

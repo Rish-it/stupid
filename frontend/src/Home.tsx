@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { Avatar } from "@astryxdesign/core/Avatar";
@@ -17,6 +17,7 @@ import { Check, Logo } from "./Icons";
 import Trace from "./Trace";
 import { Result } from "./Agents";
 import SourceIcon from "./SourceIcon";
+import { play } from "./sounds";
 
 const Numbers = lazy(() => import("./Numbers"));
 // The agent thinking: a dotted orb (thinking-orbs, MIT, plain 2D canvas), loaded only when someone asks.
@@ -136,6 +137,13 @@ export default function Home({ state, persona }: { state: Connections; persona: 
       </Pane> });
   }
   // Urgent first: what the agent pinged the owner about, then newest.
+  // What's new since the last look decides the sound: something needing the person outranks work done.
+  const sounds = useLoad("sounds", api.sounds).data;
+  const done = [...(runs.data?.runs ?? []).filter(r => r.status === "done").map(r => `r${r.agent}${r.finished}`), ...needs.filter(n => n.type === "draft").map(n => `d${n.id}`),
+    ...(home.data?.tickets ?? []).flatMap(t => t.reports.filter(r => r.text.startsWith("Answered for you")).map(r => `a${t.id}${r.created}`))];
+  const calling = [...needs.filter(n => n.urgent || n.type === "question").map(n => `n${n.id}`),
+    ...(home.data?.tickets ?? []).flatMap(t => t.reports.filter(r => r.kind === "blocked").map(r => `b${t.id}${r.created}`))];
+  useChime(done, calling, home.data && runs.data ? sounds : undefined);
   rows.sort((a, b) => Number(Boolean(b.urgent)) - Number(Boolean(a.urgent)) || b.when - a.when);
   const counts = { all: rows.length, needs: 0, working: 0, done: 0 };
   for (const r of rows) counts[r.group]++;
@@ -197,6 +205,22 @@ export default function Home({ state, persona }: { state: Connections; persona: 
       </div>
     </div>
   );
+}
+
+/** Plays the person's sound when something new arrives: nothing on first load, needs-you over done. */
+function useChime(done: string[], calling: string[], sounds?: { done: string; needs: string }) {
+  const seen = useRef<{ done: Set<string>; calling: Set<string> }>(undefined);
+  const key = `${done.join()}|${calling.join()}`;
+  useEffect(() => {
+    // Only once everything has loaded, so the first fill of the list stays silent.
+    if (!sounds) return;
+    const before = seen.current;
+    seen.current = { done: new Set(done), calling: new Set(calling) };
+    if (!before) return;
+    if (calling.some(k => !before.calling.has(k))) play(sounds.needs);
+    else if (done.some(k => !before.done.has(k))) play(sounds.done);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, sounds]);
 }
 
 /** What an empty list says, true to why it's empty. */
