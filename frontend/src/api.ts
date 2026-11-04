@@ -107,7 +107,7 @@ export type AgentId = "leads" | "ideas" | "reels" | "replies" | "ads";
 export type ReelScript = { title: string; hook: string; caption: string; shots: { shot: string; seconds: number; on_screen: string; sound: string }[] };
 export type Watched = { video: number; caption?: string; permalink?: string; works: { at: string; what: string }[]; drop_off_guesses?: { at: string; what: string }[] };
 export type AgentResult =
-  | { empty: true }
+  | { empty: true; why?: string | null }
   | { leads: { who: string; channel: string; said: string; why: string; next_step: string }[] }
   | { ideas: { hook: string; caption: string; format: "reel" | "carousel" | "photo" | "story"; why: string }[]; looked_at?: number }
   | { replies: { event_id: string; to: string; draft: string }[] }

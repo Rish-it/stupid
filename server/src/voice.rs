@@ -242,6 +242,12 @@ fn token_for(s: &AppState, asset: &str) -> Result<String, String> {
     Ok(all.for_asset(&key).to_string())
 }
 
+/// One of the owner's own videos, read here and handed over inline: Muse Wonder can't fetch Instagram's CDN links itself.
+pub async fn inline_video(s: &AppState, url: &str) -> Result<String, String> {
+    let url = Some(url).filter(|u| u.starts_with("https://")).ok_or("not a video link")?;
+    Ok(format!("data:video/mp4;base64,{}", STANDARD.encode(download(s, url, None).await?)))
+}
+
 async fn download(s: &AppState, url: &str, token: Option<&str>) -> Result<Vec<u8>, String> {
     let mut request = s.http.get(url).header("user-agent", "Stupid/0.1 (+https://app.secndai.com)").timeout(Duration::from_secs(60));
     if let Some(token) = token {
