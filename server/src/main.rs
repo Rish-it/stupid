@@ -176,6 +176,8 @@ CREATE TABLE IF NOT EXISTS deletions (code TEXT PRIMARY KEY, created INTEGER NOT
     "ALTER TABLE users ADD COLUMN problems_json TEXT NOT NULL DEFAULT '[]';",
     "ALTER TABLE events ADD COLUMN sender_name TEXT;",
     "ALTER TABLE replies ADD COLUMN message_id TEXT; ALTER TABLE replies ADD COLUMN error TEXT; CREATE INDEX replies_message ON replies(message_id);",
+    // When the person asked Stupid to send what agents read to their own AI account (their express direction).
+    "ALTER TABLE users ADD COLUMN ai_key_saved_at INTEGER;",
 ];
 
 fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
