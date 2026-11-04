@@ -1,6 +1,6 @@
 // Sample data for dev builds only (?fixtures=1). Every name says "Sample"; nothing here is real.
 import { ApiError, appStatus, factsPrompt } from "./api";
-import type { Account, AgentHome, AgentId, AgentRun, Asset, AssetKind, InboxItem, Me, Persona, SetupNext, SetupStep } from "./api";
+import type { Account, AgentHome, AgentId, AgentRun, Asset, AssetKind, InboxItem, McpKey, Me, Persona, SetupNext, SetupStep } from "./api";
 
 const now = () => Math.floor(Date.now() / 1000);
 const assets: Asset[] = [
@@ -53,6 +53,7 @@ if (world) {
 }
 let hasKey = false;
 let brain: "open" | "meta" = "open";
+let mcp: Omit<McpKey, "url"> = { has_key: false, created: null, last_used: null };
 
 const campaign = (name: string, spend: string, clicks: string, ctr: string, cpc: string) => ({
   campaign_id: name, campaign_name: name, spend, impressions: "12000", reach: "8400", clicks, ctr, cpc,
@@ -213,6 +214,9 @@ export async function answer(method: string, path: string, body: unknown): Promi
     runs.set(agent, { agent, status: "running", result: null, error: null, cost_usd: null, created: now(), finished: null, models: [] });
     return { agent, status: "running" };
   }
+  if (route === "GET /api/mcp/key") return { ...mcp, url: "https://app.example.com/mcp" };
+  if (route === "POST /api/mcp/key") { mcp = { has_key: true, created: now(), last_used: null }; return { key: "stupid_sample_key_not_real", created: mcp.created }; }
+  if (route === "DELETE /api/mcp/key") { mcp = { has_key: false, created: null, last_used: null }; return { has_key: false }; }
   if (route === "GET /api/agent") return home;
   if (route === "PUT /api/agent/settings") { home = { ...home, ...(body as { proactive: boolean; rules: string }) }; return { proactive: home.proactive, rules: home.rules }; }
   if (/^POST \/api\/agent\/tickets\/\d+\/answer$/.test(route)) { home = { ...home, needs: home.needs.filter(n => n.type !== "question") }; return { state: "open" }; }

@@ -13,7 +13,7 @@ export default function SideBar({ page, name }: { page: string; name: string }) 
           <Glyph width={20} height={20} aria-hidden />{label}
         </a>
       ))}
-      <a href="#settings" className="rail-item rail-me" aria-current={page === "settings" ? "page" : undefined}>
+      <a href="#settings" className="rail-item rail-me" aria-label="Settings" aria-current={page === "settings" ? "page" : undefined}>
         <Avatar name={name} size="sm" tooltip={false} aria-hidden />Settings
       </a>
     </nav>
