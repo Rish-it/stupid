@@ -26,7 +26,7 @@ const status = (oc: OwnerChannel) => !oc.linked ? "Not linked" : open(oc) ? `Lin
 /** Settings › On your WhatsApp: the agent messages the owner there, and only the owner. */
 export default function OnYourWhatsApp({ state: account }: { state: Connections }) {
   const state = useLoad("owner-channel", api.ownerChannel);
-  return <Load state={state}>{oc => <Channel oc={oc} blocked={oc.channel !== "messenger" ? whatsappBlock(account) : undefined} onSaved={state.setData} />}</Load>;
+  return <Load state={state}>{oc => <Channel oc={oc} blocked={oc.channel !== "messenger" ? whatsappBlock(account, oc.asset_id) : undefined} onSaved={state.setData} />}</Load>;
 }
 
 type Place = "phone" | "settings" | "test";

@@ -73,13 +73,13 @@ function Status({ data, state }: { data: AgentHome; state: Connections }) {
   const owner = useLoad("owner-channel", api.ownerChannel).data;
   const pinging = owner?.linked && owner.window_until !== null && owner.window_until > Date.now() / 1000;
   // Pings on WhatsApp can't arrive while Meta refuses the number; say so instead of "Pinging you".
-  const blocked = owner?.channel !== "messenger" ? whatsappBlock(state) : undefined;
+  const blocked = owner?.channel !== "messenger" ? whatsappBlock(state, owner?.asset_id) : undefined;
   return (
     <Text as="p" type="supporting" size="sm" className="status-line">
       <span className="live-dot" data-on={watching.length > 0 || undefined} aria-hidden />
       {watching.length ? `Watching ${list(watching)}` : "Not watching any messages yet"}
       {data.last_checked ? ` · last checked ${ago(data.last_checked)}` : ""}
-      {owner && (blocked ? <> · Meta has restricted your WhatsApp number · <Link href={blocked.link ?? "#settings"} target="_blank" rel="noopener noreferrer" type="supporting" size="sm" hasUnderline>Fix in Meta</Link></>
+      {owner && (blocked ? <> · Meta is blocking sends from your WhatsApp number · <Link href={blocked.link ?? "#settings"} target="_blank" rel="noopener noreferrer" type="supporting" size="sm" hasUnderline>Fix in Meta</Link></>
         : pinging ? ` · Pinging you on ${ownerPlace(owner)}` : owner.business_number && <> · <Link href="#settings" type="supporting" size="sm" hasUnderline>
         {owner.linked ? "Message your business number to get pings" : "Get pinged on your WhatsApp"}</Link></>)}
     </Text>
@@ -89,7 +89,7 @@ function Status({ data, state }: { data: AgentHome; state: Connections }) {
 /** Once paired: the agent is one WhatsApp message away, for the same things this desk does. */
 function AgentChat({ needs, state }: { needs: Need[]; state: Connections }) {
   const owner = useLoad("owner-channel", api.ownerChannel).data;
-  const blocked = whatsappBlock(state);
+  const blocked = whatsappBlock(state, owner?.asset_id);
   if (!owner?.linked || !owner.business_number) return null;
   // The example names someone actually waiting, when someone is.
   const waiting = needs.find(n => n.message)?.message;

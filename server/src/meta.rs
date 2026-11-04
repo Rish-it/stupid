@@ -126,6 +126,10 @@ pub fn whatsapp_blocked(db: &rusqlite::Connection, asset_id: &str) -> rusqlite::
 /// Meta's own refusal of a WhatsApp number's sends, as an issue on that number, ahead of what the health check says.
 pub fn add_refusals(db: &rusqlite::Connection, assets: &mut [Asset]) -> rusqlite::Result<()> {
     for a in assets.iter_mut().filter(|a| a.kind == "whatsapp") {
+        // ponytail: accounts read from Meta before 141006 stopped blocking keep it stored as blocking; drop once every account has refreshed.
+        for i in a.issues.iter_mut().filter(|i| i.text.starts_with("WhatsApp needs a payment method")) {
+            i.blocking = false;
+        }
         let reason: Option<String> = db.query_row("SELECT reason FROM wa_blocks WHERE asset_id=?1", [&a.id], |r| r.get(0)).optional()?;
         if let Some(reason) = reason {
             a.issues.retain(|i| !i.blocking);
