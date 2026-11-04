@@ -1033,6 +1033,8 @@ test("Settings opens on your own WhatsApp: linked with the window open, and ever
   const panel = page.getByRole("dialog", { name: "Settings" }).getByRole("tabpanel");
   await expect(page.getByRole("tab").first()).toHaveText("On your WhatsApp");
   await expect(panel.getByText(/^Linked · I can message you until \d\d:\d\d$/)).toBeVisible();
+  // Paired and open reads as "all good", in the success colour.
+  await expect(panel.locator(".status-line .live-dot[data-ok]")).toHaveCount(1);
   // Only the last four digits show.
   await expect(panel.getByText("•••• 0001")).toBeVisible();
   await expect(panel.getByText("+919800000001")).toHaveCount(0);
@@ -1046,18 +1048,24 @@ test("Settings opens on your own WhatsApp: linked with the window open, and ever
   await expect(panel.getByText("Sent. Check your WhatsApp.")).toBeVisible();
   // The whole section fits the Settings window on a laptop.
   expect(await panel.evaluate(el => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
-  // A new number has to be linked again: the link opens WhatsApp with the code typed in.
+  // A bad number says why, on its own field.
   await panel.getByRole("button", { name: "Change number" }).click();
-  await panel.getByRole("textbox", { name: "Your WhatsApp number" }).fill("+91 98000 00002");
+  const number = panel.getByRole("textbox", { name: /Your WhatsApp number/ });
+  await number.fill("98000");
+  await panel.getByRole("button", { name: "Save number" }).click();
+  await expect(panel.getByText(/^That number doesn't look right/)).toBeVisible();
+  // A new number has to be paired again: the code leads, and the button opens WhatsApp with it typed in.
+  await number.fill("+91 98000 00002");
   await panel.getByRole("button", { name: "Save number" }).click();
   await expect(panel.getByText("Not linked")).toBeVisible();
-  await expect(panel.getByRole("link", { name: "Link it" })).toHaveAttribute("href", "https://wa.me/15550100000?text=hi%20N3W5PH");
+  await expect(panel.getByRole("heading", { name: "Send this code to your agent: N3W5PH" })).toBeVisible();
+  await expect(panel.getByRole("link", { name: "Open WhatsApp" })).toHaveAttribute("href", "https://wa.me/15550100000?text=hi%20N3W5PH");
   await expect(panel.getByText("or send hi N3W5PH to +15550100000 from your phone")).toBeVisible();
   await panel.getByRole("button", { name: "Send a test" }).click();
-  await expect(panel.getByText(/^Link your WhatsApp first/)).toBeVisible();
-  // Daily summary off: its time goes.
+  await expect(panel.getByText(/^Pair your WhatsApp first/)).toBeVisible();
+  // Daily summary off: its time stays in view, greyed out.
   await panel.getByRole("switch", { name: "Daily summary" }).click();
-  await expect(panel.getByLabel("Summary time")).toHaveCount(0);
+  await expect(panel.getByLabel("Summary time")).toBeDisabled();
 });
 
 test("a closed window says how to reopen it, and the test says exactly what's needed", async ({ page }) => {
@@ -1073,9 +1081,42 @@ test("a closed window says how to reopen it, and the test says exactly what's ne
   await expect(panel.getByText(/within 24 hours of your last message\. Send any message to the business number/)).toBeVisible();
 });
 
-test("Home says when it's pinging you on WhatsApp", async ({ page }) => {
+test("Home says when it's pinging you on WhatsApp, and that the agent is one message away", async ({ page }) => {
   await page.goto("http://127.0.0.1:8032/?fixtures=1&persona=business&stage=busy#home");
   await expect(page.getByText(/· Pinging you on WhatsApp/)).toBeVisible();
+  const strip = page.getByRole("region", { name: "Your agent on WhatsApp" });
+  await expect(strip.getByText(/^Message your agent anytime: "what's pending\?" or "reply to \S+…"$/)).toBeVisible();
+  await expect(strip.getByRole("link", { name: "Open the chat" })).toHaveAttribute("href", "https://wa.me/15550100000");
+});
+
+test("pairing needs only the code: the number is optional, and a failed test shows the server's own words", async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  let owner = { phone: null, link_code: "9JJBDV", linked: false, business_number: "+15550100000", window_until: null, digest_time: null, tz: "Asia/Kolkata", quiet: null, urgent: [], last_ping: null };
+  await page.route("**/api/me", route => route.fulfill(json(signedIn)));
+  await page.route("**/api/agent", route => route.fulfill(json(agentHome())));
+  await page.route("**/api/owner-channel", route => route.fulfill(json(owner = { ...owner, ...route.request().postDataJSON() })));
+  await page.route("**/api/owner-channel/test", route => route.fulfill({ status: 502, ...json({ error: "WhatsApp refused it: the business number isn't registered yet.", code: 133010 }) }));
+  await page.goto("/#settings");
+  const panel = page.getByRole("dialog", { name: "Settings" }).getByRole("tabpanel");
+  await expect(panel.getByRole("heading", { name: "Send this code to your agent: 9JJBDV" })).toBeVisible();
+  await expect(panel.getByRole("link", { name: "Open WhatsApp" })).toHaveAttribute("href", "https://wa.me/15550100000?text=hi%209JJBDV");
+  await expect(panel.getByRole("textbox", { name: /Your WhatsApp number/ })).toHaveCount(0);
+  // Both timed messages off: the switches and their times still show, the times greyed out.
+  await expect(panel.getByRole("switch", { name: "Daily summary" })).not.toBeChecked();
+  await expect(panel.getByLabel("Summary time")).toBeDisabled();
+  await expect(panel.getByLabel("Summary time")).toHaveValue("21:00");
+  await expect(panel.getByLabel("From")).toBeDisabled();
+  await panel.getByRole("switch", { name: "Quiet hours" }).click();
+  await expect(panel.getByLabel("To", { exact: true })).toBeEnabled();
+  await panel.getByRole("button", { name: "or type your number" }).click();
+  await expect(panel.getByRole("textbox", { name: /Your WhatsApp number/ })).toBeVisible();
+  await panel.getByRole("button", { name: "Send a test" }).click();
+  // Still one window on a laptop, with the code, the number and the error all showing.
+  expect(await panel.evaluate(el => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
+  await expect(panel.getByText("WhatsApp refused it: the business number isn't registered yet.")).toBeVisible();
+  // Not paired: Home has no chat strip yet.
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("region", { name: "Your agent on WhatsApp" })).toHaveCount(0);
 });
 
 test("not linked yet: Home offers one tap to set it up, and onboarding offers it as an optional last step", async ({ page }) => {
