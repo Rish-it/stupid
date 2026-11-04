@@ -259,6 +259,9 @@ ALTER TABLE users ADD COLUMN agent_rules TEXT NOT NULL DEFAULT '';
      CREATE TABLE owner_seen (dedupe TEXT PRIMARY KEY, created INTEGER NOT NULL);",
     // Meta's refusal of the last message to the owner, shown in Settings until one goes through.
     "ALTER TABLE owner_channel ADD COLUMN last_error_json TEXT;",
+    // The owner channel over Messenger too: where the owner last wrote from, and their Messenger id on the Page.
+    "ALTER TABLE owner_channel ADD COLUMN channel TEXT NOT NULL DEFAULT 'whatsapp'; ALTER TABLE owner_channel ADD COLUMN psid TEXT;
+     CREATE INDEX owner_channel_psid ON owner_channel(psid);",
 ];
 
 /// The built app. A missing hashed asset answers 404, so a stale page fails loudly instead of loading
@@ -612,16 +615,11 @@ async fn webhook(State(s): State<AppState>, headers: HeaderMap, body: Bytes) -> 
         let mut added = Vec::new();
         let mut from_owner = Vec::new();
         for e in events {
-            // The owner writing to their own business number is talking to their agent, never a customer.
-            if e.kind == "whatsapp" {
-                if let Some(owner) = owner::owner_of(&db, &e.asset_id, &e.sender, &e.text)? {
-                    if db.execute("INSERT OR IGNORE INTO owner_seen (dedupe,created) VALUES (?1,?2)", params![e.dedupe, now()])? == 1 {
-                        // Decided now, in arrival order; acting on it can wait for the sends.
-                        let step = owner::receive(&db, &owner, &e.asset_id, &e.sender, &e.text)?;
-                        from_owner.push((owner, step));
-                    }
-                    continue;
-                }
+            // The owner writing to their own business number or Page is talking to their agent, never a customer.
+            // Decided now, in arrival order; acting on it can wait for the sends.
+            if let Some(owned) = owner::take_owner(&db, &e.kind, &e.asset_id, &e.sender, &e.text, &e.dedupe, now())? {
+                from_owner.push(owned);
+                continue;
             }
             if db.execute(
                 "INSERT OR IGNORE INTO events (kind,asset_id,sender,sender_name,text,created,dedupe,media) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
@@ -752,6 +750,7 @@ async fn main() {
             sweep(&swept, false);
         }
     });
+    owner::start_worker(state.clone());
     // Urgent pings, pings held over quiet hours and the daily summary, for owners who linked their WhatsApp.
     let pinging = state.clone();
     tokio::spawn(async move {
