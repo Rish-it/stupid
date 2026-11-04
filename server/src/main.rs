@@ -257,6 +257,8 @@ ALTER TABLE users ADD COLUMN agent_rules TEXT NOT NULL DEFAULT '';
      CREATE TABLE owner_pings (id INTEGER PRIMARY KEY, user_id TEXT NOT NULL, kind TEXT NOT NULL CHECK (kind IN ('draft','question')), ref_id INTEGER NOT NULL,
        event_id INTEGER NOT NULL, category TEXT NOT NULL, text TEXT NOT NULL, state TEXT NOT NULL, created INTEGER NOT NULL, sent INTEGER, UNIQUE(user_id, kind, ref_id));
      CREATE TABLE owner_seen (dedupe TEXT PRIMARY KEY, created INTEGER NOT NULL);",
+    // Meta's refusal of the last message to the owner, shown in Settings until one goes through.
+    "ALTER TABLE owner_channel ADD COLUMN last_error_json TEXT;",
 ];
 
 /// The built app. A missing hashed asset answers 404, so a stale page fails loudly instead of loading
@@ -611,10 +613,10 @@ async fn webhook(State(s): State<AppState>, headers: HeaderMap, body: Bytes) -> 
         for e in events {
             // The owner writing to their own business number is talking to their agent, never a customer.
             if e.kind == "whatsapp" {
-                if let Some(owner) = owner::owner_of(&db, &e.asset_id, &e.sender)? {
+                if let Some(owner) = owner::owner_of(&db, &e.asset_id, &e.sender, &e.text)? {
                     if db.execute("INSERT OR IGNORE INTO owner_seen (dedupe,created) VALUES (?1,?2)", params![e.dedupe, now()])? == 1 {
                         // Decided now, in arrival order; acting on it can wait for the sends.
-                        let step = owner::receive(&db, &owner, &e.asset_id, &e.text)?;
+                        let step = owner::receive(&db, &owner, &e.asset_id, &e.sender, &e.text)?;
                         from_owner.push((owner, step));
                     }
                     continue;
