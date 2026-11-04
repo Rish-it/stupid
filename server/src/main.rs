@@ -1,5 +1,6 @@
 //! Stupid server: Meta sign-in, connections, Meta data, webhooks and background agents.
 mod agents;
+mod attention;
 mod executor;
 mod meta;
 mod meta_ai;
@@ -675,6 +676,9 @@ async fn main() {
         .route("/api/settings/ai", get(agents::settings).put(agents::save_key))
         .route("/api/agents", get(agents::list))
         .route("/api/agents/{agent}/run", post(agents::run))
+        .route("/api/agent", get(attention::home))
+        .route("/api/agent/settings", put(attention::settings))
+        .route("/api/agent/tickets/{id}/answer", post(attention::answer))
         .route("/webhooks/meta", get(webhook_verify).post(webhook))
         // Unknown API paths answer JSON 404, never the app's index.html.
         .route("/api/{*rest}", any(|| async { AppError::new(404, "Not found.") }))
@@ -705,6 +709,14 @@ pub mod tests_support {
         let state = AppState { cfg: Arc::new(cfg), db: Arc::new(Mutex::new(conn)), http: reqwest::Client::new(), fernet: None, cache: Default::default(), queue: Default::default() };
         let u = user_by_id(&state, "u").unwrap();
         (state, u)
+    }
+
+    /// Request headers signed in as that person.
+    pub fn signed_in(state: &AppState) -> HeaderMap {
+        lock(&state.db).execute("INSERT INTO sessions VALUES (?1,'u',?2)", params![digest("t"), now() + 3600]).unwrap();
+        let mut h = HeaderMap::new();
+        h.insert(header::COOKIE, HeaderValue::from_static("stupid_session=t"));
+        h
     }
 }
 
