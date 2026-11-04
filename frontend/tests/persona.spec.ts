@@ -143,7 +143,7 @@ test("rules told in onboarding show in Settings right away", async ({ page }) =>
   await expect(page.getByLabel("Rules for your agent")).toHaveValue("Open 9 to 7.");
 });
 
-test("closing a required step leaves Finish setup on Home, which opens the card again", async ({ page }) => {
+test("closing a required step leaves it with the agent's head, one tap from fixing", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json(me("business"))));
   await page.route("**/api/agent", route => route.fulfill(json({ proactive: true, rules: "", facts: [], needs: [], tickets: [], watching: [], last_checked: null })));
   await page.route("**/api/setup/next", route => route.fulfill(json({ persona: "business", done: false, progress: { done: 0, total: 4 },
@@ -153,7 +153,12 @@ test("closing a required step leaves Finish setup on Home, which opens the card 
   await expect(card).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(card).toBeHidden();
-  await expect(page.getByText("Setup isn't finished: Connect WhatsApp and your Facebook Page")).toBeVisible();
-  await page.getByRole("button", { name: "Finish setup" }).click();
-  await expect(card).toBeVisible();
+  // Home itself stays calm; what's left sits with the agent's head.
+  await expect(page.getByText(/Setup isn't finished/)).toHaveCount(0);
+  await page.getByRole("button", { name: "Your agent: 1 thing to finish" }).click();
+  const head = page.getByRole("dialog", { name: "A few things to finish" });
+  await expect(head.getByText("Connect WhatsApp and your Facebook Page")).toBeVisible();
+  await expect(head.getByRole("link", { name: "Connect WhatsApp and Page" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(head).toBeHidden();
 });

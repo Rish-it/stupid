@@ -424,7 +424,7 @@ test("Home says what the agent watches and puts what needs you first", async ({ 
   await page.route("**/api/agent", route => route.fulfill(json(agentHome())));
   await page.route("**/api/inbox", route => route.fulfill(json(inbox)));
   await page.goto("/#home");
-  await expect(page.getByText("Watching WhatsApp and Messenger · last checked 2 minutes ago")).toBeVisible();
+  await expect(page.getByText("Watching WhatsApp and Messenger · checked 2 minutes ago")).toBeVisible();
   await expect(page.getByRole("heading", { name: "Needs you" })).toBeVisible();
   await page.getByRole("button", { name: "Edit" }).click();
   await expect(page.getByLabel("Reply to Ana")).toHaveValue("Yes, we're open until 7 today.");
@@ -1134,7 +1134,7 @@ test("pairing needs only the code: the number is optional, and a failed test sho
   await expect(page.getByRole("region", { name: "Your agent on WhatsApp" })).toHaveCount(0);
 });
 
-test("not linked yet: Home offers one tap to set it up, and onboarding offers it as an optional last step", async ({ page }) => {
+test("not linked yet: onboarding offers pings as an optional last step", async ({ page }) => {
   const owner = { phone: null, link_code: "R4N8TB", linked: false, business_number: "+15550100000", window_until: null, digest_time: null, tz: "Asia/Kolkata", quiet: null, urgent: [], last_ping: null };
   await page.route("**/api/me", route => route.fulfill(json({ ...signedIn, persona: "business" })));
   await page.route("**/api/agent", route => route.fulfill(json(agentHome())));
@@ -1146,5 +1146,4 @@ test("not linked yet: Home offers one tap to set it up, and onboarding offers it
   await expect(card.getByRole("link", { name: "Set it up" })).toHaveAttribute("href", "#settings");
   await card.getByRole("button", { name: "Skip for now" }).click();
   await expect(card).toHaveCount(0);
-  await expect(page.getByRole("link", { name: "Get pinged on your WhatsApp" })).toHaveAttribute("href", "#settings");
 });
