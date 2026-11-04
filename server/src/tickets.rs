@@ -2,7 +2,7 @@
 //! Muse call (Eval) decides whether to open a Ticket. Every Ticket's mandate is "prepare": the agent drafts
 //! and asks, and nothing here can send. Sending stays the person's tap in the Inbox (`meta::reply`).
 //! Design after deepseek-ai/dsh-superagent-prototype (Source, Trigger, Thread, Eval, Ticket); new code.
-use crate::{agents, lock, meta, now, ApiResult, AppState};
+use crate::{agents, executor, lock, meta, now, ApiResult, AppState};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 use std::{collections::HashMap, future::Future, sync::{Arc, Mutex}, time::Duration};
@@ -237,16 +237,20 @@ async fn eval_thread(s: &AppState, user_id: &str, thread_id: i64) -> ApiResult<(
         Ok((answer, cost)) => { let (d, r) = decision(&answer); (d, r, cost) }
         Err(e) => ("unavailable", e.1, 0.0),
     };
+    let accepted = {
     let db = lock(&s.db);
     db.execute("INSERT INTO evals (user_id,thread_id,decision,reason,cost_usd,created) VALUES (?1,?2,?3,?4,?5,?6)", params![user_id, thread_id, decided, reason, cost, now()])?;
     let eval_id = db.last_insert_rowid();
     for id in &batch {
         db.execute("UPDATE triggers SET disposition=?2,reason=?3,eval_id=?4 WHERE id=?1", params![id, decided, reason, eval_id])?;
     }
+    let mut accepted = None;
     match decided {
         "accept" => {
             db.execute("INSERT INTO tickets (user_id,thread_id,trigger_id,job,created) VALUES (?1,?2,?3,'replies',?4)", params![user_id, thread_id, batch[batch.len() - 1], now()])?;
-            db.execute("INSERT INTO reports (ticket_id,kind,text,created) VALUES (?1,'progress',?2,?3)", params![db.last_insert_rowid(), reason, now()])?;
+            let ticket = db.last_insert_rowid();
+            db.execute("INSERT INTO reports (ticket_id,kind,text,created) VALUES (?1,'progress',?2,?3)", params![ticket, reason, now()])?;
+            accepted = Some(ticket);
         }
         "stop" => {
             let mut stmt = db.prepare("SELECT id FROM tickets WHERE thread_id=?1 AND state='open'")?;
@@ -259,7 +263,43 @@ async fn eval_thread(s: &AppState, user_id: &str, thread_id: i64) -> ApiResult<(
         _ => {}
     }
     tracing::info!(user = user_id, thread = thread_id, triggers = batch.len(), decision = decided, cost_usd = format!("{cost:.4}"), "agent eval");
+    accepted
+    };
+    // Still inside this thread's serial worker, so the next batch waits for the draft.
+    if let Some(ticket) = accepted {
+        executor::work(s, ticket).await?;
+    }
     Ok(())
+}
+
+/// A tap on Run is an explicit request: no gate or eval, straight to a ticket for that job.
+pub fn open_job(db: &Connection, user_id: &str, job: &str, run_id: i64) -> rusqlite::Result<i64> {
+    let thread_id = thread(db, user_id, &format!("job:{job}"))?;
+    db.execute("INSERT INTO triggers (user_id,thread_id,source,ref,created,disposition) VALUES (?1,?2,'run',?3,?4,'accept')", params![user_id, thread_id, format!("run:{run_id}"), now()])?;
+    db.execute("INSERT INTO tickets (user_id,thread_id,trigger_id,job,created) VALUES (?1,?2,?3,?4,?5)", params![user_id, thread_id, db.last_insert_rowid(), job, now()])?;
+    let ticket = db.last_insert_rowid();
+    db.execute("INSERT INTO reports (ticket_id,kind,text,created) VALUES (?1,'progress','Working on it.',?2)", params![ticket, now()])?;
+    Ok(ticket)
+}
+
+/// End a job's ticket with its report.
+pub fn close_job(db: &Connection, ticket: i64, kind: &str, text: &str) -> rusqlite::Result<()> {
+    db.execute("INSERT INTO reports (ticket_id,kind,text,created) VALUES (?1,?2,?3,?4)", params![ticket, kind, text, now()])?;
+    db.execute("UPDATE tickets SET state='ended',ended=?2 WHERE id=?1", params![ticket, now()]).map(drop)
+}
+
+/// One line saying what a job found, for its report.
+pub fn summary(job: &str, result: &Value) -> (&'static str, String) {
+    let n = |key: &str| result[key].as_array().map_or(0, Vec::len);
+    let plural = |n: usize, one: &str, many: &str| if n == 1 { format!("1 {one}") } else { format!("{n} {many}") };
+    match job {
+        "leads" if n("leads") == 0 => ("dropped", "No leads in your recent messages.".into()),
+        "leads" => ("ready", format!("Found {}.", plural(n("leads"), "lead", "leads"))),
+        "ideas" => ("ready", format!("Wrote {}.", plural(n("ideas"), "post idea", "post ideas"))),
+        "replies" if n("replies") == 0 => ("dropped", "Nothing needs a reply.".into()),
+        "replies" => ("ready", format!("Drafted {}.", plural(n("replies"), "reply", "replies"))),
+        _ => ("ready", result["summary"].as_str().unwrap_or("Read your ad results.").chars().take(200).collect()),
+    }
 }
 
 #[cfg(test)]
@@ -371,7 +411,8 @@ mod tests {
     fn no_send_path_is_reachable_from_the_agent() {
         // The agent's code may read and prepare; the only send is meta::reply, behind the person's tap.
         let banned = [["meta::", "reply("].concat(), ["reply_", "request"].concat(), ["/mess", "ages"].concat(), ["send_", "message"].concat()];
-        for (file, source) in [("tickets.rs", include_str!("tickets.rs")), ("agents.rs", include_str!("agents.rs"))] {
+        let files = [("tickets.rs", include_str!("tickets.rs")), ("agents.rs", include_str!("agents.rs")), ("executor.rs", include_str!("executor.rs")), ("tools.rs", include_str!("tools.rs"))];
+        for (file, source) in files {
             for word in &banned {
                 assert!(!source.contains(word.as_str()), "{file} mentions {word}");
             }
