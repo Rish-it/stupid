@@ -105,7 +105,7 @@ export default function App() {
   let body;
   if (user && shown === "setup") body = <Suspense fallback={loading}><Setup state={user} persona={user.persona} onChange={next => me.setData({ ...user, ...next })} onConnect={connect} /></Suspense>;
   else if (user && shown === "home") body = <Suspense fallback={loading}><Home state={user} persona={user.persona} onSetup={() => setHeld(false)} /></Suspense>;
-  else if (user && shown === "inbox") body = <Suspense fallback={loading}><Inbox /></Suspense>;
+  else if (user && shown === "inbox") body = <Suspense fallback={loading}><Inbox on={user.assets.filter(a => user.selected.includes(a.key))} /></Suspense>;
   else if (user) body = <Suspense fallback={loading}><Agents state={user} /></Suspense>;
   else if (welcome) body = <Welcome onDoor={setSignIn} onPassed={setPassed} />;
   else if (me.error) body = (
