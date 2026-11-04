@@ -74,7 +74,14 @@ fn steps(u: &User, persona: &str, facts_given: bool, ig_dms: bool) -> Vec<(bool,
 
 fn path(u: &User, persona: &str, facts_given: bool) -> Vec<(bool, Option<Step>)> {
     let has = |kind: &str| !u.selected_assets(kind).is_empty();
-    let blocking = |kind: &'static str| u.selected_assets(kind).into_iter().flat_map(|a| &a.issues).find(|i| i.blocking).map(|i| fix_in_meta(kind, i));
+    // One healthy account of a kind is enough: a second, broken number switched on doesn't hold setup back.
+    let blocking = |kind: &'static str| {
+        let on = u.selected_assets(kind);
+        if on.iter().any(|a| !a.issues.iter().any(|i| i.blocking)) {
+            return None;
+        }
+        on.into_iter().flat_map(|a| &a.issues).find(|i| i.blocking).map(|i| fix_in_meta(kind, i))
+    };
     if persona == "creator" {
         let ig = has("instagram");
         let issue = blocking("instagram");
@@ -149,6 +156,17 @@ mod tests {
     #[test]
     fn no_persona_has_no_step() {
         assert_eq!(plan(&person(None, &[]), false, true), json!({ "persona": null, "done": false, "progress": { "done": 0, "total": 0 } }));
+    }
+
+    #[test]
+    fn one_working_number_is_enough() {
+        let mut u = person(Some("business"), &[("whatsapp", vec![issue("This number isn't registered.", "https://business.facebook.com/wa/manage/home/")]), ("messenger", vec![])]);
+        let mut ok = u.assets[0].clone();
+        (ok.key, ok.id, ok.issues) = ("whatsapp:2".into(), "2".into(), vec![]);
+        assert_eq!(plan(&u, false, true)["step"]["action"], "fix_in_meta", "only the broken number: fix it");
+        u.selected.push(ok.key.clone());
+        u.assets.push(ok);
+        assert_eq!(plan(&u, false, true)["step"]["id"], "agent_facts", "a working number switched on too: nothing to fix");
     }
 
     #[test]
