@@ -1,6 +1,6 @@
 //! What the agent needs from the person, and what it did. "Needs you" holds only ready drafts and open
 //! questions; a healthy state is empty. Answering a question resumes its ticket; nothing here sends.
-use crate::{executor, lock, now, user, ApiResult, AppError, AppState};
+use crate::{executor, lock, now, user, ApiResult, AppError, AppState, User};
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
@@ -49,7 +49,17 @@ pub async fn home(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Js
             .collect::<Result<Vec<_>, _>>()?);
     }
     let needs: Vec<Value> = questions.into_iter().chain(drafts).collect();
-    Ok(Json(json!({ "needs": needs, "tickets": tickets, "proactive": proactive, "rules": rules })))
+    let (watching, last_checked) = watching(&db, &u)?;
+    Ok(Json(json!({ "needs": needs, "tickets": tickets, "proactive": proactive, "rules": rules, "watching": watching, "last_checked": last_checked })))
+}
+
+/// The switched-on channels the agent reads, and when a message last arrived or Stupid last read them from Meta.
+fn watching(db: &rusqlite::Connection, u: &User) -> rusqlite::Result<(Vec<&'static str>, Option<i64>)> {
+    let channels: Vec<&str> = ["whatsapp", "messenger", "instagram"].into_iter().filter(|k| !u.selected_assets(k).is_empty()).collect();
+    let ids: Vec<String> = channels.iter().flat_map(|k| u.selected_assets(k)).map(|a| a.id.clone()).collect();
+    let pulled: Option<i64> = db.query_row("SELECT last_pull FROM users WHERE id=?1", [&u.id], |r| r.get(0))?;
+    let arrived: Option<i64> = db.query_row("SELECT MAX(created) FROM events WHERE asset_id IN (SELECT value FROM json_each(?1))", [json!(ids).to_string()], |r| r.get(0))?;
+    Ok((channels, pulled.max(arrived)))
 }
 
 #[derive(Deserialize)]
@@ -147,6 +157,23 @@ mod tests {
         assert!(answer(State(s.clone()), h.clone(), Path(1), Json(Answer { text: "450".into(), skip: false })).await.is_err(), "answered once");
         let Json(after) = super::home(State(s.clone()), h).await.unwrap();
         assert_eq!(after["needs"].as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn home_says_what_the_agent_watches_and_when_it_last_looked() {
+        let (s, _) = state_with_user();
+        let h = signed_in(&s);
+        let Json(home) = super::home(State(s.clone()), h.clone()).await.unwrap();
+        assert_eq!((home["watching"].clone(), home["last_checked"].clone()), (json!(["whatsapp"]), Value::Null));
+        let t = now();
+        lock(&s.db).execute("INSERT INTO events (kind,asset_id,sender,text,created) VALUES ('whatsapp','p1','9198','hi',?1)", [t - 100]).unwrap();
+        // Messages on an account that isn't switched on don't count.
+        lock(&s.db).execute("INSERT INTO events (kind,asset_id,sender,text,created) VALUES ('whatsapp','other','9198','hi',?1)", [t]).unwrap();
+        assert_eq!(super::home(State(s.clone()), h.clone()).await.unwrap().0["last_checked"], t - 100);
+        lock(&s.db).execute("UPDATE users SET last_pull=?1 WHERE id='u'", [t - 5]).unwrap();
+        assert_eq!(super::home(State(s.clone()), h.clone()).await.unwrap().0["last_checked"], t - 5);
+        lock(&s.db).execute("UPDATE users SET selected_json='[]' WHERE id='u'", []).unwrap();
+        assert_eq!(super::home(State(s.clone()), h).await.unwrap().0["watching"], json!([]));
     }
 
     #[tokio::test]

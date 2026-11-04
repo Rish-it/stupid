@@ -42,6 +42,19 @@ fn system_for(agent: &str, base: &str, persona: Option<&str>) -> String {
     }
 }
 
+/// The Meta models that made a finished run, by name, so the Agents screen says what actually ran.
+/// Reels from videos ran on Muse Wonder alone; a creative pack adds SAM 3.1 when it looked at a picture.
+fn models(agent: &str, result: &Value, ai: &Ai) -> Vec<&'static str> {
+    let brain = if *ai == Ai::Meta { "Muse Spark 1.3" } else { "Muse Spark Open" };
+    let mut out = vec![if agent == "reels" && result["from_captions_only"] == false { "Muse Wonder" } else { brain }];
+    let sam = result["creative_pack"].as_array().into_iter().flatten()
+        .any(|c| !c["box"].is_null() || c["note"].as_str().is_some_and(|n| n.starts_with("SAM 3.1")));
+    if sam {
+        out.push("SAM 3.1");
+    }
+    out
+}
+
 /// The agents in the order this person sees them.
 pub fn order(persona: Option<&str>) -> Vec<&'static str> {
     match persona {
@@ -194,14 +207,15 @@ pub async fn list(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Js
     let u = user(&s, &headers)?;
     let db = lock(&s.db);
     let mut stmt = db.prepare(
-        "SELECT agent,status,result_json,error,cost_usd,created,finished FROM agent_runs
+        "SELECT agent,status,result_json,error,cost_usd,created,finished,models_json FROM agent_runs
          WHERE id IN (SELECT MAX(id) FROM agent_runs WHERE user_id=?1 GROUP BY agent)",
     )?;
     let runs = stmt.query_map([&u.id], |r| {
         let result: Option<String> = r.get(2)?;
         Ok(json!({ "agent": r.get::<_, String>(0)?, "status": r.get::<_, String>(1)?,
             "result": result.and_then(|v| serde_json::from_str::<Value>(&v).ok()), "error": r.get::<_, Option<String>>(3)?,
-            "cost_usd": r.get::<_, f64>(4)?, "created": r.get::<_, i64>(5)?, "finished": r.get::<_, Option<i64>>(6)? }))
+            "cost_usd": r.get::<_, f64>(4)?, "created": r.get::<_, i64>(5)?, "finished": r.get::<_, Option<i64>>(6)?,
+            "models": serde_json::from_str::<Value>(&r.get::<_, String>(7)?).unwrap_or_else(|_| json!([])) }))
     })?.collect::<Result<Vec<_>, _>>()?;
     drop(stmt);
     drop(db);
@@ -268,7 +282,8 @@ pub async fn start(s: &AppState, u: User, agent: &str) -> ApiResult<Value> {
         }
         let db = lock(&state.db);
         let saved = match outcome {
-            Ok((result, cost)) => db.execute("UPDATE agent_runs SET status='done',result_json=?1,cost_usd=?2,finished=?3 WHERE id=?4", params![result.to_string(), cost, now(), id])
+            Ok((result, cost)) => db.execute("UPDATE agent_runs SET status='done',result_json=?1,cost_usd=?2,finished=?3,models_json=?4 WHERE id=?5",
+                    params![result.to_string(), cost, now(), json!(models(name, &result, &ai)).to_string(), id])
                 .and_then(|_| keep_drafts(&db, &u.id, ticket, &inbox, &result))
                 .and_then(|_| { let (kind, text) = tickets::summary(name, &result); tickets::close_job(&db, ticket, kind, &text) }),
             Err(e) => db.execute("UPDATE agent_runs SET status='failed',error=?1,finished=?2 WHERE id=?3", params![e.1, now(), id])
@@ -544,6 +559,21 @@ mod tests {
         assert_eq!(order(Some("creator")), ["reels", "ideas", "leads", "replies", "ads"]);
         assert_eq!(order(Some("business")), ["replies", "leads", "ads", "ideas", "reels"]);
         assert_eq!(order(None), ["leads", "ideas", "replies", "reels", "ads"]);
+    }
+
+    #[test]
+    fn runs_name_the_models_that_made_them() {
+        let open = |agent: &str, result: Value| models(agent, &result, &Ai::Workspace);
+        assert_eq!(open("leads", json!({ "leads": [] })), ["Muse Spark Open"]);
+        assert_eq!(models("ideas", &json!({}), &Ai::Meta), ["Muse Spark 1.3"]);
+        assert_eq!(models("ideas", &json!({}), &Ai::Own("k".into())), ["Muse Spark Open"]);
+        assert_eq!(open("reels", json!({ "from_captions_only": false })), ["Muse Wonder"]);
+        assert_eq!(open("reels", json!({ "from_captions_only": true })), ["Muse Spark Open"]);
+        assert_eq!(open("ads", json!({ "creative_pack": [{ "box": [1, 2, 3, 4], "note": null }] })), ["Muse Spark Open", "SAM 3.1"]);
+        assert_eq!(open("ads", json!({ "creative_pack": [{ "box": null, "note": "SAM 3.1 didn't find \"mug\" in this picture, so the crops are centred." }] })), ["Muse Spark Open", "SAM 3.1"]);
+        // SAM 3.1 never answered (budget spent): the pack holds centred crops only.
+        assert_eq!(open("ads", json!({ "creative_pack": [{ "box": null, "note": "The Meta Model API budget is spent." }] })), ["Muse Spark Open"]);
+        assert_eq!(open("ads", json!({ "creative_pack": [] })), ["Muse Spark Open"]);
     }
 
     #[test]
