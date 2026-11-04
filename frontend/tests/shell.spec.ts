@@ -921,7 +921,7 @@ test("Inbox shows one card per person, with their recent messages on hover, focu
   await expect(page.getByRole("dialog", { name: "Ben" })).toBeVisible();
 });
 
-test("a new message or draft from the live stream shows a toast, and the new card arrives", async ({ page }) => {
+test("a new message, draft or learned fact from the live stream shows a toast, and the new card arrives", async ({ page }) => {
   // On a phone, where the tab bar is (QA 10-2).
   await page.setViewportSize({ width: 390, height: 844 });
   let fresh = false;
@@ -929,7 +929,10 @@ test("a new message or draft from the live stream shows a toast, and the new car
   const zoe = { id: "w9", kind: "whatsapp", asset_id: "1", sender: "15550009", sender_name: "Zoe", text: "Is the cake ready?", created: now(), replied: false };
   await page.route("**/api/me", route => route.fulfill(json(signedIn)));
   await page.route("**/api/inbox", route => route.fulfill(json({ items: fresh ? [zoe, ana] : [ana] })));
-  await page.route("**/api/agent", route => route.fulfill(json({ ...agentHome(), needs: fresh ? [{ type: "draft", id: 1, event_id: "w9", text: "Yes, at 5.", source: "agent", created: now(), message: { kind: "whatsapp", sender: "15550009", sender_name: "Zoe", text: "Is the cake ready?" } }] : [] })));
+  // The owner answered the agent on WhatsApp: the fact it learned arrives with the next update.
+  const fact = { id: 9, question: "What's your price for 40 mugs?", answer: "₹420 each, free delivery in Pune", created: now() };
+  await page.route("**/api/agent", route => route.fulfill(json({ ...agentHome(), facts: fresh ? [fact] : [],
+    needs: fresh ? [{ type: "draft", id: 1, event_id: "w9", text: "Yes, at 5.", source: "agent", created: now(), message: { kind: "whatsapp", sender: "15550009", sender_name: "Zoe", text: "Is the cake ready?" } }] : [] })));
   await page.route("**/api/stream", route => route.fulfill({ contentType: "text/event-stream",
     body: `retry: 300\nevent: update\ndata: {"inbox":"${fresh ? 2 : 1}","replies":"1","runs":"1","agent":"${fresh ? 2 : 1}","connections":"1"}\n\n` }));
   await page.goto("/#inbox");
@@ -939,6 +942,7 @@ test("a new message or draft from the live stream shows a toast, and the new car
   const toasts = page.getByRole("region", { name: "Notifications" });
   await expect(toasts.getByText("New WhatsApp message from Zoe")).toHaveCount(1, { timeout: 15000 });
   await expect(toasts.getByText("Draft ready for Zoe")).toHaveCount(1);
+  await expect(toasts.getByText("Learned: ₹420 each, free delivery in Pune")).toHaveCount(1);
   // The toast sits above the tab bar, not over it.
   const toast = await toasts.boundingBox(), bar = await page.getByRole("navigation", { name: "Main" }).boundingBox();
   expect(toast!.y + toast!.height).toBeLessThanOrEqual(bar!.y + 1);
