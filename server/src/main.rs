@@ -4,6 +4,7 @@ mod attention;
 mod executor;
 mod meta;
 mod meta_ai;
+mod reels;
 mod tickets;
 mod tools;
 mod voice;

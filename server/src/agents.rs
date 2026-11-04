@@ -1,5 +1,5 @@
 //! Background agents on Muse Spark Open. Each run prepares work for the person; nothing is sent or changed.
-use crate::{lock, meta, now, tickets, user, ApiResult, AppError, AppState};
+use crate::{lock, meta, now, reels, tickets, user, ApiResult, AppError, AppState};
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
@@ -13,6 +13,7 @@ const AGENTS: &[(&str, &str)] = &[
     ("leads", "You find sales leads for a creator or small business. From the comments and messages given, list people who show buying intent or ask about price, availability, booking or collaboration. Return JSON {\"leads\":[{\"who\":string,\"channel\":string,\"said\":string,\"why\":string,\"next_step\":string}]}. Quote what they said exactly. Return an empty list if nobody qualifies. Never invent people. Never guess sensitive traits such as health, religion, ethnicity, politics, sexuality or money troubles, and never rate anyone for credit, housing, jobs or insurance. next_step is a reply the business can send now; if hours_ago is 24 or more, say that a WhatsApp template or a new message from the customer is needed first."),
     ("ideas", "You are a content strategist for a creator or small business. From their recent posts and how each performed, write three new post ideas in their voice. Return JSON {\"ideas\":[{\"hook\":string,\"caption\":string,\"format\":\"reel\"|\"carousel\"|\"photo\"|\"story\",\"why\":string}]}. Base \"why\" only on the numbers given."),
     ("replies", "You draft replies to customer messages for a small business. Be warm, short and specific. Never promise prices, discounts or dates that are not in the conversation; ask instead. Return JSON {\"replies\":[{\"event_id\":number,\"to\":string,\"draft\":string}]}."),
+    ("reels", reels::FROM_CAPTIONS),
     ("ads", "You review Meta ad results for a small business owner who is not a marketer. Use plain words and only the numbers given. Return JSON {\"summary\":string,\"actions\":[{\"campaign\":string,\"do\":\"pause\"|\"keep\"|\"scale\"|\"fix\",\"why\":string}]}."),
 ];
 // Baseten list price for Muse Spark Open, USD per million tokens (input, output).
@@ -114,6 +115,7 @@ pub async fn run(State(s): State<AppState>, headers: HeaderMap, Path(agent): Pat
         // The inbox already holds Instagram comments next to messages.
         "leads" => json!({ "messages": for_model(meta::fresh_inbox(&s, &u).await?) }),
         "ideas" => instagram_context(&meta::instagram_data(&s, &u).await?),
+        "reels" => reels::context(&meta::instagram_data(&s, &u).await?),
         "replies" => json!({ "messages": for_model(meta::fresh_inbox(&s, &u).await?.into_iter().filter(|m| m["kind"] != "instagram_comment").take(20).collect()) }),
         _ => meta::ads_data(&s, &u).await?,
     };
@@ -134,7 +136,7 @@ pub async fn run(State(s): State<AppState>, headers: HeaderMap, Path(agent): Pat
     let state = s.clone();
     let inbox: Vec<String> = u.assets.iter().filter(|a| u.selected.contains(&a.key)).map(|a| a.id.clone()).collect();
     tokio::spawn(async move {
-        let outcome = muse(&state, name, system, &context, own.as_deref()).await;
+        let outcome = if name == "reels" { reels::direct(&state, &u.id, &context, own.as_deref()).await } else { muse(&state, name, system, &context, own.as_deref()).await };
         let db = lock(&state.db);
         let saved = match outcome {
             Ok((result, cost)) => db.execute("UPDATE agent_runs SET status='done',result_json=?1,cost_usd=?2,finished=?3 WHERE id=?4", params![result.to_string(), cost, now(), id])
@@ -154,7 +156,7 @@ pub async fn run(State(s): State<AppState>, headers: HeaderMap, Path(agent): Pat
 pub fn instagram_context(ig: &Value) -> Value {
     json!({ "accounts": ig["accounts"].as_array().into_iter().flatten().map(|a| json!({
         "bio": a["profile"]["biography"], "followers": a["profile"]["followers_count"],
-        "posts": a["media"].as_array().into_iter().flatten().map(|m| json!({ "caption": m["caption"], "type": m["media_product_type"], "likes": m["like_count"], "comments": m["comments_count"], "when": m["timestamp"] })).collect::<Vec<_>>() })).collect::<Vec<_>>() })
+        "posts": a["media"].as_array().into_iter().flatten().map(|m| json!({ "id": m["id"], "caption": m["caption"], "type": m["media_product_type"], "likes": m["like_count"], "comments": m["comments_count"], "when": m["timestamp"] })).collect::<Vec<_>>() })).collect::<Vec<_>>() })
 }
 
 /// Only what a draft needs from inbox rows. The sender's phone number, PSID or IGSID and the asset id never reach the model.
@@ -267,7 +269,7 @@ fn refusal(status: u16, retry_after: Option<&str>) -> String {
     }
 }
 
-fn extract_json(text: &str) -> Option<Value> {
+pub fn extract_json(text: &str) -> Option<Value> {
     let text = text.rsplit_once("</think>").map(|(_, t)| t).unwrap_or(text);
     let (start, end) = (text.find('{')?, text.rfind('}')?);
     serde_json::from_str(text.get(start..=end)?).ok().filter(Value::is_object)
