@@ -244,6 +244,14 @@ ALTER TABLE users ADD COLUMN agent_rules TEXT NOT NULL DEFAULT '';
     "ALTER TABLE users ADD COLUMN ai_model TEXT;",
 ];
 
+/// The built app. A missing hashed asset answers 404, so a stale page fails loudly instead of loading
+/// index.html as a script; every other path gets index.html for the app's own routes.
+fn static_files(dir: &std::path::Path) -> Router {
+    Router::new()
+        .nest_service("/assets", ServeDir::new(dir.join("assets")))
+        .fallback_service(ServeDir::new(dir).fallback(ServeFile::new(dir.join("index.html"))))
+}
+
 fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
     conn.execute_batch(PRAGMAS)?;
     let version: usize = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
@@ -692,9 +700,7 @@ async fn main() {
         .build()
         .expect("http client");
     let bind = cfg.bind.clone();
-    let index = cfg.static_dir.join("index.html");
     let state = AppState { cfg: Arc::new(cfg), db: Arc::new(Mutex::new(conn)), http, fernet, cache: Default::default(), queue: Default::default() };
-    let static_files = ServeDir::new(&state.cfg.static_dir).fallback(ServeFile::new(index));
     sweep(&state, true);
     let swept = state.clone();
     tokio::spawn(async move {
@@ -740,7 +746,7 @@ async fn main() {
         .route("/webhooks/meta", get(webhook_verify).post(webhook))
         // Unknown API paths answer JSON 404, never the app's index.html.
         .route("/api/{*rest}", any(|| async { AppError::new(404, "Not found.") }))
-        .fallback_service(static_files)
+        .fallback_service(static_files(&state.cfg.static_dir))
         .layer(middleware::from_fn_with_state(state.clone(), guard))
         .layer(CompressionLayer::new())
         .layer(TimeoutLayer::with_status_code(StatusCode::GATEWAY_TIMEOUT, Duration::from_secs(60)))
@@ -813,6 +819,25 @@ mod tests {
         h.insert(header::COOKIE, HeaderValue::from_static("a=1; stupid_session=xyz"));
         assert_eq!(cookie(&h, "stupid_session").as_deref(), Some("xyz"));
         assert_eq!(cookie(&h, "missing"), None);
+    }
+
+    #[tokio::test]
+    async fn a_missing_asset_is_404_and_app_routes_get_the_page() {
+        let dir = std::env::temp_dir().join(format!("stupid-static-{}", random_token()));
+        std::fs::create_dir_all(dir.join("assets")).unwrap();
+        std::fs::write(dir.join("index.html"), "<!doctype html>app").unwrap();
+        std::fs::write(dir.join("assets/index-abc.js"), "console.log(1)").unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let app = static_files(&dir);
+        tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+        let get = |path: &str| { let url = format!("{base}{path}"); async move { let r = reqwest::get(url).await.unwrap(); (r.status().as_u16(), r.text().await.unwrap()) } };
+        assert_eq!(get("/assets/index-abc.js").await, (200, "console.log(1)".into()));
+        assert_eq!(get("/assets/index-gone.js").await.0, 404, "a stale hashed asset is not the page");
+        assert_eq!(get("/assets/nested/gone.css").await.0, 404);
+        assert_eq!(get("/").await, (200, "<!doctype html>app".into()));
+        assert_eq!(get("/settings/anything").await, (200, "<!doctype html>app".into()), "app routes still get the page");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
