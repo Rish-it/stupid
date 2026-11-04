@@ -34,8 +34,13 @@ data-deletion callback removes a person's data in one transaction. AI spend stop
 | What | Model | Where it runs |
 |---|---|---|
 | Lead finder, post ideas, reply drafts, ad watcher (`server/src/agents.rs`) | Muse Spark Open, `meta-models/muse-spark-open-1026` | Baseten Model APIs (`STUPID_MUSE_BASE_URL`) |
+| The agent on new messages: intake decision (`tickets.rs`) and a tool-calling executor that drafts replies or asks you one question (`executor.rs`, `tools.rs`) | Muse Spark Open, same model | Baseten Model APIs |
 
 - One chat call per agent run, from the server only. The browser never sees a model key.
+- On a new message, a gate with no model call filters it (account on, inside 24 hours, not replied,
+  budget and daily limit left), one call decides whether it needs an answer, and the executor works
+  the task with read and prepare tools only: at most 6 steps and $0.05 per task. Its tools can save a
+  draft or ask you a question; none can send. Sends stay your tap in the Inbox.
 - Spend stops at `STUPID_MUSE_BUDGET_USD` (workspace key), with at most 30 runs per person per day.
   A person who saves their own Baseten API key pays their own account instead. Stupid never asks
   for a Meta Model API key, which may not be shared with another service.
