@@ -171,6 +171,8 @@ export class ApiError extends Error {
 export const sample = new URLSearchParams(location.search).has("fixtures");
 /** Sample mode has nothing to send to: every send button says so and stays off. */
 export const sampleSend = "Sample: nothing is sent";
+/** One of the owner's Instagram pictures through Stupid's proxy. The sample desk shows a stand-in, so it never sends the real session. */
+export const mediaImage = (id: string) => sample ? "/favicon.svg" : `/api/instagram/media/${encodeURIComponent(id)}/image`;
 
 async function call<T>(method: string, path: string, body?: unknown): Promise<T> {
   if (sample) return (await import("./fixtures")).answer(method, path, body) as Promise<T>;

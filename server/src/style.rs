@@ -142,4 +142,30 @@ mod tests {
         let Json(gone) = get(State(s.clone()), h).await.unwrap();
         assert_eq!((gone["style"].clone(), gone["message"].as_str()), (Value::Null, Some("Your agent learns how you write once a day. Check back tomorrow.")));
     }
+
+    #[tokio::test]
+    async fn new_model_calls_stay_under_the_budget_and_are_recorded() {
+        let (base, seen) = crate::tests_support::stub(r#"{"note":"Short and warm.","length":"short","greeting":"Hi","emoji":"none","language":"English","sign_off":"none","sees":"A mug.","match":null}"#).await;
+        let s = crate::tests_support::with_muse(base);
+        let u = crate::user_by_id(&s, "u").unwrap();
+        let spent = || lock(&s.db).query_row("SELECT COUNT(*),COALESCE(SUM(usd),0) FROM spend", [], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, f64>(1)?))).unwrap();
+        let post = [json!({ "id": "m1", "media_type": "IMAGE", "media_url": "https://cdn.example/m1.jpg", "caption": "Mug" })];
+        {
+            let db = lock(&s.db);
+            db.execute("INSERT INTO replies (event_id,user_id,text,created) VALUES (1,'u','Hi!',1),(2,'u','Yes 🙂',2),(3,'u','Done',3)", []).unwrap();
+            db.execute("INSERT INTO spend (usd,created,own) VALUES (1.0,?1,0)", [now()]).unwrap(); // the workspace budget is used up
+        }
+        assert_eq!(current(&s, &u).await.unwrap(), None, "style: no call over budget");
+        let refused = crate::voice::compare(&s, &agents::ai(&s, "u").unwrap(), "data:image/jpeg;base64,AAAA", &post).await.unwrap_err();
+        assert_eq!(refused, "The AI budget for this workspace is used up.");
+        assert_eq!((seen.lock().unwrap().len(), spent().0), (0, 1), "nothing reached Muse and nothing new was spent");
+
+        lock(&s.db).execute("DELETE FROM spend", []).unwrap();
+        lock(&s.db).execute("UPDATE users SET style_at=NULL WHERE id='u'", []).unwrap();
+        assert_eq!(current(&s, &u).await.unwrap().unwrap()["note"], "Short and warm.");
+        crate::voice::compare(&s, &agents::ai(&s, "u").unwrap(), "data:image/jpeg;base64,AAAA", &post).await.unwrap();
+        let (calls, usd) = spent();
+        assert_eq!((seen.lock().unwrap().len(), calls), (2, 2), "each call is recorded");
+        assert!((usd - 2.0 * (900.0 * 1.25 + 40.0 * 4.25) / 1e6).abs() < 1e-9, "at its reported cost: {usd}");
+    }
 }

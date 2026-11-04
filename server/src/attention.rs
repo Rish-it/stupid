@@ -27,7 +27,7 @@ pub async fn home(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Js
     let drafts = stmt.query_map(params![u.id, now() - 86_400], |r| Ok((r.get::<_, String>(6)?, json!({ "type": "draft", "id": r.get::<_, i64>(0)?,
         "event_id": r.get::<_, i64>(1)?, "text": r.get::<_, String>(2)?, "source": r.get::<_, String>(3)?, "created": r.get::<_, i64>(4)?,
         "message": { "kind": r.get::<_, String>(5)?, "sender": r.get::<_, String>(7)?, "sender_name": r.get::<_, Option<String>>(8)?, "text": r.get::<_, String>(9)? },
-        "styled": r.get::<_, bool>(12)?, "matched_post": crate::tools::matched(r.get(13)?),
+        "styled": r.get::<_, bool>(12)?, "matched_post": crate::tools::matched(r.get(13)?, &u.id),
         "used": r.get::<_, Option<String>>(10)?.map(|a| -> rusqlite::Result<Value> { Ok(json!({ "answer": a, "told": r.get::<_, i64>(11)? })) }).transpose()? }))))?
         .collect::<Result<Vec<_>, _>>()?
         .into_iter().filter(|(asset, _)| ids.contains(asset)).map(|(_, v)| v);

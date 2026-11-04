@@ -81,6 +81,7 @@ mod tests {
         assert_eq!(put("replies", "draft", "x".repeat(281)).await.unwrap_err().0, 400);
         assert_eq!(put("nope", "draft", String::new()).await.unwrap_err().0, 404);
         assert_eq!(get(&lock(&s.db), "u", "replies").unwrap(), ("ask".into(), "Always sign off as Asha.".into()), "a refused save changes nothing");
+        assert_eq!(all(&lock(&s.db), "someone").unwrap()["replies"], json!({ "mode": "draft", "note": "" }), "one owner's controls never apply to another");
     }
 
     #[tokio::test]
