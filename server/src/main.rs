@@ -599,39 +599,42 @@ async fn webhook(State(s): State<AppState>, headers: HeaderMap, body: Bytes) -> 
     }
     let payload: Value = serde_json::from_slice(&body).map_err(|_| AppError::new(400, "Invalid JSON."))?;
     let events = meta::parse_webhook(&payload);
-    let db = lock(&s.db);
-    for (message_id, reason) in meta::failed_sends(&payload) {
-        tracing::warn!("WhatsApp send {message_id} failed: {reason}");
-        db.execute("UPDATE replies SET error=?2 WHERE message_id=?1", params![message_id, format!("WhatsApp didn't deliver this reply: {reason}")])?;
-    }
-    let mut added = Vec::new();
-    let mut from_owner = Vec::new();
-    for e in events {
-        // The owner writing to their own business number is talking to their agent, never a customer.
-        if e.kind == "whatsapp" {
-            if let Some(owner) = owner::owner_of(&db, &e.asset_id, &e.sender)? {
-                if db.execute("INSERT OR IGNORE INTO owner_seen (dedupe,created) VALUES (?1,?2)", params![e.dedupe, now()])? == 1 {
-                    from_owner.push((owner, e.asset_id, e.text));
+    // The lock ends before any send below is awaited.
+    let (added, from_owner) = {
+        let db = lock(&s.db);
+        for (message_id, reason) in meta::failed_sends(&payload) {
+            tracing::warn!("WhatsApp send {message_id} failed: {reason}");
+            db.execute("UPDATE replies SET error=?2 WHERE message_id=?1", params![message_id, format!("WhatsApp didn't deliver this reply: {reason}")])?;
+        }
+        let mut added = Vec::new();
+        let mut from_owner = Vec::new();
+        for e in events {
+            // The owner writing to their own business number is talking to their agent, never a customer.
+            if e.kind == "whatsapp" {
+                if let Some(owner) = owner::owner_of(&db, &e.asset_id, &e.sender)? {
+                    if db.execute("INSERT OR IGNORE INTO owner_seen (dedupe,created) VALUES (?1,?2)", params![e.dedupe, now()])? == 1 {
+                        // Decided now, in arrival order; acting on it can wait for the sends.
+                        let step = owner::receive(&db, &owner, &e.asset_id, &e.text)?;
+                        from_owner.push((owner, step));
+                    }
+                    continue;
                 }
-                continue;
+            }
+            if db.execute(
+                "INSERT OR IGNORE INTO events (kind,asset_id,sender,sender_name,text,created,dedupe,media) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+                params![e.kind, e.asset_id, e.sender, e.sender_name, e.text, now(), e.dedupe, e.media],
+            )? == 1 {
+                added.push(db.last_insert_rowid());
             }
         }
-        if db.execute(
-            "INSERT OR IGNORE INTO events (kind,asset_id,sender,sender_name,text,created,dedupe,media) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
-            params![e.kind, e.asset_id, e.sender, e.sender_name, e.text, now(), e.dedupe, e.media],
-        )? == 1 {
-            added.push(db.last_insert_rowid());
-        }
-    }
-    drop(db);
+        (added, from_owner)
+    };
     voice::arrived(&s, &added);
-    for (owner, asset, text) in from_owner {
-        let s = s.clone();
-        tokio::spawn(async move {
-            if let Err(e) = owner::inbound(&s, &owner, &asset, &text).await {
-                tracing::warn!("owner message: {}", e.1);
-            }
-        });
+    // Answered before Meta hears back, one message after another, so replies keep the owner's order.
+    for (owner, step) in from_owner {
+        if let Err(e) = owner::act(&s, &owner, step).await {
+            tracing::warn!("owner message: {}", e.1);
+        }
     }
     Ok(StatusCode::OK)
 }
@@ -812,8 +815,8 @@ pub mod tests_support {
     pub fn state_with_user() -> (AppState, User) {
         let mut conn = Connection::open_in_memory().unwrap();
         migrate(&mut conn).unwrap();
-        conn.execute("INSERT INTO users (id,meta_user_id,name,token_blob,token_expires,assets_json,selected_json) VALUES ('u','1','n','b',0,?1,'[\"wa:p1\"]')",
-            [r#"[{"key":"wa:p1","kind":"whatsapp","id":"p1","name":"Shop"}]"#]).unwrap();
+        conn.execute("INSERT INTO users (id,meta_user_id,name,token_blob,token_expires,assets_json,selected_json) VALUES ('u','1','n','b',0,?1,'[\"whatsapp:p1\"]')",
+            [r#"[{"key":"whatsapp:p1","kind":"whatsapp","id":"p1","name":"Shop"}]"#]).unwrap();
         let mut cfg = Config::load();
         cfg.muse_key = String::new();
         let state = AppState { cfg: Arc::new(cfg), db: Arc::new(Mutex::new(conn)), http: reqwest::Client::new(), fernet: None, cache: Default::default(), queue: Default::default() };

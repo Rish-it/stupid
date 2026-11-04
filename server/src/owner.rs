@@ -222,9 +222,11 @@ pub async fn tell(s: &AppState, user_id: &str, text: &str) -> ApiResult<Result<(
 /// Who an inbound WhatsApp message is from: the owner of this business number writing to their agent.
 /// Such a message never reaches the Inbox. It opens the 24-hour window either way.
 pub fn owner_of(db: &Connection, asset_id: &str, sender: &str) -> rusqlite::Result<Option<String>> {
-    let mut stmt = db.prepare("SELECT o.user_id,u.selected_json FROM owner_channel o JOIN users u ON u.id=o.user_id WHERE o.phone=?1")?;
-    let rows = stmt.query_map([format!("+{sender}")], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?.collect::<Result<Vec<_>, _>>()?;
-    Ok(rows.into_iter().find(|(_, selected)| serde_json::from_str::<Vec<String>>(selected).unwrap_or_default().contains(&format!("wa:{asset_id}"))).map(|(u, _)| u))
+    // The person's own WhatsApp asset with this id, switched on: matched by kind and id, whatever its key looks like.
+    db.query_row("SELECT o.user_id FROM owner_channel o JOIN users u ON u.id=o.user_id, json_each(u.assets_json) a
+        WHERE o.phone=?1 AND json_extract(a.value,'$.kind')='whatsapp' AND json_extract(a.value,'$.id')=?2
+          AND json_extract(a.value,'$.key') IN (SELECT value FROM json_each(u.selected_json)) LIMIT 1",
+        params![format!("+{sender}"), asset_id], |r| r.get(0)).optional()
 }
 
 /// What the owner can say.
@@ -260,36 +262,58 @@ pub fn links(text: &str, code: &str) -> bool {
 }
 
 /// A message from the owner's own number to their business number. Returns what Stupid said back, if anything.
+#[cfg(test)]
 pub async fn inbound(s: &AppState, user_id: &str, asset_id: &str, text: &str) -> ApiResult<Option<String>> {
-    let ch = {
-        let db = lock(&s.db);
-        db.execute("UPDATE owner_channel SET window_until=?2 WHERE user_id=?1", params![user_id, now() + WINDOW])?;
-        channel(&db, user_id)?
-    };
-    if !ch.linked {
-        if !links(text, &ch.link_code) {
-            return Ok(None);
-        }
-        {
-            let db = lock(&s.db);
-            // Only needs from now on are pinged.
-            db.execute("UPDATE owner_channel SET linked=1,asset_id=?2,seen_draft=(SELECT COALESCE(MAX(id),0) FROM drafts),seen_report=(SELECT COALESCE(MAX(id),0) FROM reports) WHERE user_id=?1",
-                params![user_id, asset_id])?;
-            tickets::note(&db, user_id, None, "owner", "ready", "Linked your WhatsApp. Pings and your daily summary go there.")?;
-        }
-        return say(s, user_id, None, CONNECTED).await;
+    let step = receive(&lock(&s.db), user_id, asset_id, text)?;
+    act(s, user_id, step).await
+}
+
+/// What an owner's message asks for, decided when it arrives.
+#[derive(Debug, PartialEq)]
+pub enum Step {
+    Ignore,
+    Linked,
+    Command(String),
+}
+
+/// The part of an owner's message that must follow arrival order: it opens the window, and it links the number or
+/// not, before the next message is looked at. A message that came before the link stays ignored even if it is
+/// acted on after.
+pub fn receive(db: &Connection, user_id: &str, asset_id: &str, text: &str) -> rusqlite::Result<Step> {
+    db.execute("UPDATE owner_channel SET window_until=?2 WHERE user_id=?1", params![user_id, now() + WINDOW])?;
+    let ch = channel(db, user_id)?;
+    if ch.linked {
+        return Ok(Step::Command(text.to_string()));
     }
+    if !links(text, &ch.link_code) {
+        return Ok(Step::Ignore);
+    }
+    // Only needs from now on are pinged.
+    db.execute("UPDATE owner_channel SET linked=1,asset_id=?2,seen_draft=(SELECT COALESCE(MAX(id),0) FROM drafts),seen_report=(SELECT COALESCE(MAX(id),0) FROM reports) WHERE user_id=?1",
+        params![user_id, asset_id])?;
+    tickets::note(db, user_id, None, "owner", "ready", "Linked your WhatsApp. Pings and your daily summary go there.")?;
+    Ok(Step::Linked)
+}
+
+/// Answer what the owner's message asked for. Returns what Stupid said back, if anything.
+pub async fn act(s: &AppState, user_id: &str, step: Step) -> ApiResult<Option<String>> {
+    let text = match step {
+        Step::Ignore => return Ok(None),
+        Step::Linked => return say(s, user_id, None, CONNECTED).await,
+        Step::Command(text) => text,
+    };
+    let text = text.as_str();
     // A summary kept while the window was closed goes first.
-    let held: bool = lock(&s.db).query_row("SELECT digest_held FROM owner_channel WHERE user_id=?1", [user_id], |r| r.get(0))?;
+    let (held, due, tz): (bool, Option<i64>, String) = lock(&s.db).query_row("SELECT digest_held,digest_day,tz FROM owner_channel WHERE user_id=?1", [user_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
     if held {
-        send_digest(s, user_id).await?;
+        send_digest(s, user_id, due.unwrap_or_else(|| local_day(now(), &tz)), &tz).await?;
     }
     let u = user_by_id(s, user_id)?;
     let ping = latest_ping(&lock(&s.db), user_id)?;
     let command = parse(text);
     let reply = match (&command, &ping) {
         (Command::Help, _) => HELP.to_string(),
-        (Command::Summary, _) => return send_digest(s, user_id).await.map(|_| None),
+        (Command::Summary, _) => return send_digest(s, user_id, local_day(now(), &tz), &tz).await.map(|_| None),
         (Command::Send | Command::Instead(_) | Command::Skip, None) => "Nothing is waiting for you right now.".into(),
         (Command::Instead(t), Some(_)) if t.is_empty() => "Write your version after 2, like: 2 Yes, it's ready on Friday.".into(),
         (Command::Send | Command::Instead(_), Some(p)) if p.kind == "question" => format!("{} asked a question. Reply with the answer.", p.name),
@@ -447,12 +471,11 @@ pub async fn tick(s: &AppState) {
 
 pub async fn tick_owner(s: &AppState, user_id: &str, t: i64) -> ApiResult<()> {
     let u = user_by_id(s, user_id)?;
-    let (ch, needs) = {
-        let db = lock(&s.db);
-        (channel(&db, user_id)?, new_needs(&db, &u)?)
-    };
-    // A closed window means nothing can reach the owner, so nothing is classified or spent.
+    let ch = channel(&lock(&s.db), user_id)?;
+    // A closed window means nothing can reach the owner, so nothing is classified or spent, and needs stay unseen
+    // until the owner writes again; anything older than a day can't be replied to and drops out on its own.
     if ch.open(t) {
+        let needs = new_needs(&lock(&s.db), &u)?;
         for n in needs {
             let (urgent, category, reason) = match classify(s, user_id, &n).await {
                 Ok(c) => c,
@@ -490,7 +513,7 @@ pub async fn tick_owner(s: &AppState, user_id: &str, t: i64) -> ApiResult<()> {
         if local_minutes(t, &ch.tz) >= at && last != Some(today) {
             lock(&s.db).execute("UPDATE owner_channel SET digest_day=?2 WHERE user_id=?1", params![user_id, today])?;
             if ch.open(t) {
-                send_digest(s, user_id).await?;
+                send_digest(s, user_id, today, &ch.tz).await?;
             } else {
                 // Kept for the owner's next message, since only they can open the window.
                 lock(&s.db).execute("UPDATE owner_channel SET digest_held=1 WHERE user_id=?1", [user_id])?;
@@ -500,13 +523,14 @@ pub async fn tick_owner(s: &AppState, user_id: &str, t: i64) -> ApiResult<()> {
     Ok(())
 }
 
-/// The daily summary since the last one (or a day), sent now.
-async fn send_digest(s: &AppState, user_id: &str) -> ApiResult<()> {
-    let text = {
-        let db = lock(&s.db);
-        let since: Option<i64> = db.query_row("SELECT digest_since FROM owner_channel WHERE user_id=?1", [user_id], |r| r.get(0))?;
-        crate::digest::build(&db, user_id, since.unwrap_or(now() - 86_400), now())?.text
-    };
+/// Unix time of local midnight starting the owner's day `day`.
+fn midnight(day: i64, tz: &str) -> i64 {
+    day * 86_400 - offset(tz).unwrap_or(0) * 60
+}
+
+/// The summary of the owner's local day `day`, from its midnight until now, sent now.
+async fn send_digest(s: &AppState, user_id: &str, day: i64, tz: &str) -> ApiResult<()> {
+    let text = crate::digest::build(&lock(&s.db), user_id, midnight(day, tz), now())?.text;
     if let Ok(Ok(())) = tell(s, user_id, &text).await {
         lock(&s.db).execute("UPDATE owner_channel SET digest_held=0,digest_since=?2 WHERE user_id=?1", params![user_id, now()])?;
         tickets::note(&lock(&s.db), user_id, None, "owner", "ready", "Sent your summary on WhatsApp.")?;
@@ -541,7 +565,7 @@ mod tests {
         let mut cfg = crate::Config::load();
         (cfg.muse_base, cfg.muse_key, cfg.muse_budget_usd, cfg.graph, cfg.meta_api_key, cfg.app_secret) = (base.clone(), "k".into(), 1.0, base, String::new(), "test-secret".into());
         let fernet = fernet::Fernet::new(&fernet::Fernet::generate_key()).unwrap();
-        let blob = fernet.encrypt(json!({ "user": "user-token", "assets": { "wa:p1": "wa-token" } }).to_string().as_bytes());
+        let blob = fernet.encrypt(json!({ "user": "user-token", "assets": { "whatsapp:p1": "wa-token" } }).to_string().as_bytes());
         lock(&s.db).execute("UPDATE users SET token_blob=?1 WHERE id='u'", [blob]).unwrap();
         (AppState { cfg: Arc::new(cfg), fernet: Some(Arc::new(fernet)), ..s }, seen)
     }
@@ -586,6 +610,8 @@ mod tests {
         let eleven = 1_762_277_400;
         assert!(ch.quiet_at(eleven) && ch.quiet_at(eleven + 9 * 3600 - 60), "23:00 to 07:59 is quiet");
         assert!(!ch.quiet_at(eleven + 9 * 3600) && !ch.quiet_at(eleven - 60), "08:00 and 22:59 are not");
+        assert_eq!(midnight(local_day(eleven, "Asia/Kolkata"), "Asia/Kolkata"), eleven - 23 * 3600, "today starts at local midnight");
+        assert_eq!(midnight(local_day(eleven + 3600, "Asia/Kolkata"), "Asia/Kolkata"), eleven + 3600, "00:00 the next day starts a new one");
     }
 
     #[tokio::test]
@@ -608,6 +634,8 @@ mod tests {
             headers.insert("x-hub-signature-256", format!("sha256={}", hex::encode(crate::hmac_sha256(&s.cfg.app_secret, body.as_bytes()))).parse().unwrap());
             crate::webhook(State(s.clone()), headers, body.into()).await.map_err(|e| e.1).unwrap();
         }
+        assert!(sends(&seen).is_empty(), "a message before the link is never answered, even later");
+        assert!(channel(&lock(&s.db), "u").unwrap().open(now()), "it still opens the window");
         let inbox = crate::meta::inbox_rows(&s, &crate::user_by_id(&s, "u").unwrap()).unwrap();
         assert_eq!(inbox.iter().map(|r| r["sender"].as_str().unwrap()).collect::<Vec<_>>(), ["15550001111"], "the owner's own message is not in the Inbox");
         assert_eq!(owner_of(&lock(&s.db), "p9", "919876543210").unwrap(), None, "only to a business number this owner switched on");
@@ -720,6 +748,10 @@ mod tests {
         assert_eq!(sent.len(), 2, "{sent:?}");
         assert_eq!(sent[1].1, HELP);
         assert!(!lock(&s.db).query_row("SELECT digest_held FROM owner_channel", [], |r| r.get::<_, bool>(0)).unwrap());
+
+        // The urgent need from while the window was closed is pinged once the owner writes again.
+        tick_owner(&s, "u", now()).await.unwrap();
+        assert!(sends(&seen).last().unwrap().1.starts_with("🔴 Priya (WhatsApp): wants 40 boxes."), "{:?}", sends(&seen));
     }
 
     #[tokio::test]

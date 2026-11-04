@@ -116,7 +116,7 @@ mod tests {
         let mut conn = Connection::open_in_memory().unwrap();
         crate::migrate(&mut conn).unwrap();
         conn.execute("INSERT INTO users (id,meta_user_id,name,token_blob,token_expires,assets_json,selected_json) VALUES ('u','1','n','b',0,?1,?2)", params![
-            r#"[{"key":"wa:p1","kind":"whatsapp","id":"p1","name":"Shop"},{"key":"ig:i1","kind":"instagram","id":"i1","name":"Shop"},{"key":"fb:f1","kind":"messenger","id":"f1","name":"Shop"},{"key":"wa:p2","kind":"whatsapp","id":"p2","name":"Old"}]"#,
+            r#"[{"key":"whatsapp:p1","kind":"whatsapp","id":"p1","name":"Shop"},{"key":"instagram:i1","kind":"instagram","id":"i1","name":"Shop"},{"key":"messenger:f1","kind":"messenger","id":"f1","name":"Shop"},{"key":"whatsapp:p2","kind":"whatsapp","id":"p2","name":"Old"}]"#,
             selected]).unwrap();
         conn
     }
@@ -131,7 +131,7 @@ mod tests {
 
     #[test]
     fn an_empty_day_says_so() {
-        let conn = db(r#"["wa:p1"]"#);
+        let conn = db(r#"["whatsapp:p1"]"#);
         let d = build(&conn, "u", DAY, NOW).unwrap();
         assert_eq!(d.text, "Today: no new messages. Nothing is waiting for you.");
         assert_eq!((d.waiting, d.sent, d.received, d.leads), (0, 0, 0, 0));
@@ -139,7 +139,7 @@ mod tests {
 
     #[test]
     fn a_busy_day_names_who_waits_and_the_oldest_first() {
-        let conn = db(r#"["wa:p1"]"#);
+        let conn = db(r#"["whatsapp:p1"]"#);
         message(&conn, 1, "whatsapp", "p1", "911", "Priya", "Can you do 40 boxes by Friday?", 3 * 3600);
         message(&conn, 2, "whatsapp", "p1", "912", "Ravi", "refund please", 5 * 3600);
         message(&conn, 3, "whatsapp", "p1", "913", "Meena", "price?", 3600);
@@ -164,7 +164,7 @@ mod tests {
 
     #[test]
     fn every_app_counts_and_questions_wait_too() {
-        let conn = db(r#"["wa:p1","ig:i1","fb:f1"]"#);
+        let conn = db(r#"["whatsapp:p1","instagram:i1","messenger:f1"]"#);
         message(&conn, 1, "whatsapp", "p1", "911", "Priya", "40 boxes", 600);
         message(&conn, 2, "whatsapp", "p1", "912", "Ravi", "hi", 600);
         message(&conn, 3, "instagram_comment", "i1", "meena", "meena", "price?", 600);
