@@ -103,7 +103,7 @@ test("a fix in Meta is checked on return, and the card closes when setup is done
 test("telling the agent saves rules without flipping drafting, and the step can be skipped", async ({ page }) => {
   let saved: unknown;
   await page.route("**/api/me", route => route.fulfill(json(me("business"))));
-  await page.route("**/api/agent", route => route.fulfill(json({ proactive: false, rules: "", needs: [], tickets: [], watching: [], last_checked: null })));
+  await page.route("**/api/agent", route => route.fulfill(json({ proactive: false, rules: "", facts: [], needs: [], tickets: [], watching: [], last_checked: null })));
   await page.route("**/api/agent/settings", route => { saved = route.request().postDataJSON(); return route.fulfill(json(saved)); });
   await page.route("**/api/setup/next", route => route.fulfill(json(saved
     ? { persona: "business", done: true, progress: { done: 4, total: 4 } }
@@ -127,7 +127,7 @@ test("telling the agent saves rules without flipping drafting, and the step can 
 test("rules told in onboarding show in Settings right away", async ({ page }) => {
   let rules = "";
   await page.route("**/api/me", route => route.fulfill(json(me("business"))));
-  await page.route("**/api/agent", route => route.fulfill(json({ proactive: true, rules, needs: [], tickets: [], watching: [], last_checked: null })));
+  await page.route("**/api/agent", route => route.fulfill(json({ proactive: true, rules, facts: [], needs: [], tickets: [], watching: [], last_checked: null })));
   await page.route("**/api/agent/settings", route => { rules = route.request().postDataJSON().rules; return route.fulfill(json({ proactive: true, rules })); });
   await page.route("**/api/setup/next", route => route.fulfill(json(rules
     ? { persona: "business", done: true, progress: { done: 4, total: 4 } }
@@ -145,7 +145,7 @@ test("rules told in onboarding show in Settings right away", async ({ page }) =>
 
 test("closing a required step leaves Finish setup on Home, which opens the card again", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json(me("business"))));
-  await page.route("**/api/agent", route => route.fulfill(json({ proactive: true, rules: "", needs: [], tickets: [], watching: [], last_checked: null })));
+  await page.route("**/api/agent", route => route.fulfill(json({ proactive: true, rules: "", facts: [], needs: [], tickets: [], watching: [], last_checked: null })));
   await page.route("**/api/setup/next", route => route.fulfill(json({ persona: "business", done: false, progress: { done: 0, total: 4 },
     step: step("whatsapp_connect", "connect", { title: "Connect WhatsApp and your Facebook Page", button: "Connect WhatsApp and Page" }) })));
   await page.goto("/");

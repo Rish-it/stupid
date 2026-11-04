@@ -125,12 +125,14 @@ export type AiSettings = { has_key: boolean; key_saved_at?: number | null; model
 export type AgentMessage = { kind: InboxKind; sender: string; sender_name: string | null; text?: string };
 /** What waits for the person: a ready reply draft, or the agent's one question. */
 export type Need =
-  | { type: "draft"; id: number; event_id: string; text: string; source: string; created: number; message: AgentMessage }
+  | { type: "draft"; id: number; event_id: string; text: string; source: string; created: number; message: AgentMessage; used?: { answer: string; told: number } | null }
   | { type: "question"; id: number; question: string; created: number; message: AgentMessage | null };
 export type ReportKind = "progress" | "waiting" | "ready" | "blocked" | "failed" | "dropped" | "question" | "answer" | "idea" | "advice";
 export type Ticket = { id: number; job: string; state: "open" | "ended"; created: number; message: AgentMessage | null; reports: { kind: ReportKind; text: string; created: number }[] };
+/** Something the owner told the agent once, kept until they delete it. `created` is unix time. */
+export type Fact = { id: number; question: string; answer: string; created: number };
 /** `watching` lists the switched-on channels the agent reads; `last_checked` is unix time, or null if never. */
-export type AgentHome = { needs: Need[]; tickets: Ticket[]; proactive: boolean; rules: string; watching: string[]; last_checked: number | null };
+export type AgentHome = { needs: Need[]; tickets: Ticket[]; proactive: boolean; rules: string; facts: Fact[]; watching: string[]; last_checked: number | null };
 /** The last thing a ticket said that a person would read. */
 export const lastReport = (t: Ticket) => t.reports.filter(r => !["question", "answer", "idea", "advice"].includes(r.kind)).at(-1);
 export const jobNames: Record<string, string> = { replies: "Reply drafts", leads: "Lead finder", ideas: "Post ideas", reels: "Reel director", ads: "Ad watcher" };
@@ -203,6 +205,7 @@ export const api = {
   revokeMcpKey: () => call<{ has_key: false }>("DELETE", "/api/mcp/key"),
   answer: (ticket: number, text: string, skip = false) => call<{ state: string }>("POST", `/api/agent/tickets/${ticket}/answer`, { text, skip }),
   agentSettings: (proactive: boolean, rules: string) => call<{ proactive: boolean; rules: string }>("PUT", "/api/agent/settings", { proactive, rules }),
+  forgetFact: (id: number) => call<{ facts: Fact[] }>("DELETE", `/api/agent/facts/${id}`),
 };
 
 /** A reply waiting in the Inbox. `source` marks text an agent wrote, so the person sees it came from AI. */

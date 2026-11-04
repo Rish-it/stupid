@@ -15,7 +15,7 @@ import { TextArea } from "@astryxdesign/core/TextArea";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { api, useLoad } from "./api";
-import type { Account, AiSettings, Persona } from "./api";
+import type { Account, AiSettings, Fact, Persona } from "./api";
 import { Load } from "./Load";
 import Setup from "./Setup";
 
@@ -122,8 +122,36 @@ function AgentRules() {
   const home = useLoad("agent", api.agent);
   return (
     <Row id="agent-heading" title="Your agent" description="When it drafts, and the rules it follows.">
-      <Load state={home}>{h => <AgentForm proactive={h.proactive} rules={h.rules} onSaved={saved => home.setData(d => d && { ...d, ...saved })} />}</Load>
+      <Load state={home}>{h => <VStack gap={6}>
+        <AgentForm proactive={h.proactive} rules={h.rules} onSaved={saved => home.setData(d => d && { ...d, ...saved })} />
+        <Facts facts={h.facts} onChange={facts => home.setData(d => d && { ...d, facts })} />
+      </VStack>}</Load>
     </Row>
+  );
+}
+
+/** What the owner answered once, which the agent now uses instead of asking again. */
+function Facts({ facts, onChange }: { facts: Fact[]; onChange: (facts: Fact[]) => void }) {
+  const [error, setError] = useState("");
+  return (
+    <VStack gap={3}>
+      <VStack gap={1}>
+        <Heading level={4}>What you've told it</Heading>
+        <Text as="p" type="supporting" size="sm">{facts.length ? "Your answers to its questions. It uses them instead of asking again." : "Nothing yet. When you answer one of its questions, it remembers the answer here."}</Text>
+      </VStack>
+      {facts.length > 0 && <VStack as="ul" gap={3}>
+        {facts.map(f => <HStack as="li" key={f.id} gap={3} align="start" hAlign="between">
+          <VStack gap={1}>
+            <Text as="p" type="supporting" size="sm">{f.question}</Text>
+            <Text as="p">{f.answer}</Text>
+            <Text as="p" type="supporting" size="sm">Told <Timestamp value={f.created} format="relative" /></Text>
+          </VStack>
+          <Button size="sm" variant="ghost" label="Forget" aria-label={`Forget: ${f.answer}`}
+            clickAction={() => api.forgetFact(f.id).then(r => { setError(""); onChange(r.facts); }, (cause: unknown) => setError(message(cause)))} />
+        </HStack>)}
+      </VStack>}
+      <div aria-live="polite">{error && <Text as="p">{error}</Text>}</div>
+    </VStack>
   );
 }
 
