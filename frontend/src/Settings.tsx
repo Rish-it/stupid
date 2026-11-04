@@ -125,7 +125,7 @@ function Path({ persona, onPersona }: { persona: Persona | null; onPersona: (per
 function AgentRules() {
   const home = useLoad("agent", api.agent);
   return (
-    <Row id="agent-heading" title="Your agent" description="When it drafts, and the rules it follows.">
+    <Row id="agent-heading" title="Drafting and rules" description="When it drafts, and the rules it follows.">
       <Load state={home}>{h => <VStack gap={6}>
         <AgentForm proactive={h.proactive} rules={h.rules} onSaved={saved => home.setData(d => d && { ...d, ...saved })} />
         <YourStyle />

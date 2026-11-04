@@ -131,7 +131,8 @@ function Agent({ agent, run, control, onControl, model, ready, connected, onStar
           {running && <Text as="p" size="sm" className="shimmer">Working on it. This usually takes under a minute.</Text>}
           {run?.status === "failed" && <Text as="p" size="sm">This run didn't finish: {run.error ?? "no reason given"}</Text>}
           {run?.status === "done" && run.result && <Text as="p" size="sm">{found(run.result)}{run.finished ? ` ${ago(run.finished)}.` : ""}</Text>}
-          {!run && <Text as="p" size="sm">{agent.does}</Text>}
+          {control?.mode === "off" ? <Text as="p" size="sm">Off. It won't run until you choose Ask me first or Draft for me.</Text>
+            : !run && <Text as="p" size="sm">{agent.does}</Text>}
         </div>
         <Heading level={2} id={`agent-${agent.id}`} className="agent-name">{agent.name}</Heading>
         <HStack gap={2} wrap="wrap">

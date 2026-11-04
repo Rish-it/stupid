@@ -186,6 +186,8 @@ body { background: var(--color-background-body); }
 .agent-tile[data-mode="off"] { --field: #2A2A2D; --color-text-secondary: #ffffffb3; }
 .agent-tile[data-mode="off"] .agent-name { color: #ffffffcc; }
 .agent-control .astryx-segmented-control { max-width: 100%; }
+/* Unselected choices in full white: the default grey is under 4.5:1 on the tile colours. */
+.agent-control [role="radio"]:not([aria-checked="true"]) { color: #fff; }
 .agent-control .astryx-segmented-control-item { min-width: 0; height: auto; white-space: normal; text-align: center; }
 
 /* Loading words: a light sweeps across, then rests. */
