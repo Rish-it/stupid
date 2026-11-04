@@ -62,8 +62,8 @@ export type Instagram = {
 
 export type InboxKind = "whatsapp" | "messenger" | "instagram" | "instagram_comment";
 export type InboxItem = { id: string; kind: InboxKind; asset_id: string; sender: string; sender_name: string | null; text: string; created: number; replied: boolean; reply_error?: string | null;
-  /** A voice note: `text` holds its transcript, or nothing yet while `transcribing`. */
-  voice?: boolean; transcribing?: boolean;
+  /** A voice note: `text` holds its transcript. While a voice note, photo or video is put into words, `transcribing` says which. */
+  voice?: boolean; transcribing?: "voice" | "photo" | "video" | null;
   /** The newest draft Stupid keeps for this message, from the agent or from Muse. */
   draft?: { text: string; source: string } | null };
 // ponytail: only India's +91 is grouped; other numbers show as +<digits>. Add a library if numbers from more countries arrive.
