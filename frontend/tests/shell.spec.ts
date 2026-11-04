@@ -872,7 +872,8 @@ test("the three app covers fit a laptop screen without scrolling, and stack on a
     const main = page.locator("#astryx-app-shell-main");
     expect(await main.evaluate(el => el.scrollHeight <= el.clientHeight)).toBe(true);
     const [a, b] = await page.locator(".cover-art").evaluateAll(els => els.slice(0, 2).map(el => el.getBoundingClientRect().top));
-    expect(a).toBe(b);
+    // Same row; layout can differ by a fraction of a pixel.
+    expect(Math.abs(a - b)).toBeLessThan(1);
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   }
