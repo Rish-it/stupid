@@ -23,29 +23,27 @@ function when(at: string) {
 /** The agent in one paragraph: name, when, what it reads, what it does. */
 const described = (a: CustomAgent) => `${when(a.at)}. ${a.channels.length ? `Reads ${list(a.channels.map(c => reads[c]))}. ` : ""}${a.does}`;
 
-/** Agents the owner writes in their own words. Each runs on its own time and on Run now; what it drafts still waits for a tap. */
+/** Agents the owner writes in their own words, opened from the Agents heading. Each runs on its own time and on Run now; what it drafts still waits for a tap. */
 export default function OwnAgents({ runs, ready, onStarted }: { runs: AgentRun[]; ready: boolean; onStarted: () => void }) {
   const mine = useLoad("custom-agents", api.customAgents);
-  const [making, setMaking] = useState(false);
+  const [open, setOpen] = useState<"list" | "make">();
   const agents = mine.data?.agents ?? [];
   const change = (next: CustomAgent[]) => mine.setData({ agents: next });
+  const close = () => setOpen(undefined);
   return (
-    <VStack gap={3}>
-      <HStack gap={3} align="center" justify="between" wrap="wrap">
-        <VStack gap={1}>
-          <Heading level={2}>Your own agents</Heading>
-          <Text as="p" type="supporting" size="sm">Say what you want done, in your words. It runs every day at its time, or when you tap Run now.</Text>
-        </VStack>
-        <Button label="Create your own agent" onClick={() => setMaking(true)} />
-      </HStack>
-      {mine.error && <Text as="p" type="supporting" size="sm">{mine.error.message}</Text>}
-      {agents.length > 0 && <div className="agent-list">
-        {agents.map(a => <Own key={a.id} agent={a} run={runs.find(r => r.agent === `custom:${a.id}`)} ready={ready} onStarted={onStarted}
-          onChange={next => change(next ? agents.map(x => x.id === a.id ? next : x) : agents.filter(x => x.id !== a.id))} />)}
-      </div>}
-      {mine.data && !agents.length && <Text as="p" type="supporting" size="sm">You haven't made one yet.</Text>}
-      {making && <Make onMade={a => change([...agents, a])} onClose={() => setMaking(false)} />}
-    </VStack>
+    <>
+      {agents.length > 0 && <Button label={`Your agents (${agents.length})`} onClick={() => setOpen("list")} />}
+      <Button label="Create your own agent" onClick={() => setOpen("make")} />
+      {open === "list" && <Modal isOpen onClose={close} title="Your own agents" width={agents.length > 1 ? 960 : 560}
+          subtitle="Each runs every day at its time, or when you tap Run now. Anything it writes for a customer waits for your tap."
+          footer={<><Button label="Create your own agent" onClick={() => setOpen("make")} /><Button label="Close" onClick={close} /></>}>
+          {agents.length ? <div className="agent-list">
+            {agents.map(a => <Own key={a.id} agent={a} run={runs.find(r => r.agent === `custom:${a.id}`)} ready={ready} onStarted={onStarted}
+              onChange={next => change(next ? agents.map(x => x.id === a.id ? next : x) : agents.filter(x => x.id !== a.id))} />)}
+          </div> : <Text as="p" type="supporting">You have no agents of your own now.</Text>}
+        </Modal>}
+      {open === "make" && <Make onMade={a => change([...agents, a])} onClose={() => setOpen(agents.length ? "list" : undefined)} />}
+    </>
   );
 }
 

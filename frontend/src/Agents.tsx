@@ -113,7 +113,7 @@ export default function Agents({ state }: { state: Connections }) {
   const current = apps.find(a => a.id === app) ?? (result ? apps.find(a => a.agents.includes(shownId!)) : undefined);
   return (
     <Page title="Agents" description="Each one prepares work in the background. Nothing is sent, posted or changed until you tap."
-      actions={<RecentWork open={work} onOpen={() => setWork(true)} onClose={() => setWork(false)} />}>
+      actions={<><OwnAgents runs={runs ?? []} ready={list.data?.ai_ready ?? false} onStarted={() => void reload()} /><RecentWork open={work} onOpen={() => setWork(true)} onClose={() => setWork(false)} /></>}>
       <Load state={list}>{data => {
         const rank = (id: AgentId) => { const i = data.order.indexOf(id); return i < 0 ? Infinity : i; };
         const sorted = [...apps].sort((a, b) => Math.min(...a.agents.map(rank)) - Math.min(...b.agents.map(rank)));
@@ -134,7 +134,6 @@ export default function Agents({ state }: { state: Connections }) {
               ))}
             </div>
             {data.model && <Text as="p" type="supporting" size="sm">Agents run on {data.model}{data.own_key ? " with your own key" : ""}.</Text>}
-            <OwnAgents runs={data.runs} ready={data.ai_ready} onStarted={() => void reload()} />
             {/* Results open over their app's window; Escape steps back one level at a time. */}
             {current && <Modal isOpen onClose={close} title={current.name} subtitle={current.does} width={inApp.length > 1 ? 960 : 560}>
                 <div className="agent-list">
