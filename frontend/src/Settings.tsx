@@ -6,6 +6,8 @@ import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
 import { Heading } from "@astryxdesign/core/Heading";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
+import { Switch } from "@astryxdesign/core/Switch";
+import { TextArea } from "@astryxdesign/core/TextArea";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { api, useLoad } from "./api";
@@ -34,10 +36,39 @@ export default function Settings({ name, onSignedOut }: { name: string; onSigned
         <Row id="setup-heading" title="Connections" description="Which accounts Stupid reads, and anything Meta still needs.">
           <HStack><Button label="Open setup" href="#setup" /></HStack>
         </Row>
+        <AgentRules />
         <AiAccess />
         <Account name={name} onSignedOut={onSignedOut} />
       </VStack>
     </Page>
+  );
+}
+
+function AgentRules() {
+  const home = useLoad("agent", api.agent);
+  return (
+    <Row id="agent-heading" title="Your agent" description="When it drafts, and the rules it follows.">
+      <Load state={home}>{h => <AgentForm proactive={h.proactive} rules={h.rules} onSaved={saved => home.setData(d => d && { ...d, ...saved })} />}</Load>
+    </Row>
+  );
+}
+
+function AgentForm({ proactive, rules, onSaved }: { proactive: boolean; rules: string; onSaved: (s: { proactive: boolean; rules: string }) => void }) {
+  const [on, setOn] = useState(proactive);
+  const [text, setText] = useState(rules);
+  const [status, setStatus] = useState<{ type: "error" | "success"; message: string }>();
+  const save = (nextOn: boolean, nextText: string) => api.agentSettings(nextOn, nextText).then(
+    saved => { setStatus({ type: "success", message: "Saved." }); onSaved(saved); },
+    (cause: unknown) => setStatus({ type: "error", message: message(cause) }));
+  return (
+    <VStack gap={4}>
+      <Switch label="Draft replies when new messages arrive" value={on} changeAction={v => { setOn(v); return save(v, text); }}
+        description="Each new message gets a reply draft, or one question for you, within about a minute. Nothing is sent without your tap." />
+      <TextArea label="Rules for your agent" value={text} onChange={v => { setText(v); setStatus(undefined); }} rows={4} maxLength={2000} isOptional
+        description="Plain words it follows, like your hours, prices, delivery areas or what to leave alone." />
+      <div aria-live="polite">{status && <Text as="p" color={status.type === "error" ? "primary" : "secondary"}>{status.message}</Text>}</div>
+      <HStack><Button label="Save rules" isDisabled={text.trim() === rules} clickAction={() => save(on, text)} /></HStack>
+    </VStack>
   );
 }
 
