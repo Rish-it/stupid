@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { Button } from "@astryxdesign/core/Button";
 import { Link } from "@astryxdesign/core/Link";
 import { VStack } from "@astryxdesign/core/Stack";
@@ -6,11 +6,13 @@ import { Text } from "@astryxdesign/core/Text";
 import { door, oauthStartUrl } from "./api";
 import type { Persona } from "./api";
 import { Modal } from "./Surface";
+import SourceIcon from "./SourceIcon";
+import "./flow.css";
 
 /** What Meta's sign-in will ask this person to pick. */
-const asks: Record<Persona, string[]> = {
-  creator: ["Your Instagram account. It must be Professional (Creator or Business).", "The Facebook Page linked to it, if Meta shows one."],
-  business: ["Your WhatsApp Business number.", "Your Facebook Page.", "Your ad account, only if you run ads."],
+const asks: Record<Persona, [app: string, what: string][]> = {
+  creator: [["instagram", "Your Instagram account. It must be Professional (Creator or Business)."], ["messenger", "The Facebook Page linked to it, if Meta shows one."]],
+  business: [["whatsapp", "Your WhatsApp Business number."], ["messenger", "Your Facebook Page."], ["ads", "Your ad account, only if you run ads."]],
 };
 
 const tips: ["all" | Persona, ReactNode][] = [
@@ -30,7 +32,9 @@ export default function SignIn({ persona, instagram, onConnect: connect, onClose
       {persona ? (
         <VStack gap={2}>
           <Text as="p" weight="semibold">When Meta asks, pick:</Text>
-          <ul className="picks">{asks[persona].map(a => <li key={a}><Text>{a}</Text></li>)}</ul>
+          <ol className="flow-picks">{asks[persona].map(([app, what], i) => (
+            <li key={what} style={{ "--i": i } as CSSProperties}><span className="flow-app" aria-hidden><SourceIcon source={app} size={20} /></span><Text>{what}</Text></li>
+          ))}</ol>
         </VStack>
       ) : <Text as="p">When Meta asks, pick the Instagram account, WhatsApp number and Page you use for your work.</Text>}
       <VStack gap={2}>

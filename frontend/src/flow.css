@@ -1,0 +1,33 @@
+/* The sign-up path: the sign-in window and the onboarding card. Borderless: fills and space, no lines. */
+/* Inside a modal the muted background is the card's own colour, so fills mix from the text colour instead. */
+.flow, .flow-picks { --flow-fill: color-mix(in srgb, var(--color-text-primary) 9%, var(--color-background-card)); }
+.flow { display: grid; gap: 20px; }
+.flow-progress { display: grid; gap: 10px; }
+.flow-dots { --dot: 28px; position: relative; display: flex; justify-content: space-between; }
+.flow-track { position: absolute; inset-inline: calc(var(--dot) / 2); inset-block-start: 50%; translate: 0 -50%; }
+.flow-dot { position: relative; z-index: 1; display: grid; place-items: center; width: var(--dot); height: var(--dot); border-radius: 50%;
+  background: var(--flow-fill); color: var(--color-text-secondary); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.flow-dot[data-state="done"] { background: var(--color-text-accent); color: var(--color-background-card); }
+.flow-dot[data-state="now"] { background: var(--color-background-card); color: var(--color-text-primary); box-shadow: inset 0 0 0 2px var(--color-text-accent), 0 0 0 5px color-mix(in srgb, var(--color-text-accent) 14%, transparent); }
+.flow-app { flex: none; display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; background: var(--flow-fill); }
+.flow-fix { display: grid; gap: 4px; padding: 12px 14px; border-radius: 12px; background: var(--flow-fill); }
+.flow-finish { display: grid; place-items: center; width: 88px; height: 88px; border-radius: 50%; color: var(--color-text-accent); background: color-mix(in srgb, var(--color-text-accent) 12%, transparent); }
+.flow-choice { grid-template-columns: auto 1fr; align-items: center; column-gap: 14px; }
+.flow-choice-text { display: grid; gap: 4px; }
+.flow-apps { display: flex; justify-content: center; gap: 6px; width: 48px; }
+.flow-picks { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.flow-picks > li { display: flex; align-items: center; gap: 12px; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .flow-track .astryx-progress-bar-fill { transition-duration: .6s; transition-timing-function: cubic-bezier(.2, .8, .2, 1); }
+  .flow-dot { transition: background-color .3s ease-out, box-shadow .3s ease-out, color .3s ease-out; }
+  .flow-dot[data-fresh] path { stroke-dasharray: 1; animation: flow-check .4s .25s ease-out both; }
+  .flow-dot[data-fresh] { animation: flow-pop .45s .2s cubic-bezier(.2, .8, .2, 1) both; }
+  .flow-step { animation: flow-arrive .32s cubic-bezier(.2, .8, .2, 1) both; }
+  .flow-finish { animation: flow-pop .5s cubic-bezier(.2, .8, .2, 1) both; }
+  .flow-finish path { stroke-dasharray: 1; animation: flow-check .5s .2s ease-out both; }
+  .flow-picks > li { animation: flow-arrive .32s calc(.08s + var(--i, 0) * .06s) cubic-bezier(.2, .8, .2, 1) both; }
+}
+@keyframes flow-arrive { from { opacity: 0; transform: translateY(6px); } }
+@keyframes flow-check { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@keyframes flow-pop { 0% { scale: .85; } 60% { scale: 1.08; } 100% { scale: 1; } }
