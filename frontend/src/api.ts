@@ -67,6 +67,12 @@ export const door = {
     try { if (persona) sessionStorage.setItem(doorKey, persona); else sessionStorage.removeItem(doorKey); } catch { /* Storage blocked: the choice is asked again after sign-in. */ }
   },
 };
+/** How many setup steps had passed before the trip to Facebook, so the card can check the ones it passed. */
+export const passed = {
+  keep(done: number) { try { sessionStorage.setItem("stupid.passed", String(done)); } catch { /* Storage blocked: the checks just show without drawing. */ } },
+  get(): number | null { try { const v = sessionStorage.getItem("stupid.passed"); return v === null ? null : Number(v); } catch { return null; } },
+  drop() { try { sessionStorage.removeItem("stupid.passed"); } catch { /* nothing was kept */ } },
+};
 
 export type Campaign = {
   campaign_id: string; campaign_name: string; spend: string; impressions: string; reach: string;
