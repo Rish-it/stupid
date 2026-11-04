@@ -63,7 +63,9 @@ export type Instagram = {
 export type InboxKind = "whatsapp" | "messenger" | "instagram" | "instagram_comment";
 export type InboxItem = { id: string; kind: InboxKind; asset_id: string; sender: string; sender_name: string | null; text: string; created: number; replied: boolean; reply_error?: string | null;
   /** A voice note: `text` holds its transcript, or nothing yet while `transcribing`. */
-  voice?: boolean; transcribing?: boolean };
+  voice?: boolean; transcribing?: boolean;
+  /** The newest draft Stupid keeps for this message, from the agent or from Muse. */
+  draft?: { text: string; source: string } | null };
 // ponytail: only India's +91 is grouped; other numbers show as +<digits>. Add a library if numbers from more countries arrive.
 const phone = (digits: string) => digits.length === 12 && digits.startsWith("91") ? `+91 ${digits.slice(2, 7)} ${digits.slice(7)}` : `+${digits}`;
 /** The name to show for a message; `sender` stays the id replies go to. A WhatsApp sender is a phone number. */
@@ -150,12 +152,16 @@ export const api = {
   aiSettings: () => call<AiSettings>("GET", "/api/settings/ai"),
   setAiKey: (api_key: string, consent = false) => call<Omit<AiSettings, "workspace_ai">>("PUT", "/api/settings/ai", { api_key, consent }),
   agent: () => call<AgentHome>("GET", "/api/agent"),
+  mcpKey: () => call<McpKey>("GET", "/api/mcp/key"),
+  createMcpKey: () => call<{ key: string; created: number }>("POST", "/api/mcp/key"),
+  revokeMcpKey: () => call<{ has_key: false }>("DELETE", "/api/mcp/key"),
   answer: (ticket: number, text: string, skip = false) => call<{ state: string }>("POST", `/api/agent/tickets/${ticket}/answer`, { text, skip }),
   agentSettings: (proactive: boolean, rules: string) => call<{ proactive: boolean; rules: string }>("PUT", "/api/agent/settings", { proactive, rules }),
 };
 
 /** A reply waiting in the Inbox. `source` marks text an agent wrote, so the person sees it came from AI. */
-export type Draft = { text: string; source?: "agent" };
+export type Draft = { text: string; source?: "agent" | "muse" };
+export type McpKey = { has_key: boolean; created: number | null; last_used: number | null; url: string };
 /** Reply drafts handed from Agents to the Inbox, by message id. In memory only. */
 export const drafts = new Map<string, Draft>();
 

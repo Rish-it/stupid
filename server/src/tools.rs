@@ -23,6 +23,7 @@ pub fn specs() -> Vec<Value> {
         tool("get_ads", "Last 7 days of results for the owner's ad accounts.", none.clone(), &[]),
         tool("get_instagram", "The owner's Instagram bio, followers and recent posts with likes and comments.", none.clone(), &[]),
         tool("list_leads", "The latest leads found by Lead finder.", none.clone(), &[]),
+        tool("get_ad_advice", "The Ad watcher's latest advice on the owner's campaigns: pause, keep, scale or fix, and why.", none.clone(), &[]),
         tool("watch_video", "Muse Wonder watches one of the owner's own Instagram videos (an id from get_instagram) and answers a question about it.",
             json!({ "media_id": { "type": "string" }, "question": { "type": "string" } }), &["media_id", "question"]),
         tool("list_drafts", "Reply drafts already prepared, so you don't repeat one.", none.clone(), &[]),
@@ -96,7 +97,9 @@ pub async fn call(s: &AppState, u: &User, ticket: Option<i64>, name: &str, args:
                 rusqlite::params_from_iter(values), |r| Ok(json!(r.get::<_, i64>(0)?)))?;
             let drafts = rows(s, "SELECT COUNT(*) FROM drafts d WHERE user_id=?1 AND NOT EXISTS(SELECT 1 FROM replies r WHERE r.event_id=d.event_id AND r.error IS NULL)", [&u.id], |r| Ok(json!(r.get::<_, i64>(0)?)))?;
             let open = rows(s, "SELECT COUNT(*) FROM tickets WHERE user_id=?1 AND state='open'", [&u.id], |r| Ok(json!(r.get::<_, i64>(0)?)))?;
-            json!({ "unreplied_last_24h": waiting[0], "drafts_waiting": drafts[0], "open_tasks": open[0] })
+            let apps: Vec<&str> = ["whatsapp", "messenger", "instagram", "ads"].into_iter().filter(|k| !u.selected_assets(k).is_empty()).collect();
+            json!({ "connected": apps, "unreplied_last_24h": waiting[0], "drafts_waiting": drafts[0], "open_tasks": open[0],
+                "note": if apps.is_empty() { "Nothing is connected yet." } else { "Counts come from Stupid's own records." } })
         }
         "list_inbox" => {
             let inbox = meta::fresh_inbox(s, u).await.map_err(|e| e.1)?;
@@ -151,14 +154,22 @@ pub async fn call(s: &AppState, u: &User, ticket: Option<i64>, name: &str, args:
             let url = if media["media_type"] == "VIDEO" { media["thumbnail_url"].as_str() } else { media["media_url"].as_str() }.ok_or("That post has no picture.")?;
             json!({ "box": crate::crops::find(s, &u.id, url, &subject).await.map_err(|e| e.1)? })
         }
+        "get_ad_advice" => {
+            let found = rows(s, "SELECT result_json,finished FROM agent_runs WHERE user_id=?1 AND agent='ads' AND status='done' ORDER BY id DESC LIMIT 1", [&u.id],
+                |r| Ok(json!({ "advice": r.get::<_, Option<String>>(0)?.and_then(|v| serde_json::from_str::<Value>(&v).ok()), "finished": r.get::<_, Option<i64>>(1)? })))?;
+            let mut latest = found.into_iter().next().unwrap_or_else(|| json!({ "advice": null, "note": "Ad watcher hasn't run yet." }));
+            // The pack's boxes mean nothing without the pictures; Stupid shows those.
+            if let Some(advice) = latest["advice"].as_object_mut() {
+                advice.remove("creative_pack");
+            }
+            latest
+        }
         "list_drafts" => json!(rows(s, "SELECT event_id,text,source,created FROM drafts WHERE user_id=?1 ORDER BY id DESC LIMIT 20", [&u.id],
             |r| Ok(json!({ "event_id": r.get::<_, i64>(0)?, "text": r.get::<_, String>(1)?, "source": r.get::<_, String>(2)?, "created": r.get::<_, i64>(3)? })))?),
         "save_reply_draft" => {
             let id = args["event_id"].as_i64().ok_or("`event_id` must be a number.")?;
             let text = text_arg(args, "text", 1000)?;
-            own_event(s, u, id)?;
-            lock(&s.db).execute("INSERT INTO drafts (user_id,ticket_id,event_id,text,source,created) VALUES (?1,?2,?3,?4,'agent',?5)", params![u.id, ticket, id, text, now()])
-                .map_err(|_| "Storage failed.".to_string())?;
+            save_draft(s, u, ticket, id, &text, "agent")?;
             json!({ "saved": true, "note": "Saved as a draft. The owner reviews it and taps Send in Stupid's Inbox." })
         }
         "save_idea" => {
@@ -178,6 +189,13 @@ pub async fn call(s: &AppState, u: &User, ticket: Option<i64>, name: &str, args:
         _ => return Err(format!("There is no tool called {name}.")),
     };
     Ok(result)
+}
+
+/// Keep a reply draft for one of the person's own messages. `source` says who wrote it: the agent, or Muse.
+pub fn save_draft(s: &AppState, u: &User, ticket: Option<i64>, event_id: i64, text: &str, source: &str) -> Result<(), String> {
+    own_event(s, u, event_id)?;
+    lock(&s.db).execute("INSERT INTO drafts (user_id,ticket_id,event_id,text,source,created) VALUES (?1,?2,?3,?4,?5,?6)", params![u.id, ticket, event_id, text, source, now()])
+        .map(drop).map_err(|_| "Storage failed.".to_string())
 }
 
 /// A tool result as the text the model reads, cut to size.

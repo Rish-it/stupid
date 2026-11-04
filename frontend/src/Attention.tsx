@@ -57,9 +57,9 @@ function NeedsYou({ needs, onAsk }: { needs: Need[]; onAsk: (q: Question) => voi
         <div className="inset-list">
           <List density="balanced">
             {needs.map(n => n.type === "draft" ? (
-              <ListItem key={`d${n.id}`} align="start" onClick={() => { drafts.set(n.event_id, { text: n.text, source: "agent" }); location.hash = "#inbox"; }}
+              <ListItem key={`d${n.id}`} align="start" onClick={() => { drafts.set(n.event_id, { text: n.text, source: n.source === "muse" ? "muse" : "agent" }); location.hash = "#inbox"; }}
                 startContent={<Avatar name={senderName(n.message)} size="md" tooltip={false} aria-hidden status={<SourceIcon source={n.message.kind} size={14} />} />}
-                label={<HStack gap={2} align="center" wrap="wrap"><Text weight="semibold">Reply to {senderName(n.message)}</Text><Token size="sm" label="Drafted by AI" /></HStack>}
+                label={<HStack gap={2} align="center" wrap="wrap"><Text weight="semibold">Reply to {senderName(n.message)}</Text><Token size="sm" label={n.source === "muse" ? "From Muse" : "Drafted by AI"} /></HStack>}
                 description={<VStack gap={1}><Text type="supporting" maxLines={1}>“{n.message.text}”</Text><Text maxLines={2}>{n.text}</Text></VStack>}
                 endContent={<Timestamp value={n.created} format="relative" type="supporting" size="sm" />} />
             ) : (

@@ -55,6 +55,24 @@ data-deletion callback removes a person's data in one transaction. AI spend stop
 - Calls use `reasoning_effort: "low"` and a 4,000-token cap. A model id containing `contributor`
   is refused at startup, because contributor-tier models may train on what they receive.
 
+## Use Stupid from Muse (MCP)
+
+Stupid is also an MCP server, for a Muse custom connector or any MCP client: `POST /mcp`
+(JSON-RPC 2.0 over streamable HTTP, one JSON answer per request). In Settings → "Use Stupid from
+Muse", make an access key (shown once; stored as a hash, revocable) and paste the URL, the key and
+the ready-made words into Muse.
+
+- Read tools, from the agent's own registry: `get_today`, `list_inbox`, `read_thread`,
+  `list_leads`, `list_drafts`, `get_ad_advice`.
+- Prepare tools: `queue_reply_draft(item_id, text)` queues a draft that opens in Stupid's Inbox
+  marked "From Muse"; `run_agent(name)` starts a job under the same spend cap and daily limit.
+- There is no send, post or spend tool. Only a Bearer key opens `/mcp`; cookies are ignored.
+
+```bash
+curl -s https://app.secndai.com/mcp -H "Authorization: Bearer $STUPID_KEY" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
 ## Service providers
 
 Stupid sends Meta Platform Data to these model providers, only to do the work the person asked for:

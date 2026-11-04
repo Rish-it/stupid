@@ -397,3 +397,34 @@ test("Ad watcher adds a creative pack cropped around what SAM found", async ({ p
   await expect(dialog.getByText(/so the crops are centred/)).toBeVisible();
   await expect(dialog.getByText(/Nothing is uploaded to Ads/)).toBeVisible();
 });
+
+test("Settings makes a key for Muse, shows it once, and revokes it", async ({ page }) => {
+  let key: { has_key: boolean; created: number | null; last_used: number | null } = { has_key: false, created: null, last_used: null };
+  await page.route("**/api/me", route => route.fulfill(json(signedIn)));
+  await page.route("**/api/settings/ai", route => route.fulfill(json({ has_key: false, model: "test-model", workspace_ai: true })));
+  await page.route("**/api/agent", route => route.fulfill(json({ proactive: true, rules: "", needs: [], tickets: [] })));
+  await page.route("**/api/mcp/key", route => {
+    const method = route.request().method();
+    if (method === "POST") { key = { has_key: true, created: Math.floor(Date.now() / 1000), last_used: null }; return route.fulfill(json({ key: "stupid_test_key", created: key.created })); }
+    if (method === "DELETE") { key = { has_key: false, created: null, last_used: null }; return route.fulfill(json({ has_key: false })); }
+    return route.fulfill(json({ ...key, url: "https://app.example.com/mcp" }));
+  });
+  await page.goto("/#settings");
+  await expect(page.getByLabel("MCP server URL")).toHaveValue("https://app.example.com/mcp");
+  await expect(page.getByLabel("Ask Muse to add Stupid")).toHaveValue(/MCP server URL: https:\/\/app\.example\.com\/mcp/);
+  await page.getByRole("button", { name: "Make a key" }).click();
+  await expect(page.getByLabel("Access key")).toHaveValue("stupid_test_key");
+  await expect(page.getByText("Not used yet.")).toBeVisible();
+  await page.getByRole("button", { name: "Revoke the key" }).click();
+  await expect(page.getByLabel("Access key")).toHaveCount(0);
+  await expect(page.getByText(/No key yet/)).toBeVisible();
+});
+
+test("a draft queued from Muse opens prefilled and marked From Muse", async ({ page }) => {
+  await page.route("**/api/me", route => route.fulfill(json(signedIn)));
+  await page.route("**/api/inbox", route => route.fulfill(json({ items: [{ ...inbox.items[0], draft: { text: "Yes, open till 7!", source: "muse" } }] })));
+  await page.goto("/#inbox");
+  await page.getByText("Are you open?").click();
+  await expect(page.getByLabel("Reply to Ana")).toHaveValue("Yes, open till 7!");
+  await expect(page.getByText("From Muse · check before sending")).toBeVisible();
+});
