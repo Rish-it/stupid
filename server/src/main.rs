@@ -1,6 +1,7 @@
 //! Stupid server: Meta sign-in, connections, Meta data, webhooks and background agents.
 mod agents;
 mod meta;
+mod meta_ai;
 
 use axum::{
     body::Bytes,
@@ -54,6 +55,9 @@ pub struct Config {
     pub muse_base: String,
     pub muse_model: String,
     pub muse_budget_usd: f64,
+    pub meta_api_key: String,
+    pub meta_api_base: String,
+    pub meta_api_budget_usd: f64,
     pub static_dir: PathBuf,
     pub data_dir: PathBuf,
     pub bind: String,
@@ -75,6 +79,9 @@ impl Config {
             muse_base: or("MUSE_BASE_URL", "https://inference.baseten.co/v1"),
             muse_model: or("MUSE_MODEL", "meta-models/muse-spark-open-1026"),
             muse_budget_usd: v("MUSE_BUDGET_USD").parse().unwrap_or(0.0),
+            meta_api_key: v("META_API_KEY"),
+            meta_api_base: or("META_API_BASE_URL", "https://api.meta.ai/v1"),
+            meta_api_budget_usd: v("META_API_BUDGET_USD").parse().unwrap_or(20.0),
             static_dir: or("STATIC_DIR", "frontend/dist").into(),
             data_dir: or("DATA_DIR", ".data/server").into(),
             bind: or("BIND", "127.0.0.1:8000"),
@@ -178,6 +185,7 @@ CREATE TABLE IF NOT EXISTS deletions (code TEXT PRIMARY KEY, created INTEGER NOT
     "ALTER TABLE replies ADD COLUMN message_id TEXT; ALTER TABLE replies ADD COLUMN error TEXT; CREATE INDEX replies_message ON replies(message_id);",
     // When the person asked Stupid to send what agents read to their own AI account (their express direction).
     "ALTER TABLE users ADD COLUMN ai_key_saved_at INTEGER;",
+    "CREATE TABLE meta_api_spend (id INTEGER PRIMARY KEY, model TEXT NOT NULL, usd REAL NOT NULL, created INTEGER NOT NULL);",
 ];
 
 fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
@@ -280,7 +288,7 @@ async fn stream(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Sse<
 
 async fn health(State(s): State<AppState>) -> Json<Value> {
     let db = lock(&s.db).query_row("SELECT 1", [], |r| r.get::<_, i64>(0)).is_ok();
-    Json(json!({ "status": if db { "ok" } else { "degraded" }, "meta_configured": !s.cfg.app_id.is_empty(), "ai_configured": !s.cfg.muse_key.is_empty() }))
+    Json(json!({ "status": if db { "ok" } else { "degraded" }, "meta_configured": !s.cfg.app_id.is_empty(), "ai_configured": !s.cfg.muse_key.is_empty(), "meta_api_configured": !s.cfg.meta_api_key.is_empty() }))
 }
 
 async fn me(State(s): State<AppState>, headers: HeaderMap) -> Json<Value> {
