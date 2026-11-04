@@ -2,6 +2,7 @@ import { lazy, Suspense, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { Button } from "@astryxdesign/core/Button";
 import { Heading } from "@astryxdesign/core/Heading";
+import { Link } from "@astryxdesign/core/Link";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
@@ -64,11 +65,16 @@ export default function Home({ state, persona, onSetup }: { state: Connections; 
 
 function Status({ data }: { data: AgentHome }) {
   const watching = data.watching.map(w => apps[w] ?? w);
+  // The owner's own WhatsApp: say so while the agent can ping them there, else one quiet tap to set it up.
+  const owner = useLoad("owner-channel", api.ownerChannel).data;
+  const pinging = owner?.linked && owner.window_until !== null && owner.window_until > Date.now() / 1000;
   return (
     <Text as="p" type="supporting" size="sm" className="status-line">
       <span className="live-dot" data-on={watching.length > 0 || undefined} aria-hidden />
       {watching.length ? `Watching ${list(watching)}` : "Not watching any messages yet"}
       {data.last_checked ? ` · last checked ${ago(data.last_checked)}` : ""}
+      {owner && (pinging ? " · Pinging you on WhatsApp" : owner.business_number && <> · <Link href="#settings" type="supporting" size="sm" hasUnderline>
+        {owner.linked ? "Message your business number to get pings" : "Get pinged on your WhatsApp"}</Link></>)}
     </Text>
   );
 }

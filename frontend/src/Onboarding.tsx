@@ -31,8 +31,11 @@ export default function Onboarding({ persona, onPersona, onAccount, onConnect, o
   useEffect(() => { void reload(); }, [persona, reload]);
   const data = next.data;
   const step = data?.persona ? data.step : undefined;
+  // After the server's steps, one optional step of our own: pings on the owner's own WhatsApp, once there's a number to link.
+  const owner = useLoad("owner-channel", api.ownerChannel).data;
+  const ping = Boolean(data?.persona && !step && owner?.business_number && !owner.linked);
   // Closes when no step is left; done with only an optional step still offers it, with Skip for now.
-  const open = Boolean(data && !next.error && (!data.persona || step));
+  const open = Boolean(data && !next.error && (!data.persona || step || ping));
   const box = useRef<HTMLDivElement>(null);
   // A new step replaces the old one in the same card: its heading takes focus, as on opening.
   useEffect(() => {
@@ -41,12 +44,25 @@ export default function Onboarding({ persona, onPersona, onAccount, onConnect, o
   useEffect(() => { if (open) return () => void focusPage(); }, [open]);
   if (!data || !open) return null;
   return (
-    <Modal isOpen onClose={onClose} title={step?.title ?? "What do you do on Meta?"} purpose="form">
+    <Modal isOpen onClose={onClose} title={step?.title ?? (ping ? "Get pinged on your own WhatsApp" : "What do you do on Meta?")} purpose="form">
       <div ref={box}>
         {step ? <Step data={data} step={step} reload={reload} onAccount={onAccount} onConnect={onConnect} onSkip={onClose} />
-          : <Choose onPersona={onPersona} />}
+          : ping ? <Ping onSkip={onClose} /> : <Choose onPersona={onPersona} />}
       </div>
     </Modal>
+  );
+}
+
+/** Optional: the agent pings the owner on their own WhatsApp. Set up in Settings, where the number and times live. */
+function Ping({ onSkip }: { onSkip: () => void }) {
+  return (
+    <VStack gap={4}>
+      <Text as="p">Your agent messages you on your own WhatsApp about big orders, complaints and anything only you can answer, and sends a short summary each evening. Customers still get nothing without your tap.</Text>
+      <HStack gap={2} wrap="wrap">
+        <Button variant="primary" label="Set it up" href="#settings" />
+        <Button variant="ghost" label="Skip for now" onClick={onSkip} />
+      </HStack>
+    </VStack>
   );
 }
 

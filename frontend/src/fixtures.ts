@@ -1,6 +1,7 @@
 // Sample data for ?fixtures=1, loaded only then. Every screen carries the Sample banner; every person, brand and number here is made up.
 import { ApiError, appStatus, factsPrompt } from "./api";
 import type { Account, AgentControl, AgentHome, AgentId, AgentMessage, AgentRun, Asset, AssetKind, Fact, InboxItem, MatchedPost, McpKey, Me, Persona, SetupNext, SetupStep, Style } from "./api";
+import type { OwnerChannel } from "./api";
 
 const now = () => Math.floor(Date.now() / 1000);
 const assets: Asset[] = [
@@ -370,6 +371,7 @@ const busyBakery = busy && persona === "business";
 export async function answer(method: string, path: string, body: unknown): Promise<unknown> {
   await new Promise(done => setTimeout(done, 300));
   const route = `${method} ${path}`;
+  if (route.includes("/api/owner-channel")) return ownerAnswer(route, body);
   if (route === "GET /api/me") return me;
   if (route === "PUT /api/me/persona" && me.signed_in) return (me = { ...me, persona: (body as { persona: Persona }).persona });
   if (route === "GET /api/setup/next" && me.signed_in) return localNext(me, home.rules);
@@ -444,5 +446,28 @@ export async function answer(method: string, path: string, body: unknown): Promi
     return { has_key: hasKey, model: aiModel, workspace_ai: true, brain, meta_brain: true, open_model: aiModels[0].id, meta_model: "muse-spark-1.3", models: aiModels };
   }
   if (route === "PUT /api/settings/ai") { hasKey = Boolean((body as { api_key: string }).api_key); return { has_key: hasKey, key_saved_at: hasKey ? Math.floor(Date.now() / 1000) : null, model: aiModel }; }
+  throw new ApiError(404, "Sample data has no answer for this.");
+}
+
+// The owner's own WhatsApp. The business sample is linked with its window open; the creator sample has no WhatsApp business number.
+let owner: OwnerChannel = persona === "business"
+  ? { phone: "+919800000001", link_code: "K7Q2XM", linked: true, business_number: "+15550100000", window_until: now() + 6 * 3600,
+    digest_time: "21:00", tz: "Asia/Kolkata", quiet: { from: "23:00", to: "08:00" }, urgent: ["big_order", "complaint", "payment"], last_ping: now() - 1800 }
+  : { phone: null, link_code: "R4N8TB", linked: false, business_number: null, window_until: null,
+    digest_time: null, tz: "Asia/Kolkata", quiet: null, urgent: ["brand_deal", "question"], last_ping: null };
+function ownerAnswer(route: string, body: unknown) {
+  if (route === "GET /api/owner-channel") return owner;
+  if (route === "PUT /api/owner-channel") {
+    const change = body as Partial<OwnerChannel>;
+    if (change.phone !== undefined && change.phone !== null && !/^\+\d{8,15}$/.test(change.phone)) throw new ApiError(400, "That number doesn't look right. Use the full number with its country code, like +91 98xxx xxxxx.");
+    // A new number has to be linked again, with a new code.
+    if (change.phone !== undefined && change.phone !== owner.phone) owner = { ...owner, linked: false, window_until: null, link_code: "N3W5PH" };
+    return (owner = { ...owner, ...change });
+  }
+  if (route === "POST /api/owner-channel/test") {
+    if (!owner.linked) throw new ApiError(409, "Link your WhatsApp first.", { needs: "link" });
+    if (!owner.window_until || owner.window_until < now()) throw new ApiError(409, "Send any message to reopen the window.", { needs: "window" });
+    return { sent: true };
+  }
   throw new ApiError(404, "Sample data has no answer for this.");
 }

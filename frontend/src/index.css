@@ -417,3 +417,14 @@ body { background: var(--color-background-body); }
 .sample-photo { display: grid; gap: 4px; justify-items: start; margin: 0; }
 .sample-photo img { width: 160px; height: 120px; border-radius: 12px; }
 .sample-photo figcaption { color: var(--color-text-secondary); font-size: .75rem; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+/* Settings › On your WhatsApp: the link on top, then what it sends you, side by side on wide windows. */
+.owner-block { display: grid; gap: 8px; align-content: start; }
+.owner-grid { display: grid; gap: 16px; }
+@media (min-width: 48rem) { .owner-grid { grid-template-columns: 1fr 1fr 1.3fr; } }
+.owner-pings { display: grid; gap: 6px; margin: 0; padding: 0; border: 0; min-inline-size: 0; }
+.owner-pings legend { padding: 0; margin-block-end: 4px; }
+.time-field { display: grid; gap: 4px; font-size: var(--font-size-sm); color: var(--color-text-secondary); }
+.time-field input { height: 36px; padding: 0 10px; border: 0; border-radius: 8px; background: #232327; color: var(--color-text-primary); font: inherit; color-scheme: dark; }
+.time-field input:focus-visible { outline: 2px solid var(--color-text-primary); outline-offset: 2px; }
+/* With borders gone, an unticked box drew nothing; it gets a quiet fill instead (ticked keeps its own). */
+div:has(> input[type="checkbox"]:not(:checked)) .astryx-checkbox-indicator { background: #3a3a40; }
