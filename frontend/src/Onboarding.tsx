@@ -5,7 +5,7 @@ import { ProgressBar } from "@astryxdesign/core/ProgressBar";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
-import { api, oauthStartUrl, refetch, sample, sampleSignIn, useLoad } from "./api";
+import { api, oauthStartUrl, passed, refetch, sample, sampleSignIn, useLoad } from "./api";
 import type { Account, Persona, SetupNext, SetupStep } from "./api";
 import { Modal } from "./Surface";
 import SourceIcon from "./SourceIcon";
@@ -71,16 +71,24 @@ const check = <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-h
 
 /** One dot per step: passed ones checked, the fill running up to the one you're on. Steps passed while the card is up draw their check. */
 function Progress({ done, total }: { done: number; total: number }) {
-  const [before] = useState(done);
-  const at = Math.min(done, total - 1);
+  // Back from Facebook, the dots start where they were before it and then catch up, so the steps it passed get their check.
+  const [before] = useState(() => { const kept = passed.get(); return kept !== null && kept < done ? kept : done; });
+  const [shown, setShown] = useState(before);
+  useEffect(() => passed.drop(), []);
+  useEffect(() => {
+    if (shown === done) return;
+    const timer = setTimeout(() => setShown(done), shown < done ? 400 : 0);
+    return () => clearTimeout(timer);
+  }, [done, shown]);
+  const at = Math.min(shown, total - 1);
   return (
     <div className="flow-progress">
       <Text type="supporting" size="sm" hasTabularNumbers>{done >= total ? `All ${total} steps done` : `Step ${done + 1} of ${total}`}</Text>
       <div className="flow-dots">
-        <div className="flow-track"><ProgressBar value={total > 1 ? (done >= total ? total - 1 : at) : 1} max={Math.max(total - 1, 1)} label="Setup progress" isLabelHidden style={track} /></div>
+        <div className="flow-track"><ProgressBar value={total > 1 ? (shown >= total ? total - 1 : at) : 1} max={Math.max(total - 1, 1)} label="Setup progress" isLabelHidden style={track} /></div>
         {Array.from({ length: total }, (_, i) => (
-          <span key={i} aria-hidden className="flow-dot" data-state={i < done ? "done" : i === done ? "now" : "later"} data-fresh={i < done && i >= before || undefined}>
-            {i < done ? check : i + 1}
+          <span key={i} aria-hidden className="flow-dot" data-state={i < shown ? "done" : i === shown ? "now" : "later"} data-fresh={i < shown && i >= before || undefined}>
+            {i < shown ? check : i + 1}
           </span>
         ))}
       </div>
@@ -179,7 +187,7 @@ function Step({ data, step, reload, onAccount, onConnect, onSkip }: {
         {fix && <div className="flow-fix"><Text as="p" size="sm" weight="semibold">In Meta</Text><Text as="p" size="sm">{fix}</Text></div>}
         <VStack gap={2}>
           {step.action === "connect"
-            ? sample ? <Button variant="primary" size="lg" width="100%" label={sampleSignIn} isDisabled /> : <Button variant="primary" size="lg" width="100%" label={step.button} href={oauthStartUrl} onClick={onConnect} />
+            ? sample ? <Button variant="primary" size="lg" width="100%" label={sampleSignIn} isDisabled /> : <Button variant="primary" size="lg" width="100%" label={step.button} href={oauthStartUrl} onClick={() => { passed.keep(data.progress.done); onConnect(); }} />
             : <Button variant="primary" size="lg" width="100%" label={step.button} href={step.link} target="_blank" rel="noopener noreferrer" />}
           {step.action === "fix_in_meta" && <Button width="100%" label="I've done it" isLoading={checking} onClick={() => void check()} />}
           {step.optional && <Button variant="ghost" width="100%" label="Skip for now" onClick={onSkip} />}

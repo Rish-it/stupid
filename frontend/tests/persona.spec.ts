@@ -162,3 +162,21 @@ test("closing a required step leaves it with the agent's head, one tap from fixi
   await page.keyboard.press("Escape");
   await expect(head).toBeHidden();
 });
+
+test("back from Facebook, the card starts where setup was and checks the steps the sign-in passed", async ({ page }) => {
+  await page.route("**/api/me", route => route.fulfill(json(me("business"))));
+  await page.route("**/api/setup/next", route => route.fulfill(json({ persona: "business", done: false, progress: { done: 2, total: 4 },
+    step: step("whatsapp_payment", "fix_in_meta", { link: "https://business.facebook.com/", fix: "Add a payment method (#131042)." }) })));
+  await page.addInitScript(() => { if (!sessionStorage.getItem("seen")) { sessionStorage.setItem("seen", "1"); sessionStorage.setItem("stupid.passed", "0"); } });
+  await page.goto("/");
+  const dots = page.locator(".flow-dot");
+  await expect(dots.nth(1)).toHaveAttribute("data-state", "done");
+  await expect(dots.nth(2)).toHaveAttribute("data-state", "now");
+  await expect(dots.nth(0)).toHaveAttribute("data-fresh", "true");
+  // Meta's error number stays out of the words.
+  await expect(page.getByText("Add a payment method.")).toBeVisible();
+  // Kept once: a reload shows the checks without drawing them again.
+  await page.reload();
+  await expect(dots.nth(1)).toHaveAttribute("data-state", "done");
+  await expect(dots.nth(0)).not.toHaveAttribute("data-fresh");
+});
