@@ -7,11 +7,13 @@ import { Heading } from "@astryxdesign/core/Heading";
 import { Link } from "@astryxdesign/core/Link";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
+import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
 import { Switch } from "@astryxdesign/core/Switch";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { api, useLoad } from "./api";
+import type { AiSettings } from "./api";
 import { Load } from "./Load";
 import { Page } from "./Surface";
 
@@ -136,11 +138,21 @@ function AiAccess() {
     <Row id="ai-heading" title="AI access" description="What runs your agents.">
       <Load state={ai}>{s => (
         <VStack gap={4}>
-          <Text as="p">
+          {s.meta_brain && (
+            <VStack gap={2}>
+              <SegmentedControl label="Model that runs your agents" value={s.brain}
+                onChange={v => void api.setBrain(v as AiSettings["brain"]).then(next => ai.setData(next), (cause: unknown) => setStatus({ type: "error", message: message(cause) }))}>
+                <SegmentedControlItem value="open" label="Muse Spark Open" />
+                <SegmentedControlItem value="meta" label="Muse Spark 1.3 · Meta API" />
+              </SegmentedControl>
+              <Text as="p" type="supporting" size="sm">Both see pictures and use the same tools. Muse Spark 1.3 runs on Meta's Model API with Stupid's key.</Text>
+            </VStack>
+          )}
+          {s.brain === "meta" ? <Text as="p">Agents run on {s.meta_model} through Meta's Model API, using Stupid's shared allowance.</Text> : <Text as="p">
             {s.has_key ? `Agents run on ${s.model} with your own Baseten API key.`
               : s.workspace_ai ? `Agents run on ${s.model} using Stupid's shared allowance. Add your own Baseten API key to run them on your account instead.`
               : "Add your own Baseten API key so agents can run."}
-          </Text>
+          </Text>}
           <details>
             <summary>How to get, pay for and revoke a key</summary>
             <VStack gap={3}>

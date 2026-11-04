@@ -26,6 +26,7 @@ if (["instagram", "whatsapp", "messenger", "ads"].includes(tutorialKind ?? "")) 
     permissions: ["ads_read", "instagram_basic", "instagram_manage_insights", "instagram_manage_comments", "instagram_manage_messages", "pages_messaging", "whatsapp_business_messaging"], problems: [] };
 }
 let hasKey = false;
+let brain: "open" | "meta" = "open";
 
 const campaign = (name: string, spend: string, clicks: string, ctr: string, cpc: string) => ({
   campaign_id: name, campaign_name: name, spend, impressions: "12000", reach: "8400", clicks, ctr, cpc,
@@ -102,7 +103,10 @@ export async function answer(method: string, path: string, body: unknown): Promi
   if (route === "GET /api/agent") return home;
   if (route === "PUT /api/agent/settings") { home = { ...home, ...(body as { proactive: boolean; rules: string }) }; return { proactive: home.proactive, rules: home.rules }; }
   if (/^POST \/api\/agent\/tickets\/\d+\/answer$/.test(route)) { home = { ...home, needs: home.needs.filter(n => n.type !== "question") }; return { state: "open" }; }
-  if (route === "GET /api/settings/ai") return { has_key: hasKey, model: "sample-model", workspace_ai: true };
+  if (route === "GET /api/settings/ai" || route === "PUT /api/settings/ai/brain") {
+    if (route.startsWith("PUT")) brain = (body as { brain: "open" | "meta" }).brain;
+    return { has_key: hasKey, model: brain === "meta" ? "muse-spark-1.3" : "sample-model", workspace_ai: true, brain, meta_brain: true, open_model: "sample-model", meta_model: "muse-spark-1.3" };
+  }
   if (route === "PUT /api/settings/ai") { hasKey = Boolean((body as { api_key: string }).api_key); return { has_key: hasKey, key_saved_at: hasKey ? Math.floor(Date.now() / 1000) : null, model: "sample-model" }; }
   throw new ApiError(404, "Sample data has no answer for this.");
 }
