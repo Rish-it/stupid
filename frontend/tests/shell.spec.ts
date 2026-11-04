@@ -772,3 +772,23 @@ test("Home asks before drafting for an Ask me first agent, and says what a draft
   const told = await page.evaluate(() => new Date(Date.now() - 86400e3).toLocaleDateString(undefined, { day: "numeric", month: "short" }));
   await expect(draft.getByText(`Used what you told me on ${told}: Sample answer: the chocolate cake is ₹650.`)).toBeVisible();
 });
+
+test("a draft says which of your posts the customer's photo shows, or that it is none", async ({ page }) => {
+  await page.goto("http://127.0.0.1:8032/?fixtures=1&persona=business&stage=busy#home");
+  const draft = page.getByRole("listitem").filter({ hasText: "Sample draft: yes, the chocolate cake" });
+  const posted = await page.evaluate(() => new Date("2026-10-20T18:30:00+00:00").toLocaleDateString(undefined, { day: "numeric", month: "short" }));
+  const link = draft.getByRole("link", { name: new RegExp(`^Matches your post of ${posted}`) });
+  await expect(link).toHaveAttribute("href", "https://www.instagram.com/");
+  await expect(link).toHaveAttribute("target", "_blank");
+  await expect(draft.locator("img.match-thumb")).toBeVisible();
+  await page.goto("http://127.0.0.1:8032/?fixtures=1&persona=creator&stage=busy#home");
+  await expect(page.getByRole("listitem").filter({ hasText: "Sample draft: thank you!" }).getByText("Not one of your posts")).toBeVisible();
+});
+
+test("Inbox shows the post a customer's photo matches", async ({ page }) => {
+  await page.goto("http://127.0.0.1:8032/?fixtures=1&persona=business&stage=busy#inbox");
+  await page.locator(".person").filter({ hasText: "Sample customer" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("link", { name: /^Matches your post of / })).toHaveAttribute("target", "_blank");
+  await expect(dialog.getByRole("img", { name: "Sample post: chocolate cake with berries" })).toBeVisible();
+});

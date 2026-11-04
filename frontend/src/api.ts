@@ -94,7 +94,9 @@ export type InboxItem = { id: string; kind: InboxKind; asset_id: string; sender:
   /** A voice note: `text` holds its transcript. While a voice note, photo or video is put into words, `transcribing` says which. */
   voice?: boolean; transcribing?: "voice" | "photo" | "video" | null;
   /** The newest draft Stupid keeps for this message, from the agent or from Muse. */
-  draft?: { text: string; source: string } | null };
+  draft?: { text: string; source: string } | null;
+  /** For a customer's photo: which of the owner's posts it shows. */
+  matched_post?: MatchedPost | null };
 // ponytail: only India's +91 is grouped; other numbers show as +<digits>. Add a library if numbers from more countries arrive.
 const phone = (digits: string) => digits.length === 12 && digits.startsWith("91") ? `+91 ${digits.slice(2, 7)} ${digits.slice(7)}` : `+${digits}`;
 /** The name to show for a message; `sender` stays the id replies go to. A WhatsApp sender is a phone number; numeric Meta ids are never shown. */
@@ -128,8 +130,10 @@ export type AiSettings = { has_key: boolean; key_saved_at?: number | null; model
 export type AgentMessage = { kind: InboxKind; sender: string; sender_name: string | null; text?: string };
 /** What waits for the person: a ready reply draft, or the agent's one question. */
 export type Need =
-  | { type: "draft"; id: number; event_id: string; text: string; source: string; created: number; message: AgentMessage; used?: { answer: string; told: number } | null; styled?: boolean }
+  | { type: "draft"; id: number; event_id: string; text: string; source: string; created: number; message: AgentMessage; used?: { answer: string; told: number } | null; styled?: boolean; matched_post?: MatchedPost | null }
   | { type: "question"; id: number; question: string; created: number; message: AgentMessage | null; ask_first?: boolean };
+/** A customer's photo compared with the owner's Instagram posts. `posted` is ISO time; `thumbnail` is served by Stupid. Null when not compared. */
+export type MatchedPost = { matched: true; post_id: string; permalink: string; caption: string; posted: string; thumbnail: string } | { matched: false };
 export type ReportKind = "progress" | "waiting" | "ready" | "blocked" | "failed" | "dropped" | "question" | "answer" | "idea" | "advice";
 export type Ticket = { id: number; job: string; state: "open" | "ended"; created: number; message: AgentMessage | null; reports: { kind: ReportKind; text: string; created: number }[] };
 /** How the owner writes, learned from their sent replies. `message` says why there is none yet. */
