@@ -583,7 +583,7 @@ impl executor::Brain for ChatBrain<'_> {
 pub async fn chat(s: &AppState, u: &User, text: &str) -> ApiResult<(String, Vec<Need>)> {
     let input = {
         let db = lock(&s.db);
-        json!({ "owner_message": text, "recent_chat": recent_chat(&db, &u.id, now())?, "owner_facts": attention::facts_for_model(&db, &u.id)?, "today_utc": executor::today(now()) })
+        json!({ "owner_message": text, "recent_chat": recent_chat(&db, &u.id, now())?, "owner_facts": attention::facts_for_model(&db, &u.id)?, "now": executor::local_now(&db, &u.id)? })
     };
     let (end, report, drafts, _) = work(s, u, "owner", CHAT, &input, &CHAT_TOOLS).await?;
     let reply = match &end {
