@@ -476,6 +476,7 @@ pub async fn pull(state: &AppState, u: &User) -> ApiResult<()> {
                     added.push(db.last_insert_rowid());
                 }
             }
+            db.execute("UPDATE users SET last_pull=?1 WHERE id=?2", params![now(), u.id])?;
             drop(db);
             crate::voice::arrived(state, &added);
             Ok(json!(rows.len()))
