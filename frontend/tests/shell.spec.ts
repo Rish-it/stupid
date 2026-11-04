@@ -190,7 +190,7 @@ test("Inbox filters by app, sends a reply and shows the server's refusal", async
   await expect(page.getByText("Replied")).toBeVisible();
   await expect(page.getByText("Ana", { exact: true })).toBeVisible();
   await expect(page.getByText("15550001")).toBeHidden();
-  await expect(page.getByText("ben", { exact: true })).toBeVisible();
+  await expect(page.getByText("@ben", { exact: true })).toBeVisible();
   await expect(page.getByText("+91 80813 88336")).toBeVisible();
 
   await page.getByText("Are you open?").click();

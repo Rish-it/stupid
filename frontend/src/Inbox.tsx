@@ -16,6 +16,7 @@ import { Load } from "./Load";
 import SourceIcon from "./SourceIcon";
 import { Modal, Page } from "./Surface";
 import MetaProblem from "./MetaProblem";
+import { explainMeta } from "./metaHelp";
 
 const filters = { all: "All", messenger: "Messenger", instagram: "Instagram", whatsapp: "WhatsApp" } as const;
 const where = { whatsapp: "WhatsApp", messenger: "Messenger", instagram: "Instagram DM", instagram_comment: "Instagram comment" } as const;
@@ -84,7 +85,10 @@ export default function Inbox() {
               const label = mark(item);
               const status = item.replied ? "Replied" : label ?? (item.reply_error ? "Not delivered" : item.draft ? "Draft ready" : undefined);
               const note = noteLabel(item);
-              const name = senderName(item);
+              // An Instagram username reads as a handle.
+              const name = item.kind.startsWith("instagram") && /^[\w.]+$/.test(senderName(item)) ? `@${senderName(item)}` : senderName(item);
+              // Why a reply didn't arrive, in one line; the thread has Meta's fix.
+              const why = status === "Not delivered" && item.reply_error ? explainMeta(item.reply_error, item.kind) : undefined;
               const peeking = peek?.id === item.id;
               const pinned = peeking && peek.pinned;
               const look = () => setPeek(p => p?.id === item.id ? p : { id: item.id, pinned: false });
@@ -99,6 +103,7 @@ export default function Inbox() {
                     <span className="person-foot">
                       <strong>{name}</strong>
                       <span className="person-meta">{note && <span>{note}</span>}<span>{ago(item.created)}</span>{status && <span data-status={status}>{(status === "Sent" || status === "Replied") && <Check />}{status}</span>}</span>
+                      {why && <span className="person-why" title={`${why.text} ${why.fix}`}>{why.text}</span>}
                     </span>
                   </button>
                   <span className="corner">

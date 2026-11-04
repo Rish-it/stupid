@@ -30,7 +30,7 @@ test("a live update refetches the inbox and shows that a reply didn't arrive", a
   // Focus is back on the card, so its popover repeats the words; open the card itself.
   await page.locator(".person", { hasText: "Are you open?" }).click();
   await expect(page.getByText("Your reply didn't arrive")).toBeVisible();
-  await expect(page.getByText(/the number has no WhatsApp\./)).toBeVisible();
+  await expect(page.getByRole("dialog").getByText(/the number has no WhatsApp\./)).toBeVisible();
   await expect(page.getByLabel("Reply to Ana")).toBeVisible();
 });
 
