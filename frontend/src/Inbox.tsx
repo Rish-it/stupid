@@ -3,7 +3,7 @@ import type { FocusEvent } from "react";
 import { Button } from "@astryxdesign/core/Button";
 import { EmptyState } from "@astryxdesign/core/EmptyState";
 import { SegmentedControl, SegmentedControlItem } from "@astryxdesign/core/SegmentedControl";
-import { HStack } from "@astryxdesign/core/Stack";
+import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { Token } from "@astryxdesign/core/Token";
@@ -193,7 +193,9 @@ function Conversation({ item, mark, onClose, onStatus }: { item: InboxItem; mark
       {canReply && draft ? <Trace voice={item.voice ? kept?.models?.described_by ?? null : undefined} photo={item.photo ? kept?.models?.described_by ?? null : undefined}
         drafted={kept?.models?.drafted_by} used={kept?.used} styled={kept?.styled} match={item.matched_post} source={draft.source ?? "agent"} />
         : item.matched_post && <Match post={item.matched_post} />}
-      {item.replied && <Text as="p" type="supporting">You've replied to this one.</Text>}
+      {item.replied && (item.reply_text
+        ? <VStack gap={1} hAlign="end"><div className="bubble bubble-mine"><Text as="p">{item.reply_text}</Text></div><Text size="sm" type="supporting"><Check />You replied</Text></VStack>
+        : <Text as="p" type="supporting">You've replied to this one.</Text>)}
       {failed && <MetaProblem issue={failed} kind={item.kind} title="Your reply didn't arrive" />}
       {error && <MetaProblem issue={error} kind={item.kind} />}
       {canReply && draft?.source && <HStack><Token size="sm" label={draft.source === "muse" ? "From Muse · check before sending" : "Drafted by AI · check before sending"} /></HStack>}

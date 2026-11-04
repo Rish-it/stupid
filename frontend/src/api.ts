@@ -100,7 +100,9 @@ export type InboxItem = { id: string; kind: InboxKind; asset_id: string; sender:
   /** For a customer's photo: which of the owner's posts it shows. */
   matched_post?: MatchedPost | null;
   /** For an Instagram comment: Stupid's own copy of the picture of the post it is on. */
-  post_picture?: string | null };
+  post_picture?: string | null;
+  /** What the owner sent, once a reply went out. */
+  reply_text?: string | null };
 // ponytail: only India's +91 is grouped; other numbers show as +<digits>. Add a library if numbers from more countries arrive.
 const phone = (digits: string) => digits.length === 12 && digits.startsWith("91") ? `+91 ${digits.slice(2, 7)} ${digits.slice(7)}` : `+${digits}`;
 /** The name to show for a message; `sender` stays the id replies go to. A WhatsApp sender is a phone number; numeric Meta ids are never shown. */

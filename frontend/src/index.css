@@ -158,6 +158,7 @@ body { background: var(--color-background-body); }
 .row:focus-visible { outline: 2px solid var(--color-text-primary); outline-offset: 2px; }
 .kind { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--color-text-secondary); }
 .bubble-out { align-self: flex-start; background: #232327; }
+.bubble-mine { align-self: flex-end; border-radius: 1rem 1rem .25rem 1rem; background: color-mix(in srgb, #0064E0 28%, var(--color-background-muted)); }
 .match-thumb { flex: none; width: 40px; height: 40px; border-radius: 6px; object-fit: cover; background: #232327; }
 
 /* Inbox, after the "Customers" reference: a grid of people, the app as a small tag. */
