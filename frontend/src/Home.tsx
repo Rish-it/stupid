@@ -185,6 +185,7 @@ export default function Home({ state, persona }: { state: Connections; persona: 
             </ul>
           ) : loading ? <Center minHeight={96}><Spinner aria-label="Loading" /></Center>
             : <Text as="p" type="supporting" className="space-empty">{empty(group, home.data)}</Text>}
+          {sample && persona && <Suspense fallback={null}><SamplePhone persona={persona} /></Suspense>}
         </section>
         <section aria-label={numbers ? "Your numbers" : current ? current.who : "Nothing open"} className="space-detail">
           <div className="space-back"><Button variant="ghost" size="sm" label="Back" onClick={back} /></div>
@@ -193,7 +194,6 @@ export default function Home({ state, persona }: { state: Connections; persona: 
             : <Center minHeight={160}><Text type="supporting">{loading ? "" : "Pick something from the list to open it here."}</Text></Center>}
         </section>
       </div>
-      {sample && persona && <Suspense fallback={null}><SamplePhone persona={persona} /></Suspense>}
     </div>
   );
 }
