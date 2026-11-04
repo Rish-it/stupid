@@ -30,13 +30,17 @@ the text on screen and the sound. Never invent numbers. Return JSON {\"watched\"
 pub fn context(ig: &Value) -> Value {
     let media: Vec<&Value> = ig["accounts"].as_array().into_iter().flatten().flat_map(|a| a["media"].as_array().into_iter().flatten()).collect();
     let score = |m: &Value| m["like_count"].as_i64().unwrap_or(0) + m["comments_count"].as_i64().unwrap_or(0);
-    let mut videos: Vec<&Value> = media.iter().copied()
-        .filter(|m| (m["media_type"] == "VIDEO" || m["media_product_type"] == "REELS") && m["media_url"].is_string()).collect();
+    let is_video = |m: &&Value| m["media_type"] == "VIDEO" || m["media_product_type"] == "REELS";
+    let mut videos: Vec<&Value> = media.iter().copied().filter(is_video).filter(|m| m["media_url"].is_string()).collect();
+    // Instagram withholds the file of a Reel with licensed music; the person is told which, not left guessing.
+    let withheld: Vec<Value> = media.iter().copied().filter(is_video).filter(|m| !m["media_url"].is_string())
+        .map(|m| json!({ "caption": m["caption"], "permalink": m["permalink"], "why": "Instagram doesn't share this Reel's video, often because of licensed music." })).collect();
     videos.sort_by_key(|m| -score(m));
     let post = |m: &Value| json!({ "caption": m["caption"], "type": m["media_product_type"], "likes": m["like_count"], "comments": m["comments_count"], "when": m["timestamp"] });
     json!({
         "videos": videos.iter().take(MAX_VIDEOS).map(|m| json!({ "id": m["id"], "permalink": m["permalink"], "post": post(m) })).collect::<Vec<_>>(),
         "posts": media.iter().map(|m| post(m)).collect::<Vec<_>>(),
+        "skipped": withheld,
     })
 }
 
@@ -44,16 +48,21 @@ pub fn context(ig: &Value) -> Value {
 pub async fn direct(s: &AppState, user_id: &str, context: &Value, ai: &agents::Ai) -> ApiResult<(Value, f64)> {
     // Each video is read here first; one that can't be (Instagram withheld the file, too large) is left out, not guessed at.
     let (mut videos, mut inline) = (Vec::new(), Vec::new());
+    let mut skipped: Vec<Value> = context["skipped"].as_array().cloned().unwrap_or_default();
     for v in context["videos"].as_array().into_iter().flatten() {
         match crate::igmedia::data_url(s, user_id, v["id"].as_str().unwrap_or_default(), crate::igmedia::Part::Video).await {
             Ok(url) => { videos.push(v.clone()); inline.push(url) }
-            Err(e) => tracing::warn!("reel director skipped a video: {e}"),
+            Err(e) => {
+                tracing::warn!("reel director skipped a video: {e}");
+                skipped.push(json!({ "caption": v["post"]["caption"], "permalink": v["permalink"], "why": format!("Stupid couldn't read the video: {e}.") }));
+            }
         }
     }
     if videos.is_empty() {
         let (mut result, cost) = agents::muse(s, "reels", FROM_CAPTIONS, &json!({ "posts": context["posts"] }), ai).await?;
         result["watched"] = json!([]);
         result["from_captions_only"] = json!(true);
+        result["skipped"] = json!(skipped);
         return Ok((result, cost));
     }
     let listed: Vec<Value> = videos.iter().enumerate().map(|(i, v)| json!({ "video": i + 1, "post": v["post"] })).collect();
@@ -70,6 +79,7 @@ pub async fn direct(s: &AppState, user_id: &str, context: &Value, ai: &agents::A
         }
     }
     result["from_captions_only"] = json!(false);
+    result["skipped"] = json!(skipped);
     Ok((result, cost))
 }
 
@@ -104,5 +114,6 @@ mod tests {
         assert_eq!(c["posts"].as_array().unwrap().len(), 6);
         assert!(!c["posts"].to_string().contains("cdn/"), "captions and counts only");
         assert_eq!(context(&json!({ "accounts": [] }))["videos"], json!([]));
+        assert_eq!(c["skipped"].as_array().map(|v| v.iter().map(|x| x["caption"].as_str().unwrap()).collect::<Vec<_>>()), Some(vec!["no url"]), "a withheld Reel is named");
     }
 }
