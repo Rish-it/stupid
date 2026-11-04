@@ -60,7 +60,7 @@ function Channel({ oc, onSaved }: { oc: OwnerChannel; onSaved: (next: OwnerChann
       <Text as="p" type="supporting" size="sm">Your agent pings you here about what matters and sends a daily summary. Anything to a customer still waits for your tap, or your "1" reply.</Text>
       <section aria-labelledby="owner-link" className="owner-block">
         {oc.linked && <Heading level={3} id="owner-link">Your number</Heading>}
-        <Text as="p" size="sm" className="status-line"><span className="live-dot" data-on={open(oc) || undefined} aria-hidden />{status(oc)}</Text>
+        <Text as="p" size="sm" className="status-line"><span className="live-dot" data-ok={open(oc) || undefined} aria-hidden />{status(oc)}</Text>
         {oc.linked ? null : oc.business_number
           ? <>
             <Heading level={3} id="owner-link">Send this code to your agent: <span className="pair-code">{oc.link_code}</span></Heading>
@@ -90,12 +90,12 @@ function Channel({ oc, onSaved }: { oc: OwnerChannel; onSaved: (next: OwnerChann
       <VStack gap={2}>
         <div className="owner-grid">
           <Times label="Daily summary" value={oc.digest_time} fallback="21:00" onSave={digest => void save({ digest_time: digest })}>
-            {on => on && <TimeField label="Summary time" value={oc.digest_time!} onSave={t => void save({ digest_time: t })} />}
+            {on => <TimeField label="Summary time" value={oc.digest_time ?? "21:00"} isDisabled={!on} onSave={t => void save({ digest_time: t })} />}
           </Times>
           <Times label="Quiet hours" value={oc.quiet} fallback={{ from: "23:00", to: "08:00" }} onSave={quiet => void save({ quiet })}>
-            {on => on && <HStack gap={2} wrap="wrap">
-              <TimeField label="From" value={oc.quiet!.from} onSave={from => void save({ quiet: { ...oc.quiet!, from } })} />
-              <TimeField label="To" value={oc.quiet!.to} onSave={to => void save({ quiet: { ...oc.quiet!, to } })} />
+            {on => <HStack gap={2} wrap="wrap">
+              <TimeField label="From" value={oc.quiet?.from ?? "23:00"} isDisabled={!on} onSave={from => void save({ quiet: { ...oc.quiet!, from } })} />
+              <TimeField label="To" value={oc.quiet?.to ?? "08:00"} isDisabled={!on} onSave={to => void save({ quiet: { ...oc.quiet!, to } })} />
             </HStack>}
           </Times>
           <fieldset className="owner-pings">
@@ -113,7 +113,7 @@ function Channel({ oc, onSaved }: { oc: OwnerChannel; onSaved: (next: OwnerChann
   );
 }
 
-/** A switch for a timed message (off is null), with its times under it while on. */
+/** A switch for a timed message (off is null), with its times under it: greyed while off, so the column never looks empty. */
 function Times<T>({ label, value, fallback, onSave, children }: { label: string; value: T | null; fallback: T; onSave: (next: T | null) => void; children: (on: boolean) => ReactNode }) {
   return (
     <VStack gap={2} className="owner-block">
@@ -124,11 +124,11 @@ function Times<T>({ label, value, fallback, onSave, children }: { label: string;
 }
 
 /** The browser's own time field: saves a full, changed time when you leave it. */
-function TimeField({ label, value, onSave }: { label: string; value: string; onSave: (time: string) => void }) {
+function TimeField({ label, value, isDisabled, onSave }: { label: string; value: string; isDisabled?: boolean; onSave: (time: string) => void }) {
   return (
     <label className="time-field">
       <span>{label}</span>
-      <input type="time" defaultValue={value} onBlur={event => { const t = event.target.value; if (/^\d\d:\d\d$/.test(t) && t !== value) onSave(t); }} />
+      <input type="time" key={value} defaultValue={value} disabled={isDisabled} onBlur={event => { const t = event.target.value; if (/^\d\d:\d\d$/.test(t) && t !== value) onSave(t); }} />
     </label>
   );
 }
