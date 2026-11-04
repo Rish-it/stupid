@@ -85,7 +85,9 @@ for (const [kind, name, instruction] of [
         await expect(dialog.getByText("What you need", { exact: true })).toBeVisible();
         await expect(dialog.getByText(instruction, { exact: true })).toBeVisible();
         await expect(dialog.getByText(/Come back here. Stupid checks/)).toBeVisible();
-        await expect(dialog.getByRole("link", { name: "Continue with Facebook" })).toHaveAttribute("href", "/api/v1/meta/oauth/start");
+        // The sample never starts a real Facebook sign-in.
+        await expect(dialog.getByRole("button", { name: "Sample: sign in from the Welcome page" })).toBeDisabled();
+        await expect(dialog.getByRole("link", { name: "Continue with Facebook" })).toHaveCount(0);
       } else if (stage === "choose") {
         const account = dialog.getByRole("switch", { name: `Sample ${kind} account` });
         await expect(account).not.toBeChecked();

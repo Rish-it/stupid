@@ -5,7 +5,7 @@ import { ProgressBar } from "@astryxdesign/core/ProgressBar";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
-import { api, oauthStartUrl, refetch, useLoad } from "./api";
+import { api, oauthStartUrl, refetch, sample, sampleSignIn, useLoad } from "./api";
 import type { Account, Persona, SetupNext, SetupStep } from "./api";
 import { Modal } from "./Surface";
 
@@ -100,7 +100,7 @@ function Step({ data, step, reload, onAccount, onConnect, onSkip }: {
         {step.fix && <Text as="p" type="supporting">{step.fix}</Text>}
         <HStack gap={2} wrap="wrap">
           {step.action === "connect"
-            ? <Button variant="primary" label={step.button} href={oauthStartUrl} onClick={onConnect} />
+            ? sample ? <Button variant="primary" label={sampleSignIn} isDisabled /> : <Button variant="primary" label={step.button} href={oauthStartUrl} onClick={onConnect} />
             : <Button variant="primary" label={step.button} href={step.link} target="_blank" rel="noopener noreferrer" />}
           {step.action === "fix_in_meta" && <Button label="I've done it" isLoading={checking} onClick={() => void check()} />}
           {step.optional && <Button variant="ghost" label="Skip for now" onClick={onSkip} />}

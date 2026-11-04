@@ -9,7 +9,7 @@ import { Step, Stepper } from "@astryxdesign/core/Stepper";
 import { Switch } from "@astryxdesign/core/Switch";
 import { Text } from "@astryxdesign/core/Text";
 import { Token } from "@astryxdesign/core/Token";
-import { api, apps, appStatus, oauthStartUrl, setupDone } from "./api";
+import { api, apps, appStatus, oauthStartUrl, sample, sampleSignIn, setupDone } from "./api";
 import type { Account, AssetKind, Persona } from "./api";
 import { Modal, Page, Tile } from "./Surface";
 import MetaProblem from "./MetaProblem";
@@ -71,7 +71,8 @@ export default function Setup({ state, onChange, onConnect, embedded, persona }:
     document.addEventListener("visibilitychange", onFocus);
     return () => document.removeEventListener("visibilitychange", onFocus);
   });
-  const connect = <Button variant="primary" label="Connect again" href={oauthStartUrl} onClick={onConnect} />;
+  const connect = sample ? <Button variant="primary" label={sampleSignIn} isDisabled />
+    : <Button variant="primary" label="Connect again" href={oauthStartUrl} onClick={onConnect} />;
   const app = apps.find(a => a.kind === open);
   const checkStatus = <div aria-live="polite">
     {error && <Banner status="warning" title="That didn't go through" description={`${error} Try again in a moment.`} />}
@@ -124,7 +125,8 @@ export default function Setup({ state, onChange, onConnect, embedded, persona }:
             footer={step === 0 ? <>
               <Button variant="ghost" label="Cancel" onClick={close} />
               <Button label="Check again" isLoading={waiting} onClick={() => void check()} />
-              <Button variant="primary" label="Continue with Facebook" href={oauthStartUrl} onClick={onConnect} />
+              {sample ? <Button variant="primary" label={sampleSignIn} isDisabled />
+                : <Button variant="primary" label="Continue with Facebook" href={oauthStartUrl} onClick={onConnect} />}
             </> : <>
               <Button label="Check again" isLoading={waiting} onClick={() => void check()} />
               <Button variant="primary" label={step === 3 ? "Done" : "Close"} onClick={close} />

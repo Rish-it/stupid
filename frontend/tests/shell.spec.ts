@@ -718,6 +718,8 @@ for (const [persona, off] of [["business", "Reel director"], ["creator", "Ad wat
     await expect(resting.getByRole("radio", { name: "Off" })).toBeChecked();
     // An off agent doesn't run (the server answers 409).
     await expect(resting.getByRole("button", { name: `Run ${off}`, disabled: false })).toHaveCount(0);
+    await expect(resting.getByText(/^Off\. It won't run until/)).toBeVisible();
+    await expect(resting.getByRole("radio", { name: "Draft for me" })).toHaveCSS("color", "rgb(255, 255, 255)");
     const leads = page.locator("article", { has: page.getByRole("heading", { name: "Lead finder" }) });
     const modes = leads.getByRole("radiogroup", { name: "What Lead finder does on its own" });
     await modes.getByRole("radio", { name: "Ask me first" }).focus();
@@ -791,3 +793,11 @@ test("the sample desk never calls the server, so a real session is never used", 
   expect(calls).toEqual([]);
 });
 
+
+test("a chunk gone after a deploy reloads the page once instead of going blank", async ({ page }) => {
+  let failed = false;
+  await page.route("**/assets/Settings-*.js", route => { if (failed) return route.continue(); failed = true; return route.fulfill({ status: 404, body: "" }); });
+  await page.goto("/?fixtures=1&persona=creator&stage=ready#settings");
+  await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
+  expect(failed).toBe(true);
+});

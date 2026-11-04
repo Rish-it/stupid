@@ -173,6 +173,8 @@ export class ApiError extends Error {
 export const sample = new URLSearchParams(location.search).has("fixtures");
 /** Sample mode has nothing to send to: every send button says so and stays off. */
 export const sampleSend = "Sample: nothing is sent";
+/** Nor a real Facebook sign-in: that starts from the Welcome page, outside the sample. */
+export const sampleSignIn = "Sample: sign in from the Welcome page";
 /** One of the owner's Instagram pictures through Stupid's proxy. The sample desk shows a stand-in, so it never sends the real session. */
 export const mediaImage = (id: string) => sample ? "/favicon.svg" : `/api/instagram/media/${encodeURIComponent(id)}/image`;
 
