@@ -38,7 +38,10 @@ data-deletion callback removes a person's data in one transaction. AI spend stop
 - One chat call per agent run, from the server only. The browser never sees a model key.
 - Spend stops at `STUPID_MUSE_BUDGET_USD` (workspace key), with at most 30 runs per person per day.
   A person who saves their own key pays their own provider instead.
-- Each run's model id and cost are shown on the Agents screen and stored with the run.
+- Each run's model id and cost are shown on the Agents screen and stored with the run. The server
+  logs one `muse call` line per call: agent, model, prompt and completion tokens, cost and time.
+- Calls use `reasoning_effort: "low"` and a 4,000-token cap. A model id containing `contributor`
+  is refused at startup, because contributor-tier models may train on what they receive.
 
 ## Service providers
 
