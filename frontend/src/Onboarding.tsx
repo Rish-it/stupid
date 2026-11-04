@@ -161,7 +161,7 @@ function Facts({ step, creator, onSaved, onSkip }: { step: SetupStep; creator: b
   };
   return (
     <VStack gap={4}>
-      <TextArea label="About you" isLabelHidden value={text} placeholder={creator ? "What you post about, who watches, and which brand deals you take or turn down." : "Your prices, opening hours and where you deliver."} onChange={v => { setText(v); setError(""); }} rows={3} maxLength={2000}
+      <TextArea label="About you" isLabelHidden value={text} onChange={v => { setText(v); setError(""); }} rows={3} maxLength={2000}
         status={error ? { type: "error", message: error } : undefined} description="Your agent uses this when it drafts. Change it any time in Settings." />
       <HStack gap={2} wrap="wrap">
         <Button variant="primary" label={step.button} isDisabled={!text.trim()} clickAction={save} />
