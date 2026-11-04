@@ -44,13 +44,35 @@ fn fix_in_meta(app: &'static str, issue: &Issue) -> Step {
     Step { id, app, title: issue.text.clone(), why: why.into(), action: "fix_in_meta", button: "Fix in Meta".into(), link: Some(issue.link.clone()), fix: Some(issue.fix.clone()), optional: false }
 }
 
+/// Instagram shares DMs with apps only once its owner allows it, and says nothing while it's off: Graph returns no
+/// conversations and no webhooks come. Shown, skippable, until a first Instagram DM has arrived.
+fn instagram_messages() -> Step {
+    Step {
+        id: "instagram_messages", app: "instagram", title: "Let Instagram share your DMs with Stupid".into(),
+        why: "No Instagram DM has reached Stupid yet. Instagram only shares DMs once you allow it; comments come in either way.".into(),
+        action: "fix_in_meta", button: "Meta's guide".into(),
+        link: Some("https://developers.facebook.com/docs/messenger-platform/instagram/get-started".into()),
+        fix: Some("In the Instagram app, open your profile, then the menu, Settings and activity, Messages and story replies, Message controls, \
+Connected tools, and turn on Allow access to messages. DMs from people you don't follow wait in Requests until you accept them.".into()),
+        optional: true,
+    }
+}
+
 fn facts(title: &str) -> Step {
     Step { id: "agent_facts", app: "agent", title: title.into(), why: "So drafts and leads use your real facts instead of asking you each time.".into(), action: "tell_agent", button: "Tell the agent".into(), link: None, fix: None, optional: true }
 }
 
 /// Each step this persona needs, in order: whether it's done, and what to show while it isn't.
 /// A step with nothing to show waits behind an earlier one (an issue check before its account is connected).
-fn steps(u: &User, persona: &str, facts_given: bool) -> Vec<(bool, Option<Step>)> {
+fn steps(u: &User, persona: &str, facts_given: bool, ig_dms: bool) -> Vec<(bool, Option<Step>)> {
+    let mut out = path(u, persona, facts_given);
+    if !ig_dms && !u.selected_assets("instagram").is_empty() {
+        out.insert(out.len() - 1, (false, Some(instagram_messages())));
+    }
+    out
+}
+
+fn path(u: &User, persona: &str, facts_given: bool) -> Vec<(bool, Option<Step>)> {
     let has = |kind: &str| !u.selected_assets(kind).is_empty();
     let blocking = |kind: &'static str| u.selected_assets(kind).into_iter().flat_map(|a| &a.issues).find(|i| i.blocking).map(|i| fix_in_meta(kind, i));
     if persona == "creator" {
@@ -86,11 +108,11 @@ fn steps(u: &User, persona: &str, facts_given: bool) -> Vec<(bool, Option<Step>)
     ]
 }
 
-fn plan(u: &User, facts_given: bool) -> Value {
+fn plan(u: &User, facts_given: bool, ig_dms: bool) -> Value {
     let Some(persona) = u.persona.as_deref() else {
         return json!({ "persona": null, "done": false, "progress": { "done": 0, "total": 0 } });
     };
-    let steps = steps(u, persona, facts_given);
+    let steps = steps(u, persona, facts_given, ig_dms);
     let done = steps.iter().all(|(ok, step)| *ok || step.as_ref().is_some_and(|s| s.optional));
     let next = steps.iter().find(|(ok, step)| !ok && step.is_some()).and_then(|(_, step)| step.clone());
     let mut out = json!({ "persona": persona, "done": done, "progress": { "done": steps.iter().filter(|(ok, _)| *ok).count(), "total": steps.len() } });
@@ -103,8 +125,12 @@ fn plan(u: &User, facts_given: bool) -> Value {
 /// GET /api/setup/next: no Graph calls, only the accounts, issues and rules already stored.
 pub async fn next(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Value>> {
     let u = user(&s, &headers)?;
-    let rules: String = lock(&s.db).query_row("SELECT agent_rules FROM users WHERE id=?1", [&u.id], |r| r.get(0))?;
-    Ok(Json(plan(&u, !rules.trim().is_empty())))
+    let db = lock(&s.db);
+    let rules: String = db.query_row("SELECT agent_rules FROM users WHERE id=?1", [&u.id], |r| r.get(0))?;
+    let ig: Vec<String> = u.selected_assets("instagram").into_iter().map(|a| a.id.clone()).collect();
+    let ig_dms = ig.iter().map(|id| db.query_row("SELECT EXISTS(SELECT 1 FROM events WHERE kind='instagram' AND asset_id=?1)", [id], |r| r.get::<_, bool>(0)))
+        .collect::<rusqlite::Result<Vec<bool>>>()?.into_iter().any(|seen| seen);
+    Ok(Json(plan(&u, !rules.trim().is_empty(), ig_dms)))
 }
 
 #[cfg(test)]
@@ -122,43 +148,43 @@ mod tests {
 
     #[test]
     fn no_persona_has_no_step() {
-        assert_eq!(plan(&person(None, &[]), false), json!({ "persona": null, "done": false, "progress": { "done": 0, "total": 0 } }));
+        assert_eq!(plan(&person(None, &[]), false, true), json!({ "persona": null, "done": false, "progress": { "done": 0, "total": 0 } }));
     }
 
     #[test]
     fn creator_steps() {
-        let new = plan(&person(Some("creator"), &[]), false);
+        let new = plan(&person(Some("creator"), &[]), false, true);
         assert_eq!((new["done"].clone(), new["progress"].clone(), new["step"]["id"].clone()), (json!(false), json!({ "done": 0, "total": 3 }), json!("instagram_connect")));
         assert_eq!(new["step"]["action"], "connect");
-        let broken = plan(&person(Some("creator"), &[("instagram", vec![issue("Instagram is restricted.", "https://business.facebook.com/business-support-home/")])]), false);
+        let broken = plan(&person(Some("creator"), &[("instagram", vec![issue("Instagram is restricted.", "https://business.facebook.com/business-support-home/")])]), false, true);
         assert_eq!((broken["step"]["id"].clone(), broken["step"]["action"].clone(), broken["done"].clone()), (json!("instagram_issue"), json!("fix_in_meta"), json!(false)));
         assert_eq!(broken["step"]["link"], "https://business.facebook.com/business-support-home/");
-        let ready = plan(&person(Some("creator"), &[("instagram", vec![])]), false);
+        let ready = plan(&person(Some("creator"), &[("instagram", vec![])]), false, true);
         assert_eq!((ready["done"].clone(), ready["progress"].clone(), ready["step"]["id"].clone(), ready["step"]["optional"].clone()), (json!(true), json!({ "done": 2, "total": 3 }), json!("agent_facts"), json!(true)));
         assert!(ready["step"]["title"].as_str().unwrap().contains("brand deals"));
-        let all = plan(&person(Some("creator"), &[("instagram", vec![])]), true);
+        let all = plan(&person(Some("creator"), &[("instagram", vec![])]), true, true);
         assert_eq!((all["done"].clone(), all["progress"].clone(), all.get("step")), (json!(true), json!({ "done": 3, "total": 3 }), None));
     }
 
     #[test]
     fn business_steps() {
-        let new = plan(&person(Some("business"), &[]), false);
+        let new = plan(&person(Some("business"), &[]), false, true);
         assert_eq!((new["step"]["id"].clone(), new["progress"].clone()), (json!("whatsapp_connect"), json!({ "done": 0, "total": 4 })));
         assert!(new["step"]["title"].as_str().unwrap().contains("Facebook Page"));
-        let half = plan(&person(Some("business"), &[("whatsapp", vec![])]), false);
+        let half = plan(&person(Some("business"), &[("whatsapp", vec![])]), false, true);
         assert_eq!((half["step"]["id"].clone(), half["step"]["app"].clone(), half["progress"]["done"].clone()), (json!("page_connect"), json!("messenger"), json!(1)));
         let pay = "https://business.facebook.com/billing_hub/accounts/details/?business_id=7&asset_id=8";
-        let unpaid = plan(&person(Some("business"), &[("whatsapp", vec![issue("WhatsApp needs a payment method before it can send.", pay)]), ("messenger", vec![])]), false);
+        let unpaid = plan(&person(Some("business"), &[("whatsapp", vec![issue("WhatsApp needs a payment method before it can send.", pay)]), ("messenger", vec![])]), false, true);
         assert_eq!((unpaid["step"]["id"].clone(), unpaid["step"]["link"].clone(), unpaid["done"].clone()), (json!("whatsapp_payment"), json!(pay), json!(false)));
-        let locked = plan(&person(Some("business"), &[("whatsapp", vec![issue("Meta has locked this WhatsApp account.", "https://business.facebook.com/business-support-home/")]), ("messenger", vec![])]), false);
+        let locked = plan(&person(Some("business"), &[("whatsapp", vec![issue("Meta has locked this WhatsApp account.", "https://business.facebook.com/business-support-home/")]), ("messenger", vec![])]), false, true);
         assert_eq!(locked["step"]["id"], "whatsapp_locked");
         let center = "https://business.facebook.com/latest/settings/security_center?business_id=7";
-        let restricted = plan(&person(Some("business"), &[("whatsapp", vec![issue("Meta has restricted this WhatsApp account.", center)]), ("messenger", vec![])]), false);
+        let restricted = plan(&person(Some("business"), &[("whatsapp", vec![issue("Meta has restricted this WhatsApp account.", center)]), ("messenger", vec![])]), false, true);
         assert_eq!((restricted["step"]["id"].clone(), restricted["step"]["link"].clone()), (json!("whatsapp_locked"), json!(center)));
-        let ready = plan(&person(Some("business"), &[("whatsapp", vec![]), ("messenger", vec![])]), false);
+        let ready = plan(&person(Some("business"), &[("whatsapp", vec![]), ("messenger", vec![])]), false, true);
         assert_eq!((ready["done"].clone(), ready["step"]["id"].clone(), ready["progress"].clone()), (json!(true), json!("agent_facts"), json!({ "done": 3, "total": 4 })));
         assert!(ready["step"]["title"].as_str().unwrap().contains("prices"));
-        let all = plan(&person(Some("business"), &[("whatsapp", vec![]), ("messenger", vec![])]), true);
+        let all = plan(&person(Some("business"), &[("whatsapp", vec![]), ("messenger", vec![])]), true, true);
         assert_eq!((all["done"].clone(), all["progress"].clone(), all.get("step")), (json!(true), json!({ "done": 4, "total": 4 }), None));
     }
 
@@ -168,23 +194,34 @@ mod tests {
             Issue { blocking: false, ..issue(NOT_PROFESSIONAL, "https://help.instagram.com/502981923235522") },
             Issue { blocking: false, ..issue(crate::meta::NO_INSTAGRAM, "https://www.facebook.com/business/help/898752960195806") },
         ];
-        let next = plan(&person(Some("creator"), &[("messenger", snags.clone())]), false);
+        let next = plan(&person(Some("creator"), &[("messenger", snags.clone())]), false, true);
         assert_eq!((next["step"]["id"].clone(), next["step"]["action"].clone(), next["step"]["app"].clone()), (json!("instagram_professional"), json!("fix_in_meta"), json!("instagram")));
         assert_eq!((next["step"]["link"].clone(), next["done"].clone(), next["progress"].clone()), (json!("https://help.instagram.com/502981923235522"), json!(false), json!({ "done": 0, "total": 3 })));
         // Instagram came with another Page: it only needs switching on.
         let mut u = person(Some("creator"), &[("messenger", snags), ("instagram", vec![])]);
         u.selected.retain(|k| k != "instagram:1");
-        assert_eq!(plan(&u, false)["step"]["id"], "instagram_connect");
+        assert_eq!(plan(&u, false, true)["step"]["id"], "instagram_connect");
         // The same snag never shows on the business path.
         let business = person(Some("business"), &[("whatsapp", vec![]), ("messenger", vec![Issue { blocking: false, ..issue(NOT_PROFESSIONAL, "https://x") }])]);
-        assert_eq!(plan(&business, false)["step"]["id"], "agent_facts");
+        assert_eq!(plan(&business, false, true)["step"]["id"], "agent_facts");
+    }
+
+    #[test]
+    fn instagram_says_how_to_share_dms_until_one_arrives() {
+        let u = person(Some("creator"), &[("instagram", vec![])]);
+        let waiting = plan(&u, true, false);
+        assert_eq!((waiting["done"].clone(), waiting["step"]["id"].clone(), waiting["step"]["optional"].clone()), (json!(true), json!("instagram_messages"), json!(true)));
+        assert!(waiting["step"]["fix"].as_str().unwrap().contains("Allow access to messages"));
+        assert_eq!(plan(&u, true, true).get("step"), None, "gone once a DM arrived");
+        let business = person(Some("business"), &[("whatsapp", vec![]), ("messenger", vec![])]);
+        assert_eq!(plan(&business, true, false).get("step"), None, "no Instagram, no step");
     }
 
     #[test]
     fn non_blocking_issues_and_switched_off_accounts() {
         let mut u = person(Some("business"), &[("whatsapp", vec![Issue { blocking: false, ..issue("Limited chats.", "https://x") }]), ("messenger", vec![])]);
-        assert_eq!(plan(&u, true)["done"], true);
+        assert_eq!(plan(&u, true, true)["done"], true);
         u.selected.clear();
-        assert_eq!(plan(&u, true)["step"]["id"], "whatsapp_connect");
+        assert_eq!(plan(&u, true, true)["step"]["id"], "whatsapp_connect");
     }
 }

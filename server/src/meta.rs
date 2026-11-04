@@ -322,7 +322,8 @@ async fn discover(state: &AppState, token: &str) -> Grant {
     let mut subscribed = 0;
     for row in &pages {
         let (Some(id), Some(t)) = (row["id"].as_str().filter(|i| numeric(i)), row["access_token"].as_str()) else { continue };
-        match post(state, &format!("{id}/subscribed_apps"), &json!({ "subscribed_fields": "messages" }), t).await {
+        // Setting the fields replaces the list, so every field Stupid reads goes in each time.
+        match post(state, &format!("{id}/subscribed_apps"), &json!({ "subscribed_fields": "messages,messaging_postbacks,message_reactions,feed" }), t).await {
             Ok(_) => subscribed += 1,
             Err(e) => problems.push(format!("Messages from {}: {}", row["name"].as_str().unwrap_or("a Page"), e.1.trim_start_matches("Meta: "))),
         }
