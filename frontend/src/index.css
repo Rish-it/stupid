@@ -110,6 +110,8 @@ body { background: var(--color-background-body); }
   .prefs-side { align-content: start; padding: 20px 12px; }
   .prefs-title { padding-block-end: 8px; }
   .prefs-tabs { flex-direction: column; overflow: visible; }
+  /* A long section name wraps in the column instead of running under the panel. */
+  .prefs-tab { white-space: normal; }
   .prefs-head { padding: 20px 20px 16px 32px; }
   .prefs-panel { padding: 0 32px 32px; }
 }

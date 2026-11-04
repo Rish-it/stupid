@@ -451,9 +451,9 @@ export async function answer(method: string, path: string, body: unknown): Promi
 
 // The owner's own WhatsApp. The business sample is linked with its window open; the creator sample has no WhatsApp business number.
 let owner: OwnerChannel = persona === "business"
-  ? { phone: "+919800000001", link_code: "K7Q2XM", linked: true, business_number: "+15550100000", window_until: now() + 6 * 3600,
+  ? { phone: "+919800000001", link_code: "K7Q2XM", linked: true, channel: "whatsapp", business_number: "+15550100000", page_id: "000000000000000", page_name: "Crumb & Co. (sample)", window_until: now() + 6 * 3600,
     digest_time: "21:00", tz: "Asia/Kolkata", quiet: { from: "23:00", to: "08:00" }, urgent: ["big_order", "complaint", "payment"], last_ping: now() - 1800 }
-  : { phone: null, link_code: "R4N8TB", linked: false, business_number: null, window_until: null,
+  : { phone: null, link_code: "R4N8TB", linked: false, channel: null, business_number: null, page_id: "000000000000000", page_name: "Sample travel creator", window_until: null,
     digest_time: null, tz: "Asia/Kolkata", quiet: null, urgent: ["brand_deal", "question"], last_ping: null };
 function ownerAnswer(route: string, body: unknown) {
   if (route === "GET /api/owner-channel") return owner;
@@ -461,7 +461,7 @@ function ownerAnswer(route: string, body: unknown) {
     const change = body as Partial<OwnerChannel>;
     if (change.phone !== undefined && change.phone !== null && !/^\+\d{8,15}$/.test(change.phone)) throw new ApiError(400, "That number doesn't look right. Use the full number with its country code, like +91 98xxx xxxxx.");
     // A new number has to be linked again, with a new code.
-    if (change.phone !== undefined && change.phone !== owner.phone) owner = { ...owner, linked: false, window_until: null, link_code: "N3W5PH" };
+    if (change.phone !== undefined && change.phone !== owner.phone) owner = { ...owner, linked: false, channel: null, window_until: null, link_code: "N3W5PH" };
     return (owner = { ...owner, ...change });
   }
   if (route === "POST /api/owner-channel/test") {

@@ -7,7 +7,7 @@ import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Switch } from "@astryxdesign/core/Switch";
 import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
-import { ApiError, api, chatUrl, refetch, useLoad } from "./api";
+import { ApiError, api, chatUrl, ownerApp, pageUrl, refetch, useLoad } from "./api";
 import type { OwnerChannel, Urgent } from "./api";
 import { Load } from "./Load";
 
@@ -19,10 +19,10 @@ const masked = (phone: string) => `•••• ${phone.slice(-4)}`;
 const open = (oc: OwnerChannel) => oc.linked && oc.window_until !== null && oc.window_until > Date.now() / 1000;
 const until = (oc: OwnerChannel) => new Date(oc.window_until! * 1000).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: oc.tz });
 /** One line: linked and open until when, closed and how to reopen, or not linked. */
-const status = (oc: OwnerChannel) => !oc.linked ? "Not linked" : open(oc) ? `Linked · I can message you until ${until(oc)}` : "Window closed: send any message to reopen";
+const status = (oc: OwnerChannel) => !oc.linked ? "Not linked" : open(oc) ? `Linked on ${ownerApp(oc)} · I can message you until ${until(oc)}` : `Window closed: message me on ${ownerApp(oc)} to reopen`;
 
-/** Settings › On your WhatsApp: the agent messages the owner there, and only the owner. */
-export default function OnYourWhatsApp() {
+/** Settings › Your agent on Messenger or WhatsApp: the agent messages the owner there, and only the owner. */
+export default function OwnerChat() {
   const state = useLoad("owner-channel", api.ownerChannel);
   return <Load state={state}>{oc => <Channel oc={oc} onSaved={state.setData} />}</Load>;
 }
@@ -32,7 +32,7 @@ type Place = "phone" | "settings" | "test";
 function Channel({ oc, onSaved }: { oc: OwnerChannel; onSaved: (next: OwnerChannel) => void }) {
   const [phone, setPhone] = useState("");
   const [editing, setEditing] = useState(false);
-  // One note at a time, shown where it happened: a save under the settings, a failed number on its field, a test by its button.
+  // One note at a time, shown where it happened: a failed number on its field, a save or a test on the line under the settings.
   const [note, setNote] = useState<{ at: Place; text: string; bad?: boolean }>();
   const save = (change: Parameters<typeof api.setOwnerChannel>[0], at: Place = "settings") => api.setOwnerChannel(change)
     // Home and onboarding read the same channel: they catch up once the server has it.
@@ -42,10 +42,10 @@ function Channel({ oc, onSaved }: { oc: OwnerChannel; onSaved: (next: OwnerChann
     if (number && await save({ phone: number }, "phone")) { setEditing(false); setPhone(""); }
   };
   // The server sends "Stupid is connected. I'll ping you here." A 409 says what's missing; anything else, the server's own words.
-  const test = () => api.testOwnerChannel().then(() => setNote({ at: "test", text: "Sent. Check your WhatsApp." }), (cause: unknown) => {
+  const test = () => api.testOwnerChannel().then(() => setNote({ at: "test", text: `Sent. Check ${ownerApp(oc)}.` }), (cause: unknown) => {
     const needs = cause instanceof ApiError ? (cause.body as { needs?: string } | undefined)?.needs : undefined;
-    setNote({ at: "test", bad: true, text: needs === "link" ? "Pair your WhatsApp first: send the code above to your agent."
-      : needs === "window" ? "WhatsApp only lets me message you within 24 hours of your last message. Send any message to the business number, then try again."
+    setNote({ at: "test", bad: true, text: needs === "link" ? "Pair first: send the code above to your agent."
+      : needs === "window" ? `${ownerApp(oc)} only lets me message you within 24 hours of your last message. Send me any message there, then try again.`
       : message(cause) });
   });
   // A tick shows at once; a failed save puts the list back as the server has it.
@@ -61,17 +61,22 @@ function Channel({ oc, onSaved }: { oc: OwnerChannel; onSaved: (next: OwnerChann
       <section aria-labelledby="owner-link" className="owner-block">
         {oc.linked && <Heading level={3} id="owner-link">Your number</Heading>}
         <Text as="p" size="sm" className="status-line"><span className="live-dot" data-ok={open(oc) || undefined} aria-hidden />{status(oc)}</Text>
-        {oc.linked ? null : oc.business_number
+        {oc.linked ? null : oc.page_id || oc.business_number
           ? <>
             <Heading level={3} id="owner-link">Send this code to your agent: <span className="pair-code">{oc.link_code}</span></Heading>
-            <HStack gap={3} align="center" wrap="wrap">
-              <Button variant="primary" size="lg" label="Open WhatsApp" href={chatUrl(oc.business_number, `hi ${oc.link_code}`)} target="_blank" rel="noopener noreferrer" />
-              <Text type="supporting" size="sm">or send <strong>hi {oc.link_code}</strong> to {oc.business_number} from your phone</Text>
-            </HStack>
+            {/* Either way pairs: the owner picks the app they already live in. */}
+            {oc.page_id && <HStack gap={3} align="center" wrap="wrap">
+              <Button variant="primary" size="sm" label="Open Messenger" href={pageUrl(oc.page_id, `hi ${oc.link_code}`)} target="_blank" rel="noopener noreferrer" />
+              <Text type="supporting" size="sm">Message {oc.page_name ?? "our Page"} on Messenger: <strong>hi {oc.link_code}</strong></Text>
+            </HStack>}
+            {oc.business_number && <HStack gap={3} align="center" wrap="wrap">
+              <Button variant="primary" size="sm" label="Open WhatsApp" href={chatUrl(oc.business_number, `hi ${oc.link_code}`)} target="_blank" rel="noopener noreferrer" />
+              <Text type="supporting" size="sm">or send <strong>hi {oc.link_code}</strong> to {oc.business_number} on WhatsApp</Text>
+            </HStack>}
           </>
           : <>
-            <Heading level={3} id="owner-link">Pair your WhatsApp</Heading>
-            <Text as="p" type="supporting" size="sm">Connect your WhatsApp business number in Connections first; your agent answers you from it.</Text>
+            <Heading level={3} id="owner-link">Pair with your agent</Heading>
+            <Text as="p" type="supporting" size="sm">Connect your Facebook Page or WhatsApp business number in Connections first; your agent answers you from it.</Text>
           </>}
         {editing
           ? <HStack gap={2} align="end" wrap="wrap">
@@ -87,27 +92,25 @@ function Channel({ oc, onSaved }: { oc: OwnerChannel; onSaved: (next: OwnerChann
             </HStack>
             : !oc.linked && oc.business_number && <Button size="sm" variant="ghost" label="or type your number" onClick={() => setEditing(true)} />}
       </section>
-      <VStack gap={2}>
-        <div className="owner-grid">
-          <Times label="Daily summary" value={oc.digest_time} fallback="21:00" onSave={digest => void save({ digest_time: digest })}>
-            {on => <TimeField label="Summary time" value={oc.digest_time ?? "21:00"} isDisabled={!on} onSave={t => void save({ digest_time: t })} />}
-          </Times>
-          <Times label="Quiet hours" value={oc.quiet} fallback={{ from: "23:00", to: "08:00" }} onSave={quiet => void save({ quiet })}>
-            {on => <HStack gap={2} wrap="wrap">
-              <TimeField label="From" value={oc.quiet?.from ?? "23:00"} isDisabled={!on} onSave={from => void save({ quiet: { ...oc.quiet!, from } })} />
-              <TimeField label="To" value={oc.quiet?.to ?? "08:00"} isDisabled={!on} onSave={to => void save({ quiet: { ...oc.quiet!, to } })} />
-            </HStack>}
-          </Times>
-          <fieldset className="owner-pings">
-            <legend><Heading level={3}>Ping me for</Heading></legend>
-            {urgent.map(([kind, label]) => <CheckboxInput key={kind} label={label} value={oc.urgent.includes(kind)} onChange={on => toggle(kind, on)} />)}
-          </fieldset>
-        </div>
-        <div aria-live="polite">{said("settings")}</div>
-      </VStack>
+      <div className="owner-grid">
+        <Times label="Daily summary" value={oc.digest_time} fallback="21:00" onSave={digest => void save({ digest_time: digest })}>
+          {on => <TimeField label="Summary time" value={oc.digest_time ?? "21:00"} isDisabled={!on} onSave={t => void save({ digest_time: t })} />}
+        </Times>
+        <Times label="Quiet hours" value={oc.quiet} fallback={{ from: "23:00", to: "08:00" }} onSave={quiet => void save({ quiet })}>
+          {on => <HStack gap={2} wrap="wrap">
+            <TimeField label="From" value={oc.quiet?.from ?? "23:00"} isDisabled={!on} onSave={from => void save({ quiet: { ...oc.quiet!, from } })} />
+            <TimeField label="To" value={oc.quiet?.to ?? "08:00"} isDisabled={!on} onSave={to => void save({ quiet: { ...oc.quiet!, to } })} />
+          </HStack>}
+        </Times>
+        <fieldset className="owner-pings">
+          <legend><Heading level={3}>Ping me for</Heading></legend>
+          {urgent.map(([kind, label]) => <CheckboxInput key={kind} label={label} value={oc.urgent.includes(kind)} onChange={on => toggle(kind, on)} />)}
+        </fieldset>
+      </div>
       <HStack gap={3} align="center" wrap="wrap">
         <Button label="Send a test" clickAction={test} />
-        <div aria-live="polite">{said("test")}</div>
+        {/* Right under the settings, so a save's note and the test's share one line. */}
+        <div aria-live="polite">{said("settings") || said("test")}</div>
       </HStack>
     </VStack>
   );

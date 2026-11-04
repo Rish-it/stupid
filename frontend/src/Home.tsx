@@ -7,7 +7,7 @@ import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
-import { ago, api, chatUrl, drafts, jobNames, sample, sampleSend, senderName, useLoad } from "./api";
+import { agentChatUrl, ago, api, canPair, drafts, ownerApp, jobNames, sample, sampleSend, senderName, useLoad } from "./api";
 import type { AgentHome, AgentId, AgentResult, AgentRun, Connections, Need, Persona } from "./api";
 import { Check } from "./Icons";
 import Trace from "./Trace";
@@ -66,7 +66,7 @@ export default function Home({ state, persona, onSetup }: { state: Connections; 
 
 function Status({ data }: { data: AgentHome }) {
   const watching = data.watching.map(w => apps[w] ?? w);
-  // The owner's own WhatsApp: say so while the agent can ping them there, else one quiet tap to set it up.
+  // The owner's own Messenger or WhatsApp: say so while the agent can ping them there, else one quiet tap to set it up.
   const owner = useLoad("owner-channel", api.ownerChannel).data;
   const pinging = owner?.linked && owner.window_until !== null && owner.window_until > Date.now() / 1000;
   return (
@@ -74,25 +74,26 @@ function Status({ data }: { data: AgentHome }) {
       <span className="live-dot" data-on={watching.length > 0 || undefined} aria-hidden />
       {watching.length ? `Watching ${list(watching)}` : "Not watching any messages yet"}
       {data.last_checked ? ` · last checked ${ago(data.last_checked)}` : ""}
-      {owner && (pinging ? " · Pinging you on WhatsApp" : owner.business_number && <> · <Link href="#settings" type="supporting" size="sm" hasUnderline>
-        {owner.linked ? "Message your business number to get pings" : "Get pinged on your WhatsApp"}</Link></>)}
+      {owner && (pinging ? ` · Pinging you on ${ownerApp(owner)}` : canPair(owner) && <> · <Link href="#settings" type="supporting" size="sm" hasUnderline>
+        {owner.linked ? `Message your agent on ${ownerApp(owner)} to get pings` : "Get pinged on Messenger or WhatsApp"}</Link></>)}
     </Text>
   );
 }
 
-/** Once paired: the agent is one WhatsApp message away, for the same things this desk does. */
+/** Once paired: the agent is one message away, for the same things this desk does. */
 function AgentChat({ needs }: { needs: Need[] }) {
   const owner = useLoad("owner-channel", api.ownerChannel).data;
-  if (!owner?.linked || !owner.business_number) return null;
+  const href = owner?.linked ? agentChatUrl(owner) : undefined;
+  if (!owner || !href) return null;
   // The example names someone actually waiting, when someone is.
   const waiting = needs.find(n => n.message)?.message;
   return (
     <section aria-labelledby="agent-chat" className="agent-chat">
       <VStack gap={1}>
-        <Heading level={2} id="agent-chat" className="panel-title">Your agent on WhatsApp</Heading>
+        <Heading level={2} id="agent-chat" className="panel-title">Your agent on {ownerApp(owner)}</Heading>
         <Text type="supporting" size="sm">{`Message your agent anytime: "what's pending?" or "reply to ${waiting ? senderName(waiting).split(" ")[0] : "a customer"}…"`}</Text>
       </VStack>
-      <Button label="Open the chat" href={chatUrl(owner.business_number)} target="_blank" rel="noopener noreferrer" />
+      <Button label="Open the chat" href={href} target="_blank" rel="noopener noreferrer" />
     </section>
   );
 }

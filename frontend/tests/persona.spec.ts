@@ -139,7 +139,7 @@ test("rules told in onboarding show in Settings right away", async ({ page }) =>
   await expect(card).toBeHidden();
   // Same visit, no reload: Settings reads what Home already loaded.
   await page.evaluate(() => { location.hash = "settings"; });
-  await page.getByRole("tab", { name: "Your agent" }).click();
+  await page.getByRole("tab", { name: "Your agent", exact: true }).click();
   await expect(page.getByLabel("Rules for your agent")).toHaveValue("Open 9 to 7.");
 });
 

@@ -281,15 +281,15 @@ test("Settings opens over the page, swaps sections in place and closes back to i
   await page.getByRole("link", { name: "Settings" }).click();
   const settings = page.getByRole("dialog", { name: "Settings" });
   // It opens on the first section, your own WhatsApp.
-  await expect(settings.getByRole("heading", { name: "On your WhatsApp", exact: true })).toBeVisible();
+  await expect(settings.getByRole("heading", { name: "Your agent on Messenger or WhatsApp", exact: true })).toBeVisible();
   await expect(page.getByText("Are you open?")).toBeAttached();
-  await settings.getByRole("tab", { name: "On your WhatsApp" }).press("ArrowDown");
+  await settings.getByRole("tab", { name: "Your agent on Messenger or WhatsApp" }).press("ArrowDown");
   await expect(settings.getByRole("tab", { name: "Your work" })).toBeFocused();
   await expect(settings.getByRole("tab", { name: "Your work" })).toHaveAttribute("aria-selected", "true");
   await settings.getByRole("tab", { name: "Your work" }).press("End");
   await expect(settings.getByRole("tab", { name: "Account" })).toBeFocused();
   await settings.getByRole("tab", { name: "Account" }).press("Home");
-  await expect(settings.getByRole("tab", { name: "On your WhatsApp" })).toHaveAttribute("aria-selected", "true");
+  await expect(settings.getByRole("tab", { name: "Your agent on Messenger or WhatsApp" })).toHaveAttribute("aria-selected", "true");
   // One window, no page scroll, at desktop and phone sizes.
   for (const size of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(size);
@@ -494,7 +494,7 @@ test("Settings turns drafting off and saves the agent's rules", async ({ page })
   await page.route("**/api/agent", route => route.fulfill(json({ proactive: true, rules: "", facts: [], needs: [], tickets: [], watching: [], last_checked: null })));
   await page.route("**/api/agent/settings", route => { const body = route.request().postDataJSON(); saved.push(body); return route.fulfill(json(body)); });
   await page.goto("/#settings");
-  await page.getByRole("tab", { name: "Your agent" }).click();
+  await page.getByRole("tab", { name: "Your agent", exact: true }).click();
   await page.getByLabel("Draft replies when new messages arrive").click();
   await expect.poll(() => saved.length).toBe(1);
   await page.getByLabel("Rules for your agent").fill("Open 10 to 7, closed Sundays.");
@@ -511,7 +511,7 @@ test("Settings lists what the owner told the agent and forgets one on request", 
   await page.route("**/api/agent", route => route.fulfill(json({ proactive: true, rules: "", facts: [fact], needs: [], tickets: [], watching: [], last_checked: null })));
   await page.route("**/api/agent/facts/*", route => { forgotten.push(route.request().method() + " " + new URL(route.request().url()).pathname); return route.fulfill(json({ facts: [] })); });
   await page.goto("/#settings");
-  await page.getByRole("tab", { name: "Your agent" }).click();
+  await page.getByRole("tab", { name: "Your agent", exact: true }).click();
   await expect(page.getByText("What does delivery to Pune cost?")).toBeVisible();
   await expect(page.getByText("₹80, free over ₹999.")).toBeVisible();
   await page.getByRole("button", { name: "Forget: ₹80, free over ₹999." }).click();
@@ -531,13 +531,13 @@ test("Settings shows how the owner writes, or says honestly that there are no se
     return route.fulfill(json(style));
   });
   await page.goto("/#settings");
-  await page.getByRole("tab", { name: "Your agent" }).click();
+  await page.getByRole("tab", { name: "Your agent", exact: true }).click();
   await expect(page.getByText("No sent replies yet. Once you send a few from Stupid, your agent learns how you write.")).toBeVisible();
 
   style = { style: { note: "Short and warm, starts with Hii, one emoji.", length: "short", greeting: "Hii", emoji: "one", language: "Hinglish", sign_off: "none" }, built: now() - 600, from: 4, sent: 4, message: null };
   await page.evaluate(() => { location.hash = "today"; });
   await page.evaluate(() => { location.hash = "settings"; });
-  await page.getByRole("tab", { name: "Your agent" }).click();
+  await page.getByRole("tab", { name: "Your agent", exact: true }).click();
   await expect(page.getByText("Short and warm, starts with Hii, one emoji.")).toBeVisible();
   await expect(page.getByText(/From 4 sent replies/)).toBeVisible();
   await page.getByRole("button", { name: "Forget how you write" }).click();
@@ -842,7 +842,7 @@ test("the sample desk never calls the server, so a real session is never used", 
     await expect(page.getByRole("dialog")).toHaveCount(0);
   }
   await page.goto("/?fixtures=1&persona=business&stage=busy#settings");
-  for (const tab of ["Your work", "Connections", "Your agent", "AI model", "Muse", "Account"]) await page.getByRole("tab", { name: tab }).click();
+  for (const tab of ["Your work", "Connections", "Your agent", "AI model", "Muse", "Account"]) await page.getByRole("tab", { name: tab, exact: true }).click();
   expect(calls).toEqual([]);
 });
 
@@ -1031,8 +1031,8 @@ test("Settings opens on your own WhatsApp: linked with the window open, and ever
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto("http://127.0.0.1:8032/?fixtures=1&persona=business&stage=ready#settings");
   const panel = page.getByRole("dialog", { name: "Settings" }).getByRole("tabpanel");
-  await expect(page.getByRole("tab").first()).toHaveText("On your WhatsApp");
-  await expect(panel.getByText(/^Linked · I can message you until \d\d:\d\d$/)).toBeVisible();
+  await expect(page.getByRole("tab").first()).toHaveText("Your agent on Messenger or WhatsApp");
+  await expect(panel.getByText(/^Linked on WhatsApp · I can message you until \d\d:\d\d$/)).toBeVisible();
   // Paired and open reads as "all good", in the success colour.
   await expect(panel.locator(".status-line .live-dot[data-ok]")).toHaveCount(1);
   // Only the last four digits show.
@@ -1045,7 +1045,7 @@ test("Settings opens on your own WhatsApp: linked with the window open, and ever
   await panel.getByRole("checkbox", { name: "Brand deals" }).check();
   await expect(panel.getByText("Saved")).toBeVisible();
   await panel.getByRole("button", { name: "Send a test" }).click();
-  await expect(panel.getByText("Sent. Check your WhatsApp.")).toBeVisible();
+  await expect(panel.getByText("Sent. Check WhatsApp.")).toBeVisible();
   // The whole section fits the Settings window on a laptop.
   expect(await panel.evaluate(el => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
   // A bad number says why, on its own field.
@@ -1059,10 +1059,13 @@ test("Settings opens on your own WhatsApp: linked with the window open, and ever
   await panel.getByRole("button", { name: "Save number" }).click();
   await expect(panel.getByText("Not linked")).toBeVisible();
   await expect(panel.getByRole("heading", { name: "Send this code to your agent: N3W5PH" })).toBeVisible();
+  // Two ways to pair: the Page on Messenger, or the business number on WhatsApp.
+  await expect(panel.getByRole("link", { name: "Open Messenger" })).toHaveAttribute("href", "https://m.me/000000000000000?text=hi%20N3W5PH");
+  await expect(panel.getByText("Message Crumb & Co. (sample) on Messenger: hi N3W5PH")).toBeVisible();
   await expect(panel.getByRole("link", { name: "Open WhatsApp" })).toHaveAttribute("href", "https://wa.me/15550100000?text=hi%20N3W5PH");
-  await expect(panel.getByText("or send hi N3W5PH to +15550100000 from your phone")).toBeVisible();
+  await expect(panel.getByText("or send hi N3W5PH to +15550100000 on WhatsApp")).toBeVisible();
   await panel.getByRole("button", { name: "Send a test" }).click();
-  await expect(panel.getByText(/^Pair your WhatsApp first/)).toBeVisible();
+  await expect(panel.getByText(/^Pair first: send the code above/)).toBeVisible();
   // Daily summary off: its time stays in view, greyed out.
   await panel.getByRole("switch", { name: "Daily summary" }).click();
   await expect(panel.getByLabel("Summary time")).toBeDisabled();
@@ -1076,9 +1079,9 @@ test("a closed window says how to reopen it, and the test says exactly what's ne
   await page.route("**/api/owner-channel/test", route => route.fulfill({ status: 409, ...json({ needs: "window" }) }));
   await page.goto("/#settings");
   const panel = page.getByRole("dialog", { name: "Settings" }).getByRole("tabpanel");
-  await expect(panel.getByText("Window closed: send any message to reopen")).toBeVisible();
+  await expect(panel.getByText("Window closed: message me on WhatsApp to reopen")).toBeVisible();
   await panel.getByRole("button", { name: "Send a test" }).click();
-  await expect(panel.getByText(/within 24 hours of your last message\. Send any message to the business number/)).toBeVisible();
+  await expect(panel.getByText(/^WhatsApp only lets me message you within 24 hours of your last message\. Send me any message there/)).toBeVisible();
 });
 
 test("Home says when it's pinging you on WhatsApp, and that the agent is one message away", async ({ page }) => {
@@ -1087,6 +1090,24 @@ test("Home says when it's pinging you on WhatsApp, and that the agent is one mes
   const strip = page.getByRole("region", { name: "Your agent on WhatsApp" });
   await expect(strip.getByText(/^Message your agent anytime: "what's pending\?" or "reply to \S+…"$/)).toBeVisible();
   await expect(strip.getByRole("link", { name: "Open the chat" })).toHaveAttribute("href", "https://wa.me/15550100000");
+});
+
+test("paired on Messenger: the status, the test and Home's chat all name Messenger and open the Page", async ({ page }) => {
+  const owner = { phone: null, link_code: "K7Q2XM", linked: true, channel: "messenger", business_number: null, page_id: "000000000000000", page_name: "Sample Page",
+    window_until: now() + 3600, digest_time: null, tz: "Asia/Kolkata", quiet: null, urgent: [], last_ping: null };
+  await page.route("**/api/me", route => route.fulfill(json(signedIn)));
+  await page.route("**/api/agent", route => route.fulfill(json(agentHome())));
+  await page.route("**/api/owner-channel", route => route.fulfill(json(owner)));
+  await page.route("**/api/owner-channel/test", route => route.fulfill(json({ sent: true })));
+  await page.goto("/#home");
+  await expect(page.getByText(/· Pinging you on Messenger/)).toBeVisible();
+  const strip = page.getByRole("region", { name: "Your agent on Messenger" });
+  await expect(strip.getByRole("link", { name: "Open the chat" })).toHaveAttribute("href", "https://m.me/000000000000000");
+  await page.goto("/#settings");
+  const panel = page.getByRole("dialog", { name: "Settings" }).getByRole("tabpanel");
+  await expect(panel.getByText(/^Linked on Messenger · I can message you until \d\d:\d\d$/)).toBeVisible();
+  await panel.getByRole("button", { name: "Send a test" }).click();
+  await expect(panel.getByText("Sent. Check Messenger.")).toBeVisible();
 });
 
 test("pairing needs only the code: the number is optional, and a failed test shows the server's own words", async ({ page }) => {
@@ -1108,12 +1129,13 @@ test("pairing needs only the code: the number is optional, and a failed test sho
   await expect(panel.getByLabel("From")).toBeDisabled();
   await panel.getByRole("switch", { name: "Quiet hours" }).click();
   await expect(panel.getByLabel("To", { exact: true })).toBeEnabled();
+  await expect(panel.getByText("Saved")).toBeVisible();
   await panel.getByRole("button", { name: "or type your number" }).click();
   await expect(panel.getByRole("textbox", { name: /Your WhatsApp number/ })).toBeVisible();
   await panel.getByRole("button", { name: "Send a test" }).click();
+  await expect(panel.getByText("WhatsApp refused it: the business number isn't registered yet.")).toBeVisible();
   // Still one window on a laptop, with the code, the number and the error all showing.
   expect(await panel.evaluate(el => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
-  await expect(panel.getByText("WhatsApp refused it: the business number isn't registered yet.")).toBeVisible();
   // Not paired: Home has no chat strip yet.
   await page.keyboard.press("Escape");
   await expect(page.getByRole("region", { name: "Your agent on WhatsApp" })).toHaveCount(0);
@@ -1127,9 +1149,9 @@ test("not linked yet: Home offers one tap to set it up, and onboarding offers it
   await page.route("**/api/setup/next", route => route.fulfill(json({ persona: "business", done: true, step: null, progress: { done: 3, total: 3 } })));
   await page.goto("/#home");
   // Onboarding offers it once the server's steps are done, and it can wait.
-  const card = page.getByRole("dialog", { name: "Get pinged on your own WhatsApp" });
+  const card = page.getByRole("dialog", { name: "Get pinged on Messenger or WhatsApp" });
   await expect(card.getByRole("link", { name: "Set it up" })).toHaveAttribute("href", "#settings");
   await card.getByRole("button", { name: "Skip for now" }).click();
   await expect(card).toHaveCount(0);
-  await expect(page.getByRole("link", { name: "Get pinged on your WhatsApp" })).toHaveAttribute("href", "#settings");
+  await expect(page.getByRole("link", { name: "Get pinged on Messenger or WhatsApp" })).toHaveAttribute("href", "#settings");
 });

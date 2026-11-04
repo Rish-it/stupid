@@ -256,7 +256,19 @@ export type OwnerChannel = {
   /** Unix seconds: the owner's last message to the business number plus 24 hours. */
   window_until: number | null;
   digest_time: string | null; tz: string; quiet: { from: string; to: string } | null; urgent: Urgent[]; last_ping: number | null;
+  /** Where the owner paired; absent from servers that only pair on WhatsApp. */
+  channel?: "whatsapp" | "messenger" | null;
+  /** The Facebook Page the owner can message instead, for an m.me link. */
+  page_id?: string | null; page_name?: string | null;
 };
+/** The app the owner talks to their agent in: the one they paired on, WhatsApp until a server says otherwise. */
+export const ownerApp = (oc: OwnerChannel) => oc.channel === "messenger" ? "Messenger" : "WhatsApp";
+/** A chat with a Facebook Page on Messenger, with `text` typed in when given. */
+export const pageUrl = (page: string, text?: string) => `https://m.me/${encodeURIComponent(page)}${text ? `?text=${encodeURIComponent(text)}` : ""}`;
+/** The chat the paired owner opens to talk to their agent, if there's one to open. */
+export const agentChatUrl = (oc: OwnerChannel) => oc.channel === "messenger" ? oc.page_id ? pageUrl(oc.page_id) : undefined : oc.business_number ? chatUrl(oc.business_number) : undefined;
+/** Somewhere to send the code: a Page on Messenger or a business number on WhatsApp. */
+export const canPair = (oc: OwnerChannel) => Boolean(oc.page_id || oc.business_number);
 
 /** A reply waiting in the Inbox. `source` marks text an agent wrote, so the person sees it came from AI. */
 export type Draft = { text: string; source?: "agent" | "muse" };
