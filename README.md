@@ -89,19 +89,117 @@ Or one container (the database lives in the `stupid-data` volume):
 docker compose up --build
 ```
 
-### Meta app setup
+### Self-host: create your Meta app
 
-In your app at developers.facebook.com:
+The in-app tutorial is for connecting a business. This walkthrough is for the person running
+Stupid's server. Use placeholders below with your own public HTTPS origin; keep all real values
+in your local `.env`, never in Git, a screenshot, a chat, or a browser field.
 
-1. **Facebook Login for Business**: create a configuration (user access token) with the
-   permissions Stupid uses, and add `STUPID_META_REDIRECT_URI` to Valid OAuth Redirect URIs.
-2. **Webhooks**: callback `<public url>/webhooks/meta`, verify token `STUPID_META_VERIFY_TOKEN`.
-   Subscribe to `messages` for WhatsApp Business Account, Page and Instagram, plus `comments`
-   for Instagram.
-3. **App settings → Basic**: data deletion callback `<public url>/api/v1/meta/deletion`.
+1. Open the [Meta App Dashboard](https://developers.facebook.com/apps/) → **Create App**.
+   Enter your app name and contact email. Add the use cases for Facebook Login for Business,
+   Instagram, Messenger, WhatsApp and Marketing API as needed, and associate the business
+   portfolio that owns the assets. Meta's available use cases depend on the app and portfolio;
+   use **Customize** on the relevant use case to reach its setup. For WhatsApp, the current
+   use case is **Connect with customers through WhatsApp** → **Quickstart** → **Start using
+   the API** → **API Setup**. A test number is generated and registered for you. This does not
+   require entering an access token into Stupid's frontend.
+2. In **App settings → Basic**, copy **App ID** to `STUPID_META_APP_ID`. Beside **App secret**,
+   click **Show** and put it in `STUPID_META_APP_SECRET`. Configure the app domain, contact
+   email, privacy policy (`<public-origin>/privacy.html`) and terms (`<public-origin>/terms.html`).
+   The app secret stays on the server.
+3. Open **Facebook Login for Business → Configurations → Create configuration**.
+   Choose **User access token**, select the assets and permissions Stupid uses, and save.
+   Copy the resulting **Configuration ID** into `STUPID_META_LOGIN_CONFIG_ID`.
+   [Meta's configuration instructions](https://developers.facebook.com/docs/facebook-login/facebook-login-for-business/)
+   describe the options; do not select a system-user-only configuration for Stupid's user login.
+   Request access only for the apps you will use:
 
-Until the app is published, Meta sends webhooks only from the dashboard's Test button. Stupid still
-reads Messenger and Instagram conversations directly while a screen is open.
+   | App | Permissions used by Stupid |
+   |---|---|
+   | Shared discovery | `business_management`, `pages_show_list` |
+   | Facebook Page / Messenger | `pages_read_engagement`, `pages_manage_metadata`, `pages_messaging` |
+   | Page-linked Instagram | `instagram_basic`, `instagram_manage_insights`, `instagram_manage_comments`, `instagram_manage_messages` |
+   | WhatsApp | `whatsapp_business_management`, `whatsapp_business_messaging` |
+   | Ads results | `ads_read` |
+
+4. Set `STUPID_META_PUBLIC_URL` to the public HTTPS origin, with no path. Set
+   `STUPID_META_REDIRECT_URI` to that same origin plus `/api/v1/meta/oauth/callback`.
+   In **Facebook Login for Business → Settings → Valid OAuth Redirect URIs**, paste that exact
+   callback and **Save changes**. Scheme, hostname, port and path must match, including the
+   absence of an extra trailing slash. Add the production address as well as any local callback
+   you actually use; Meta must allow the callback before sign-in can return successfully.
+5. Generate two separate local secrets. Choose a long random webhook verification string for
+   `STUPID_META_VERIFY_TOKEN`. Generate `STUPID_META_TOKEN_KEY` with:
+
+   ```bash
+   python3 -c "import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())"
+   ```
+
+   Save the generated encryption key privately in `.env`. Keep it stable: replacing it makes
+   existing encrypted Meta tokens unreadable and people must connect again. It is a Stupid
+   encryption key, not a value from Meta. `STUPID_META_GRAPH_VERSION` is `v25.0`, the version
+   configured in `.env.example`; do not copy a different version from a documentation example.
+6. In the app's **Webhooks** settings (or the relevant use case's **Configuration**), choose
+   each object below. Click **Edit** beside the callback, enter `<public-origin>/webhooks/meta`
+   and the same `STUPID_META_VERIFY_TOKEN`, then **Verify and save**. Subscribe to:
+
+   | Object | Fields |
+   |---|---|
+   | WhatsApp Business Account | `messages` (incoming messages and delivery failures) |
+   | Page | `messages` |
+   | Instagram | `messages`, `comments` |
+
+   The callback must already be reachable over HTTPS. Verification checks the verify token;
+   later webhook deliveries are checked with the app secret. Stupid subscribes the shared
+   Page and WhatsApp accounts during connection; those subscriptions cannot replace the
+   dashboard field configuration. Never paste Meta access tokens into Settings.
+7. In **App settings → Basic → User data deletion**, choose the data deletion callback URL
+   and enter `<public-origin>/api/v1/meta/deletion`, then save. The human-readable removal
+   instructions are at `<public-origin>/deletion.html`. These are different URLs.
+8. While developing, give the connecting Facebook profile the app's required role/test access
+   and access to the real assets. For WhatsApp tests, use **API Setup → To** to add and verify
+   the recipient. A test send in Meta is an explicit action; reply from that recipient to open
+   the 24-hour window. Test resources do not need a payment method for test templates. For
+   a production number, complete registration, display-name requirements and billing in
+   [WhatsApp Manager](https://business.facebook.com/wa/manage/home/). Production service
+   replies can be charged even inside 24 hours; see
+   [Meta's current pricing](https://developers.facebook.com/documentation/business-messaging/whatsapp/pricing/non-template-messages).
+9. Serving other businesses may require **App Review → Permissions and Features → Advanced
+   Access**, app publishing and business verification for the requested permissions. Follow the
+   requirements listed for this app; verification is not the paid Meta Verified subscription.
+   In development, normal webhook events can be limited by app roles and access. The dashboard's
+   **Test** buttons help check delivery. Stupid also reads Messenger and Instagram conversations
+   while a screen is open; an empty Inbox does not prove the webhook is configured correctly.
+10. Run the server using the Run it steps above, sign in using the Facebook profile that manages
+    your assets, and follow **Setup**. After changing Meta access, return to Stupid and **Check
+    again** or **Connect again**. Edit grants later in Facebook **Settings & privacy → Settings →
+    Business Integrations → Stupid → View and Edit → Save**.
+    [Open Business Integrations](https://www.facebook.com/settings?tab=business_tools).
+
+Every Meta-related `.env.example` setting:
+
+| Setting | Where it comes from |
+|---|---|
+| `STUPID_META_APP_ID` | App settings → Basic → App ID |
+| `STUPID_META_APP_SECRET` | App settings → Basic → App secret → Show |
+| `STUPID_META_LOGIN_CONFIG_ID` | Facebook Login for Business → Configurations → saved Configuration ID |
+| `STUPID_META_PUBLIC_URL` | Your public HTTPS origin |
+| `STUPID_META_REDIRECT_URI` | Your origin + `/api/v1/meta/oauth/callback`; register the exact value in Valid OAuth Redirect URIs |
+| `STUPID_META_VERIFY_TOKEN` | Locally chosen random string; same value in webhook verification |
+| `STUPID_META_TOKEN_KEY` | Locally generated base64url 32-byte encryption key |
+| `STUPID_META_GRAPH_VERSION` | `v25.0` in the example configuration |
+| `STUPID_META_API_KEY` | Optional, separate Meta Model API team key from [Meta's developer site](https://dev.meta.ai/); used only by the server's media features, never for Facebook Login or pasted into a person's Settings |
+| `STUPID_META_API_BUDGET_USD` | Your explicit media budget; separate from the agent budget |
+
+The optional `STUPID_MUSE_API_KEY` is a **Baseten** key, created at **Organization settings → API
+keys → Create API key → Team → Next → Call Model APIs → Create API key**.
+[Key instructions](https://docs.baseten.co/organization/api-keys),
+[current model prices](https://docs.baseten.co/inference/model-apis/pricing-and-limits).
+It pays for the workspace's agents up to `STUPID_MUSE_BUDGET_USD`. To revoke it, use the trash icon
+on Baseten's API keys page, then remove or replace the server value. A person's optional own key
+and consent are managed in Settings; removing Stupid's encrypted copy does not revoke the key
+at Baseten. Never substitute a Meta access token or a Meta Model API key in that field.
+
 
 ## Checks
 
