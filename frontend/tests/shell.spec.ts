@@ -428,3 +428,12 @@ test("a draft queued from Muse opens prefilled and marked From Muse", async ({ p
   await expect(page.getByLabel("Reply to Ana")).toHaveValue("Yes, open till 7!");
   await expect(page.getByText("From Muse · check before sending")).toBeVisible();
 });
+
+test("Post ideas say how many of the creator's pictures they looked at", async ({ page }) => {
+  await page.route("**/api/me", route => route.fulfill(json({ ...signedIn, selected: ["instagram:1"] })));
+  await page.route("**/api/agent", route => route.fulfill(json({ proactive: true, rules: "", needs: [], tickets: [] })));
+  await page.route("**/api/agents", route => route.fulfill(json({ ai_ready: true, own_key: false, model: "test-model", runs: [{ agent: "ideas", status: "done", error: null, cost_usd: 0.004, created: 1, finished: 2,
+    result: { looked_at: 4, ideas: [{ hook: "Crab sticker unboxing", caption: "New drop", format: "reel", why: "Your second picture, the close-up, got the most comments." }] } }] })));
+  await page.goto("/#agents");
+  await expect(page.getByText("Drafted 1 post idea after looking at 4 of your pictures.")).toBeVisible();
+});

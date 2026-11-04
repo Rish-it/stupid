@@ -30,7 +30,7 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
 function found(result: AgentResult) {
   if ("empty" in result) return "Nothing new to look at yet.";
   if ("leads" in result) return result.leads.length ? `Found ${plural(result.leads.length, "lead", "leads")}.` : "No one ready to buy yet.";
-  if ("ideas" in result) return `Drafted ${plural(result.ideas.length, "post idea", "post ideas")}.`;
+  if ("ideas" in result) return `Drafted ${plural(result.ideas.length, "post idea", "post ideas")}${result.looked_at ? ` after looking at ${result.looked_at} of your pictures` : ""}.`;
   if ("replies" in result) return `Drafted ${plural(result.replies.length, "reply", "replies")}.`;
   if ("scripts" in result) return result.from_captions_only
     ? `Wrote ${plural(result.scripts.length, "Reel script", "Reel scripts")} from your captions. No Reels to watch yet.`
