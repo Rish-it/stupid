@@ -788,10 +788,10 @@ test("a draft says which of your posts the customer's photo shows, or that it is
   await page.goto("http://127.0.0.1:8032/?fixtures=1&persona=business&stage=busy#home");
   const draft = page.getByRole("listitem").filter({ hasText: "Sample draft: yes, the chocolate cake" });
   const posted = await page.evaluate(() => new Date("2026-10-20T18:30:00+00:00").toLocaleDateString(undefined, { day: "numeric", month: "short" }));
-  const link = draft.getByRole("link", { name: new RegExp(`^Matches your post of ${posted}`) });
+  const link = draft.getByRole("link", { name: new RegExp(`^Matched your post of ${posted}`) });
   await expect(link).toHaveAttribute("href", "https://www.instagram.com/");
   await expect(link).toHaveAttribute("target", "_blank");
-  await expect(draft.locator("img.match-thumb")).toBeVisible();
+  await expect(draft.locator("img.trace-thumb")).toBeVisible();
   await page.goto("http://127.0.0.1:8032/?fixtures=1&persona=creator&stage=busy#home");
   await expect(page.getByRole("listitem").filter({ hasText: "Sample draft: thank you!" }).getByText("Not one of your posts")).toBeVisible();
 });
@@ -800,7 +800,7 @@ test("Inbox shows the post a customer's photo matches", async ({ page }) => {
   await page.goto("http://127.0.0.1:8032/?fixtures=1&persona=business&stage=busy#inbox");
   await page.locator(".person").filter({ hasText: "Sample customer" }).click();
   const dialog = page.getByRole("dialog");
-  await expect(dialog.getByRole("link", { name: /^Matches your post of / })).toHaveAttribute("target", "_blank");
+  await expect(dialog.getByRole("link", { name: /^Matched your post of / })).toHaveAttribute("target", "_blank");
   await expect(dialog.getByRole("img", { name: "Sample post: chocolate cake with berries" })).toBeVisible();
 });
 
@@ -917,4 +917,32 @@ test("a new message or draft from the live stream shows a toast, and the new car
   await expect(toasts.getByText("Draft ready for Zoe")).toHaveCount(1);
   await expect(page.locator(".person-card")).toHaveCount(2);
   await expect(page.locator(".person-card").first()).toHaveCSS("animation-name", "arrive");
+});
+
+test("each draft says how it got here, step by step, from what the server sent", async ({ page }) => {
+  await page.goto("http://127.0.0.1:8032/?fixtures=1&persona=business&stage=busy#home");
+  const draft = page.getByRole("listitem").filter({ hasText: "Sample draft: yes, the chocolate cake" });
+  const steps = draft.getByRole("list", { name: "How it got here" }).getByRole("listitem");
+  await expect(steps).toHaveText([/^Matched your post of /, /^Used what you told me on /, "Written in your style", "Drafted the reply", "Waiting for your tap"]);
+  // One after another, 60 ms apart.
+  await expect(steps.nth(2)).toHaveCSS("animation-delay", "0.12s");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(steps.nth(2)).toHaveCSS("animation-name", "none");
+});
+
+test("an Inbox draft for a voice note names the model that transcribed it, and skips what it doesn't have", async ({ page }) => {
+  await page.route("**/api/me", route => route.fulfill(json(signedIn)));
+  await page.route("**/api/inbox", route => route.fulfill(json({ items: [
+    { id: "v1", kind: "whatsapp", asset_id: "1", sender: "15550001", sender_name: "Ana", text: "Do you deliver?", created: now() - 60, replied: false, voice: true, draft: { text: "Yes, today.", source: "agent" } },
+    { id: "v2", kind: "whatsapp", asset_id: "1", sender: "15550002", sender_name: "Ben", text: "Open now?", created: now() - 90, replied: false },
+  ] })));
+  await page.goto("/#inbox");
+  await page.locator(".person", { hasText: "Do you deliver?" }).click();
+  const steps = page.getByRole("dialog").getByRole("list", { name: "How it got here" }).getByRole("listitem");
+  await expect(steps).toHaveText(["Transcribed the voice noteMuse Voice Transcribe", "Drafted the reply", "Waiting for your tap"]);
+  await page.keyboard.press("Escape");
+  // No draft, no chain.
+  await page.locator(".person", { hasText: "Open now?" }).click();
+  await expect(page.getByRole("dialog", { name: "Ben" })).toBeVisible();
+  await expect(page.getByRole("list", { name: "How it got here" })).toHaveCount(0);
 });
