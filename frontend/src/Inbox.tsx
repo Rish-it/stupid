@@ -86,7 +86,8 @@ function VoiceMark({ item }: { item: InboxItem }) {
 }
 
 function Conversation({ item, mark, onClose, onStatus }: { item: InboxItem; mark?: Mark; onClose: () => void; onStatus: (label?: Mark) => void }) {
-  const [draft] = useState(() => drafts.get(item.id));
+  // A draft handed over in this tab first, else the newest one Stupid keeps (from the agent or Muse).
+  const [draft] = useState(() => drafts.get(item.id) ?? (item.draft && !item.replied ? { text: item.draft.text, source: item.draft.source === "muse" ? "muse" as const : "agent" as const } : undefined));
   const [text, setText] = useState(draft?.text ?? "");
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
@@ -119,7 +120,7 @@ function Conversation({ item, mark, onClose, onStatus }: { item: InboxItem; mark
       {item.replied && <Text as="p" type="supporting">You've replied to this one.</Text>}
       {failed && <MetaProblem issue={failed} kind={item.kind} title="Your reply didn't arrive" />}
       {error && <MetaProblem issue={error} kind={item.kind} />}
-      {canReply && draft?.source === "agent" && <HStack><Token size="sm" label="Drafted by AI · check before sending" /></HStack>}
+      {canReply && draft?.source && <HStack><Token size="sm" label={draft.source === "muse" ? "From Muse · check before sending" : "Drafted by AI · check before sending"} /></HStack>}
       {canReply && (
         <TextArea label={`Reply to ${senderName(item)}`} value={text} onChange={v => { setText(v); setError(""); }}
           rows={4} maxLength={1000} hasAutoFocus status={error ? { type: "error", message: error } : undefined}
