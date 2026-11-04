@@ -9,6 +9,7 @@ import { Spinner } from "@astryxdesign/core/Spinner";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
+import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
 import { ago, api, chatUrl, jobNames, lastReport, ownerPlace, refetch, sample, sampleSend, senderName, useLoad, whatsappBlock } from "./api";
 import type { AgentHome, AgentId, AgentResult, AgentRun, Connections, CustomResult, InboxItem, InboxKind, Need, Persona } from "./api";
 import { Check, Logo } from "./Icons";
@@ -164,7 +165,7 @@ export default function Home({ state, persona }: { state: Connections; persona: 
         </nav>
         <section aria-labelledby="space-heading" className="space-list">
           <VStack gap={1} className="space-head">
-            <Heading level={1} id="space-heading" tabIndex={-1}>{numbers ? "Home" : groups[group]}</Heading>
+            <Heading level={1} id="space-heading" tabIndex={-1}><VisuallyHidden>Home, </VisuallyHidden>{numbers ? "Your numbers" : groups[group]}</Heading>
             {home.data ? <Status data={home.data} state={state} /> : <Text as="p" type="supporting" size="sm" className="status-line status-wait" aria-hidden>{" "}</Text>}
           </VStack>
           {failed && <VStack gap={2}><Text as="p" type="supporting">{failed.message}</Text><HStack><Button size="sm" label="Try again" clickAction={() => Promise.all([home.reload(), runs.reload(), inbox.reload()]).then(() => undefined)} /></HStack></VStack>}
@@ -202,7 +203,7 @@ function empty(group: keyof typeof groups, data?: AgentHome) {
   if (group === "working") return "No agent is working right now.";
   if (group === "done") return "Nothing finished yet.";
   if (group === "needs") return data && !data.proactive ? "Nothing waits for you. Drafting on new messages is off in Settings." : "Nothing waits for you. New messages get a draft here within a minute.";
-  return "Nothing here yet. Messages and your agents' work show up here as they arrive.";
+  return "Nothing waits for you. Messages and your agents' work show up here as they arrive.";
 }
 
 /** A person by their initials with the app they wrote on; an agent by Stupid's mark. */
@@ -276,8 +277,8 @@ function Conversation({ who, kind, thread, need, ask }: { who: string; kind: Inb
       {(skipped || (last?.skipped && !last.replied)) && <Text as="p" type="supporting" size="sm">Skipped. Nothing was sent.</Text>}
       {failed && <Text as="p" size="sm" className="space-warn">Your last reply didn't arrive: {failed}</Text>}
       {canReply && <VStack gap={3}>
+        {draft && <Text type="supporting" size="sm">{kept?.source === "muse" ? "From Muse · check before sending" : "Drafted by AI · check before sending"}</Text>}
         {draft && !editing && <VStack gap={2}>
-          <Text type="supporting" size="sm">{kept?.source === "muse" ? "From Muse · check before sending" : "Your agent's draft · check before sending"}</Text>
           <div className="bubble bubble-out"><Text as="p">{text}</Text></div>
           {need && <Trace voice={need.message.voice ? need.message.voice.model ?? need.models?.described_by ?? null : undefined}
             photo={need.message.photo ? need.message.photo.model ?? need.models?.described_by ?? null : undefined}

@@ -144,7 +144,7 @@ test("Home numbers ask to connect missing apps and reads the ones that are on", 
     { campaign_id: "2", campaign_name: "No clicks", spend: "5", impressions: "1", reach: "1", clicks: "0", ctr: "0", cpc: "0", date_start: "", date_stop: "" },
   ] }] })));
   await page.goto("/#home");
-  await page.getByRole("button", { name: "Your numbers, last 7 days" }).click();
+  await page.getByRole("button", { name: "Your numbers", exact: true }).click();
   await expect(page.getByText("$15.00")).toBeVisible();
   await expect(page.getByText(/Doing best:\s*Cheap clicks/)).toBeVisible();
   await expect(page.getByText(/Costing most:\s*No clicks, \$5\.00 spent, no clicks yet/)).toBeVisible();
@@ -166,14 +166,15 @@ test("Home numbers list the three newest messages with who, where, when and whet
     { ...inbox.items[3], created: now - 120 }, inbox.items[0], inbox.items[1], inbox.items[2],
   ] })));
   await page.goto("/#home");
-  await page.getByRole("button", { name: "Your numbers, last 7 days" }).click();
-  await expect(page.getByText("+91 80813 88336")).toBeVisible();
-  await expect(page.getByText("2 minutes ago")).toBeVisible();
-  await expect(page.getByRole("img", { name: "WhatsApp" })).toHaveCount(2);
-  await expect(page.getByRole("img", { name: "Instagram" })).toHaveCount(2);
-  await expect(page.getByRole("img", { name: "Messages" })).toBeVisible();
-  await expect(page.getByText("Replied")).toBeVisible();
-  await expect(page.getByText("Old question")).toBeHidden();
+  await page.getByRole("button", { name: "Your numbers", exact: true }).click();
+  const numbers = page.getByRole("region", { name: "Your numbers", exact: true });
+  await expect(numbers.getByText("+91 80813 88336")).toBeVisible();
+  await expect(numbers.getByText("2 minutes ago")).toBeVisible();
+  await expect(numbers.getByRole("img", { name: "WhatsApp" })).toHaveCount(2);
+  await expect(numbers.getByRole("img", { name: "Instagram" })).toHaveCount(2);
+  await expect(numbers.getByRole("img", { name: "Messages" })).toBeVisible();
+  await expect(numbers.getByText("Replied")).toBeVisible();
+  await expect(numbers.getByText("Old question")).toBeHidden();
 });
 
 test("Inbox filters by app, sends a reply and shows the server's refusal", async ({ page }) => {
@@ -425,7 +426,9 @@ test("Home says what the agent watches and puts what needs you first", async ({ 
   await page.route("**/api/inbox", route => route.fulfill(json(inbox)));
   await page.goto("/#home");
   await expect(page.getByText("Watching WhatsApp and Messenger · checked 2 minutes ago")).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Needs you" })).toBeVisible();
+  // People and agents share one list: the agent's question and Ana's conversation, each with who it's from.
+  await expect(page.getByRole("button", { name: /^Your agent .*What does delivery to Pune cost\?/ })).toBeVisible();
+  await page.getByRole("button", { name: /^Ana .*Draft ready/ }).click();
   await page.getByRole("button", { name: "Edit" }).click();
   await expect(page.getByLabel("Reply to Ana")).toHaveValue("Yes, we're open until 7 today.");
   await expect(page.getByText("Drafted by AI · check before sending")).toBeVisible();
@@ -437,12 +440,14 @@ test("a draft on Home is sent only on the Send tap, and focus moves on", async (
   await page.route("**/api/agent", route => route.fulfill(json(sent ? { ...agentHome(), needs: agentHome().needs.slice(0, 1) } : agentHome())));
   await page.route("**/api/inbox/w1/reply", route => { sent = route.request().postDataJSON(); return route.fulfill(json({ sent: true })); });
   await page.goto("/#home");
+  await page.getByRole("button", { name: /^Ana / }).click();
   await expect(page.getByText("Yes, we're open until 7 today.")).toBeVisible();
   expect(sent).toBeUndefined();
   await page.getByRole("button", { name: "Send" }).click();
-  await expect(page.getByText("Yes, we're open until 7 today.")).toHaveCount(0);
+  // Sent, the conversation leaves the list and the next item opens in its place.
+  await expect(page.getByRole("button", { name: /^Ana / })).toHaveCount(0);
   expect(sent).toEqual({ text: "Yes, we're open until 7 today." });
-  await expect(page.locator(".row").first()).toBeFocused();
+  await expect(page.getByLabel("Your answer")).toBeVisible();
 });
 
 test("a question from the agent is answered right on Home", async ({ page }) => {
@@ -451,16 +456,16 @@ test("a question from the agent is answered right on Home", async ({ page }) => 
   await page.route("**/api/agent", route => route.fulfill(json(answered ? { ...agentHome(), needs: [] } : agentHome())));
   await page.route("**/api/agent/tickets/7/answer", route => { answered = route.request().postDataJSON(); return route.fulfill(json({ state: "open" })); });
   await page.goto("/#home");
-  await expect(page.getByText("“How much is delivery to Pune?”")).toBeVisible();
+  await page.getByRole("button", { name: /^Your agent / }).click();
+  await expect(page.getByText("How much is delivery to Pune?")).toBeVisible();
   await expect(page.getByRole("button", { name: "Answer" })).toBeDisabled();
   await page.getByLabel("Your answer").fill("₹60, free over ₹999");
   await page.getByRole("button", { name: "Answer" }).click();
   await expect(page.getByLabel("Your answer")).toHaveCount(0);
   expect(answered).toEqual({ text: "₹60, free over ₹999", skip: false });
-  await expect(page.getByRole("heading", { name: "Needs you" })).toBeFocused();
 });
 
-test("Ready for you shows the actual results in the path's order, each naming its model", async ({ page }) => {
+test("agents' results sit in the same list, each naming its model when opened", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json({ ...signedIn, selected: ["instagram:1"], persona: "creator" })));
   await page.route("**/api/agent", route => route.fulfill(json({ ...agentHome(), needs: [] })));
   await page.route("**/api/agents", route => route.fulfill(json({ ai_ready: true, own_key: false, model: "m", order: ["reels", "ideas", "leads", "replies", "ads"], runs: [
@@ -468,12 +473,12 @@ test("Ready for you shows the actual results in the path's order, each naming it
     { agent: "ideas", status: "done", error: null, models: [], cost_usd: 0, created: 1, finished: 2, models: ["Muse Spark 1.3"], result: { ideas: [{ hook: "Closet tour", caption: "", format: "reel", why: "" }] } },
   ] })));
   await page.goto("/#home");
-  const items = page.locator("section[aria-labelledby=ready-heading] .row");
-  await expect(items.nth(0)).toContainText("Post ideas");
-  await expect(items.nth(0)).toContainText("Muse Spark 1.3");
-  await expect(items.nth(0)).toContainText("Closet tour");
-  await expect(items.nth(1)).toContainText("“What are your rates?”");
-  await expect(page.getByText("Reel director: Post a Reel and I'll direct the next one.")).toBeVisible();
+  const ideas = page.getByRole("button", { name: /^Post ideas / });
+  await expect(ideas).toContainText("Closet tour");
+  await expect(page.getByRole("button", { name: /^Lead finder / })).toContainText("Shoe Co said “What are your rates?”");
+  await ideas.click();
+  await expect(page.getByText("Made with Muse Spark 1.3")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Run again" })).toBeVisible();
 });
 
 test("with nothing waiting, Home says so plainly", async ({ page }) => {
@@ -784,12 +789,15 @@ for (const [persona, off] of [["business", "Reel director"], ["creator", "Ad wat
 
 test("Home asks before drafting for an Ask me first agent, and says what a draft drew on", async ({ page }) => {
   await page.goto("http://127.0.0.1:8032/?fixtures=1&persona=business&stage=busy#home");
-  const ask = page.getByRole("listitem").filter({ hasText: "Tara" }).filter({ hasText: "Shall I draft a reply to this message?" });
-  await expect(ask.getByRole("button", { name: "Skip" })).toBeVisible();
-  await expect(ask.getByRole("textbox")).toHaveCount(0);
-  await ask.getByRole("button", { name: "Draft it" }).click();
+  const pane = page.locator(".space-detail");
+  const ask = page.getByRole("button", { name: /Shall I draft a reply to this message\?.*About Tara/ });
+  await ask.click();
+  await expect(pane.getByRole("button", { name: "Skip" })).toBeVisible();
+  await expect(pane.getByRole("textbox")).toHaveCount(0);
+  await pane.getByRole("button", { name: "Draft it" }).click();
   await expect(ask).toHaveCount(0);
-  const draft = page.getByRole("listitem").filter({ hasText: "Hi Rohan! That's our chocolate berry cake" });
+  await page.getByRole("button", { name: /^Rohan / }).click();
+  const draft = pane;
   await expect(draft.getByText("Written in your style")).toBeVisible();
   const told = await page.evaluate(() => new Date(Date.now() - 3 * 86400e3).toLocaleDateString(undefined, { day: "numeric", month: "short" }));
   await expect(draft.getByText(`Used what you told me on ${told}: ₹650 for 1 kg; delivery in Pune is ₹60.`)).toBeVisible();
@@ -797,14 +805,16 @@ test("Home asks before drafting for an Ask me first agent, and says what a draft
 
 test("a draft says which of your posts the customer's photo shows, or that it is none", async ({ page }) => {
   await page.goto("http://127.0.0.1:8032/?fixtures=1&persona=business&stage=busy#home");
-  const draft = page.getByRole("listitem").filter({ hasText: "Hi Rohan! That's our chocolate berry cake" });
+  await page.getByRole("button", { name: /^Rohan / }).click();
+  const draft = page.locator(".space-detail");
   const posted = await page.evaluate(() => new Date("2026-10-20T18:30:00+00:00").toLocaleDateString(undefined, { day: "numeric", month: "short" }));
   const link = draft.getByRole("link", { name: new RegExp(`^Matched your post of ${posted}`) });
   await expect(link).toHaveAttribute("href", "https://www.instagram.com/");
   await expect(link).toHaveAttribute("target", "_blank");
   await expect(draft.locator("img.trace-thumb")).toBeVisible();
   await page.goto("http://127.0.0.1:8032/?fixtures=1&persona=creator&stage=busy#home");
-  await expect(page.getByRole("listitem").filter({ hasText: "Thanks for looking out, Jay!" }).getByText("Not one of your posts")).toBeVisible();
+  await page.getByRole("button", { name: /^Jay / }).click();
+  await expect(page.locator(".space-detail").getByText("Not one of your posts")).toBeVisible();
 });
 
 test("Inbox shows the post a customer's photo matches", async ({ page }) => {
@@ -816,15 +826,15 @@ test("Inbox shows the post a customer's photo matches", async ({ page }) => {
 });
 
 test("the sample desk shows a busy week, labelled photos and the owner's own WhatsApp", async ({ page }) => {
-  for (const [persona, first, sent] of [["business", "Hi Rohan!", "Sent to Ananya ✓"], ["creator", "Hey Riya!", "Sent to Nikhil ✓"]] as const) {
+  for (const [persona, first, sent] of [["business", "Rohan", "Sent to Ananya ✓"], ["creator", "Riya", "Sent to Nikhil ✓"]] as const) {
     await page.goto(`http://127.0.0.1:8032/?fixtures=1&persona=${persona}&stage=busy#home`);
     const phone = page.getByRole("group", { name: /^Sample WhatsApp chat with your agent/ });
     // The urgent ping, the owner's 1, the confirmation, then the 9 PM summary.
     await expect(phone.getByRole("listitem")).toHaveText([/Reply 1 to send/, /^1You/, new RegExp(`^${sent}`), /9:00 PM$/]);
     await expect(phone.getByRole("listitem").nth(1)).toHaveCSS("animation-delay", "0.8s");
     // Each customer photo is a drawing, labelled so.
-    const draft = page.getByRole("listitem").filter({ hasText: first }).first();
-    await expect(draft.getByText("Sample photo")).toBeVisible();
+    await page.getByRole("button", { name: new RegExp(`^${first} `) }).click();
+    await expect(page.locator(".space-detail").getByText("Sample photo")).toBeVisible();
     await page.goto(`http://127.0.0.1:8032/?fixtures=1&persona=${persona}&stage=busy#inbox`);
     await expect(page.locator(".person-card").nth(14)).toBeVisible();
   }
@@ -962,7 +972,8 @@ test("a new message, draft or learned fact from the live stream shows a toast, a
 
 test("each draft says how it got here, step by step, from what the server sent", async ({ page }) => {
   await page.goto("http://127.0.0.1:8032/?fixtures=1&persona=business&stage=busy#home");
-  const draft = page.getByRole("listitem").filter({ hasText: "Hi Rohan! That's our chocolate berry cake" });
+  await page.getByRole("button", { name: /^Rohan / }).click();
+  const draft = page.locator(".space-detail");
   const steps = draft.getByRole("list", { name: "How it got here" }).getByRole("listitem");
   // Each step names the model that did it, by the app's names for the ids the server sends.
   await expect(steps).toHaveText(["Described the photoMuse Spark Open", /^Matched your post of /, /^Used what you told me on /, "Written in your style", "Drafted the replyMuse Spark Open", "Waiting for your tap"]);
@@ -1096,12 +1107,12 @@ test("a closed window says how to reopen it, and the test says exactly what's ne
   await expect(panel.getByText(/within 24 hours of your last message\. Send any message to the business number/)).toBeVisible();
 });
 
-test("Home says when it's pinging you on WhatsApp, and that the agent is one message away", async ({ page }) => {
+test("Home says when it's pinging you on WhatsApp, and any conversation can go to the agent's chat", async ({ page }) => {
   await page.goto("http://127.0.0.1:8032/?fixtures=1&persona=business&stage=busy#home");
   await expect(page.getByText(/· Pinging you on WhatsApp/)).toBeVisible();
-  const strip = page.getByRole("region", { name: "Your agent on WhatsApp" });
-  await expect(strip.getByText(/^Message your agent anytime: "what's pending\?" or "reply to \S+…"$/)).toBeVisible();
-  await expect(strip.getByRole("link", { name: "Open the chat" })).toHaveAttribute("href", "https://wa.me/15550100000");
+  // Any open conversation can be taken to the agent's own chat, with who it's about typed in.
+  await page.getByRole("button", { name: /^Rohan / }).click();
+  await expect(page.locator(".space-detail").getByRole("link", { name: "Ask your agent" })).toHaveAttribute("href", /^https:\/\/wa\.me\/15550100000\?text=About%20Rohan/);
 });
 
 test("pairing needs only the code: the number is optional, and a failed test shows the server's own words", async ({ page }) => {
