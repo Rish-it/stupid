@@ -29,6 +29,12 @@ pub enum Media {
     Video,
 }
 
+impl Media {
+    pub fn name(self) -> &'static str {
+        match self { Media::Voice => "voice", Media::Photo => "photo", Media::Video => "video" }
+    }
+}
+
 pub fn media_kind(media: &str) -> (Media, &str) {
     if let Some(src) = media.strip_prefix("photo:") {
         (Media::Photo, src)
@@ -66,8 +72,14 @@ pub fn arrived(s: &AppState, ids: &[i64]) {
 }
 
 /// Keep the words in place of the media reference, after any caption. A failure is said plainly in the message itself.
-pub fn store(db: &rusqlite::Connection, id: i64, kind: Media, heard: Result<String, String>) -> rusqlite::Result<()> {
-    let words = heard.map(|w| w.trim().chars().take(4000).collect::<String>());
+/// `heard_json` keeps what kind it was and, when a model put it into words, those words and the model's id.
+pub fn store(db: &rusqlite::Connection, id: i64, kind: Media, heard: Result<(String, String), String>) -> rusqlite::Result<()> {
+    let words = heard.map(|(w, model)| (w.trim().chars().take(4000).collect::<String>(), model));
+    let kept = match &words {
+        Ok((w, model)) if !w.is_empty() => json!({ "kind": kind.name(), "words": w, "model": model }),
+        _ => json!({ "kind": kind.name() }),
+    };
+    let words = words.map(|(w, _)| w);
     let said = match (kind, words) {
         (Media::Voice, Ok(w)) if !w.is_empty() => w,
         (Media::Voice, Ok(_)) => "(A voice note with no words in it.)".into(),
@@ -79,10 +91,23 @@ pub fn store(db: &rusqlite::Connection, id: i64, kind: Media, heard: Result<Stri
     };
     let caption: String = db.query_row("SELECT text FROM events WHERE id=?1", [id], |r| r.get(0))?;
     let text = if kind == Media::Voice || caption.trim().is_empty() { said } else { format!("{}\n{said}", caption.trim()) };
-    db.execute("UPDATE events SET text=?2, voice=?3, media=NULL WHERE id=?1", params![id, text, kind == Media::Voice]).map(drop)
+    db.execute("UPDATE events SET text=?2, voice=?3, media=NULL, heard_json=?4 WHERE id=?1", params![id, text, kind == Media::Voice, kept.to_string()]).map(drop)
 }
 
-pub async fn hear(s: &AppState, id: i64) -> Result<String, String> {
+/// A message's media as its trace shows it: `voice` {transcript, model}, `photo` {description, model}, each null
+/// unless the message was one, and the id of the model that put it into words, when known.
+pub fn trace(heard_json: Option<String>) -> (Value, Value, Option<String>) {
+    let heard: Value = heard_json.and_then(|v| serde_json::from_str(&v).ok()).unwrap_or_default();
+    let model = heard["model"].as_str().map(str::to_owned);
+    match heard["kind"].as_str() {
+        Some("voice") => (json!({ "transcript": heard["words"], "model": heard["model"] }), Value::Null, model),
+        Some("photo") => (Value::Null, json!({ "description": heard["words"], "model": heard["model"] }), model),
+        _ => (Value::Null, Value::Null, model),
+    }
+}
+
+/// The words a media message holds and the id of the model that found them.
+pub async fn hear(s: &AppState, id: i64) -> Result<(String, String), String> {
     let found: Option<(String, Option<String>)> = lock(&s.db)
         .query_row("SELECT asset_id,media FROM events WHERE id=?1", [id], |r| Ok((r.get(0)?, r.get(1)?)))
         .optional().map_err(|e| e.to_string())?;
@@ -92,7 +117,7 @@ pub async fn hear(s: &AppState, id: i64) -> Result<String, String> {
     match kind {
         Media::Voice => {
             let wav = tokio::task::spawn_blocking(move || decode(&bytes)).await.map_err(|e| e.to_string())??;
-            meta_ai::transcribe(s, &wav).await.map(|(words, _)| words).map_err(|e| e.1)
+            meta_ai::transcribe(s, &wav).await.map(|(words, _)| (words, meta_ai::VOICE.into())).map_err(|e| e.1)
         }
         Media::Photo => {
             let owner = owner(s, &asset)?;
@@ -105,7 +130,7 @@ pub async fn hear(s: &AppState, id: i64) -> Result<String, String> {
                         // Compared with this owner's posts only; others who share the account never see it.
                         matched["owner"] = json!(owner);
                         lock(&s.db).execute("UPDATE events SET matched_json=?2 WHERE id=?1", params![id, matched.to_string()]).map_err(|e| e.to_string())?;
-                        return Ok(sees);
+                        return Ok((sees, ai.model().into()));
                     }
                     // Looking at the photo alone still helps the reply.
                     Err(e) => tracing::warn!(event = id, "photo match: {e}"),
@@ -114,13 +139,13 @@ pub async fn hear(s: &AppState, id: i64) -> Result<String, String> {
             let messages = [json!({ "role": "system", "content": SEE_PHOTO }), json!({ "role": "user", "content": [{ "type": "image_url", "image_url": { "url": url } }] })];
             let (data, _) = agents::chat(s, "photo", &messages, None, &ai).await.map_err(|e| e.1)?;
             let text = agents::answer(&data).map_err(|e| e.1)?;
-            Ok(text.rsplit_once("</think>").map_or(text, |(_, t)| t).to_string())
+            Ok((text.rsplit_once("</think>").map_or(text, |(_, t)| t).to_string(), ai.model().into()))
         }
         Media::Video => {
             let owner = owner(s, &asset)?;
             let url = format!("data:{};base64,{}", mime.unwrap_or_else(|| "video/mp4".into()), STANDARD.encode(&bytes));
             let content = vec![json!({ "type": "input_text", "text": WATCH_VIDEO }), json!({ "type": "input_video", "video_url": url })];
-            meta_ai::wonder(s, &owner, content).await.map(|(words, _)| words).map_err(|e| e.1)
+            meta_ai::wonder(s, &owner, content).await.map(|(words, _)| (words, meta_ai::WONDER.into())).map_err(|e| e.1)
         }
     }
 }
@@ -267,12 +292,12 @@ mod tests {
         for (id, created) in [(1, now()), (2, now()), (3, now() - 31 * 86_400)] {
             db.execute("INSERT INTO events (id,kind,asset_id,sender,text,created,media) VALUES (?1,'whatsapp','p1','91','',?2,'wa:777')", params![id, created]).unwrap();
         }
-        store(&db, 1, Media::Voice, Ok(" How much is the blue mug? ".into())).unwrap();
+        store(&db, 1, Media::Voice, Ok((" How much is the blue mug? ".into(), meta_ai::VOICE.into()))).unwrap();
         store(&db, 2, Media::Voice, Err("the file is over 16 MB".into())).unwrap();
         let row = |id: i64| db.query_row("SELECT text,voice,media FROM events WHERE id=?1", [id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, bool>(1)?, r.get::<_, Option<String>>(2)?))).unwrap();
         assert_eq!(row(1), ("How much is the blue mug?".into(), true, None), "the words replace the audio reference");
         assert_eq!(row(2).0, "(A voice note Stupid couldn't transcribe: the file is over 16 MB)");
-        store(&db, 3, Media::Voice, Ok("old".into())).unwrap();
+        store(&db, 3, Media::Voice, Ok(("old".into(), meta_ai::VOICE.into()))).unwrap();
         drop(db);
         crate::sweep(&s, false);
         let left: i64 = lock(&s.db).query_row("SELECT COUNT(*) FROM events", [], |r| r.get(0)).unwrap();
@@ -286,8 +311,8 @@ mod tests {
         for (id, text, media) in [(1, "Do you have this in blue?", "photo:wa:1"), (2, "", "video:url:https://x"), (3, "", "photo:wa:3")] {
             db.execute("INSERT INTO events (id,kind,asset_id,sender,text,created,media) VALUES (?1,'whatsapp','p1','91',?2,0,?3)", params![id, text, media]).unwrap();
         }
-        store(&db, 1, Media::Photo, Ok("A red ceramic mug with a chipped handle.".into())).unwrap();
-        store(&db, 2, Media::Video, Ok("The lid of a jar doesn't close.".into())).unwrap();
+        store(&db, 1, Media::Photo, Ok(("A red ceramic mug with a chipped handle.".into(), "meta-models/muse-spark-open-1026".into()))).unwrap();
+        store(&db, 2, Media::Video, Ok(("The lid of a jar doesn't close.".into(), meta_ai::WONDER.into()))).unwrap();
         store(&db, 3, Media::Photo, Err("the download was refused (404)".into())).unwrap();
         let row = |id: i64| db.query_row("SELECT text,voice,media FROM events WHERE id=?1", [id], |r| Ok((r.get::<_, String>(0)?, r.get::<_, bool>(1)?, r.get::<_, Option<String>>(2)?))).unwrap();
         assert_eq!(row(1), ("Do you have this in blue?\n(Photo: A red ceramic mug with a chipped handle.)".into(), false, None));

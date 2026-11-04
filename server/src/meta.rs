@@ -528,17 +528,22 @@ pub fn inbox_rows(state: &AppState, u: &User) -> ApiResult<Vec<Value>> {
     // Numbered, because the draft lookups below name the person as the last parameter.
     let marks = (1..=ids.len()).map(|i| format!("?{i}")).collect::<Vec<_>>().join(",");
     let db = lock(&state.db);
-    let mut stmt = db.prepare(&format!("SELECT id,kind,asset_id,sender,text,created,EXISTS(SELECT 1 FROM replies r WHERE r.event_id=events.id AND r.error IS NULL),sender_name,
-          (SELECT error FROM replies r WHERE r.event_id=events.id),voice,media,
-          (SELECT text FROM drafts d WHERE d.event_id=events.id AND d.user_id=?{u} ORDER BY d.id DESC LIMIT 1),
-          (SELECT source FROM drafts d WHERE d.event_id=events.id AND d.user_id=?{u} ORDER BY d.id DESC LIMIT 1),matched_json
-          FROM events WHERE asset_id IN ({marks}) ORDER BY created DESC, id DESC LIMIT 100", u = ids.len() + 1))?;
+    let mut stmt = db.prepare(&format!("SELECT events.id,kind,asset_id,sender,events.text,events.created,EXISTS(SELECT 1 FROM replies r WHERE r.event_id=events.id AND r.error IS NULL),sender_name,
+          (SELECT error FROM replies r WHERE r.event_id=events.id),voice,media,d.text,d.source,matched_json,heard_json,d.model,d.styled,l.answer,l.created
+          FROM events LEFT JOIN drafts d ON d.id=(SELECT MAX(id) FROM drafts WHERE event_id=events.id AND user_id=?{u})
+          LEFT JOIN learned l ON l.id=d.learned_id AND l.user_id=d.user_id
+          WHERE asset_id IN ({marks}) ORDER BY events.created DESC, events.id DESC LIMIT 100", u = ids.len() + 1))?;
     let rows = stmt.query_map(rusqlite::params_from_iter(ids.iter().chain([&u.id])), |r| {
+        let media: Option<String> = r.get(10)?;
+        let (_, photo, described_by) = crate::voice::trace(r.get(14)?);
         Ok(json!({ "id": r.get::<_, i64>(0)?, "kind": r.get::<_, String>(1)?, "asset_id": r.get::<_, String>(2)?, "sender": r.get::<_, String>(3)?, "text": r.get::<_, String>(4)?, "created": r.get::<_, i64>(5)?, "replied": r.get::<_, bool>(6)?, "sender_name": r.get::<_, Option<String>>(7)?, "reply_error": r.get::<_, Option<String>>(8)?,
             "voice": r.get::<_, bool>(9)?,
+            "photo": !photo.is_null() || media.as_deref().is_some_and(|m| crate::voice::media_kind(m).0 == crate::voice::Media::Photo),
             // A voice note, photo or video still being put into words.
-            "transcribing": r.get::<_, Option<String>>(10)?.map(|m| crate::voice::media_kind(&m).0).map(|k| match k { crate::voice::Media::Voice => "voice", crate::voice::Media::Photo => "photo", crate::voice::Media::Video => "video" }),
-            "draft": r.get::<_, Option<String>>(11)?.map(|text| -> rusqlite::Result<Value> { Ok(json!({ "text": text, "source": r.get::<_, String>(12)? })) }).transpose()?,
+            "transcribing": media.as_deref().map(|m| crate::voice::media_kind(m).0.name()),
+            "draft": r.get::<_, Option<String>>(11)?.map(|text| -> rusqlite::Result<Value> { Ok(json!({ "text": text, "source": r.get::<_, String>(12)?,
+                "models": crate::tools::models(described_by.clone(), r.get(15)?), "styled": r.get::<_, bool>(16)?,
+                "used": r.get::<_, Option<String>>(17)?.map(|a| -> rusqlite::Result<Value> { Ok(json!({ "answer": a, "told": r.get::<_, i64>(18)? })) }).transpose()? })) }).transpose()?,
             "matched_post": crate::tools::matched(r.get(13)?, &u.id) }))
     })?;
     Ok(rows.collect::<Result<_, _>>()?)
@@ -726,8 +731,33 @@ mod tests {
         }
         let rows = inbox_rows(&s, &u).unwrap();
         assert_eq!(rows.len(), 2);
-        assert_eq!(rows[1]["draft"], json!({ "text": "It is 450.", "source": "muse" }));
+        assert_eq!(rows[1]["draft"], json!({ "text": "It is 450.", "source": "muse", "models": {}, "styled": false, "used": null }), "Muse over MCP: its model is not known");
         assert_eq!(rows[0]["draft"], Value::Null, "another person's draft stays theirs");
+        assert_eq!((rows[1]["photo"].clone(), rows[1]["voice"].clone()), (json!(false), json!(false)));
+    }
+
+    #[test]
+    fn inbox_rows_trace_how_a_draft_was_made() {
+        let (s, u) = crate::tests_support::state_with_user();
+        {
+            let db = lock(&s.db);
+            db.execute("INSERT INTO events (id,kind,asset_id,sender,text,created,media) VALUES (1,'whatsapp','p1','91','',1,'wa:7'),(2,'whatsapp','p1','92','Blue?',2,'photo:wa:8'),(3,'whatsapp','p1','93','',3,'photo:wa:9')", []).unwrap();
+            crate::voice::store(&db, 1, crate::voice::Media::Voice, Ok(("Do you deliver to Pune?".into(), crate::meta_ai::VOICE.into()))).unwrap();
+            crate::voice::store(&db, 2, crate::voice::Media::Photo, Ok(("A blue tote bag.".into(), "meta-models/muse-spark-open-1026".into()))).unwrap();
+            db.execute("INSERT INTO learned (id,user_id,question,answer,created) VALUES (4,'u','Do you deliver to Pune?','Yes, in 2 days',1762214400)", []).unwrap();
+            db.execute("INSERT INTO drafts (user_id,ticket_id,event_id,text,source,created,learned_id) VALUES ('u',5,1,'Yes, in 2 days!','agent',4,4),('u',6,2,'Yes, in blue.','agent',5,NULL)", []).unwrap();
+            crate::tools::drafted_by(&db, 5, "meta-models/muse-spark-open-1026").unwrap();
+            crate::tools::drafted_by(&db, 5, "muse-spark-1.3").unwrap();
+            crate::style::mark(&db, 5).unwrap();
+        }
+        let rows = inbox_rows(&s, &u).unwrap();
+        let (pending, photo, voice) = (&rows[0], &rows[1], &rows[2]);
+        assert_eq!((voice["voice"].clone(), voice["photo"].clone()), (json!(true), json!(false)));
+        assert_eq!(voice["draft"], json!({ "text": "Yes, in 2 days!", "source": "agent", "styled": true, "used": { "answer": "Yes, in 2 days", "told": 1762214400 },
+            "models": { "described_by": "muse-voice-transcribe-1.0", "drafted_by": "meta-models/muse-spark-open-1026" } }), "the first model to write keeps the draft");
+        assert_eq!((photo["photo"].clone(), photo["voice"].clone()), (json!(true), json!(false)));
+        assert_eq!(photo["draft"]["models"], json!({ "described_by": "meta-models/muse-spark-open-1026" }), "a draft not yet named has no drafted_by");
+        assert_eq!((pending["photo"].clone(), pending["transcribing"].clone(), pending["draft"].clone()), (json!(true), json!("photo"), Value::Null), "a photo still being looked at");
     }
 
     #[test]

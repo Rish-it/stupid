@@ -201,6 +201,19 @@ pub fn save_draft(s: &AppState, u: &User, ticket: Option<i64>, event_id: i64, te
         .map(drop).map_err(|_| "Storage failed.".to_string())
 }
 
+/// Name the chat model that wrote this ticket's agent drafts; the first model to write one keeps it.
+pub fn drafted_by(db: &rusqlite::Connection, ticket: i64, model: &str) -> rusqlite::Result<()> {
+    db.execute("UPDATE drafts SET model=?2 WHERE ticket_id=?1 AND source='agent' AND model IS NULL", params![ticket, model]).map(drop)
+}
+
+/// The models behind a draft, each only when known: `described_by` put the message's media into words, `drafted_by` wrote it.
+pub fn models(described_by: Option<String>, drafted_by: Option<String>) -> Value {
+    let mut m = serde_json::Map::new();
+    if let Some(v) = described_by { m.insert("described_by".into(), json!(v)); }
+    if let Some(v) = drafted_by { m.insert("drafted_by".into(), json!(v)); }
+    Value::Object(m)
+}
+
 /// A stored photo match as this person sees it, or null when it wasn't compared with their own posts.
 pub fn matched(stored: Option<String>, user_id: &str) -> Value {
     let Some(mut v) = stored.and_then(|v| serde_json::from_str::<Value>(&v).ok()) else { return Value::Null };

@@ -398,6 +398,7 @@ pub async fn start(s: &AppState, u: User, agent: &str) -> ApiResult<Value> {
             Ok((result, cost)) => db.execute("UPDATE agent_runs SET status='done',result_json=?1,cost_usd=?2,finished=?3,models_json=?4 WHERE id=?5",
                     params![result.to_string(), cost, now(), json!(models(name, &result, &ai)).to_string(), id])
                 .and_then(|_| keep_drafts(&db, &u.id, ticket, &inbox, &result))
+                .and_then(|_| crate::tools::drafted_by(&db, ticket, ai.model()))
                 .and_then(|_| if styled.is_some() { crate::style::mark(&db, ticket) } else { Ok(()) })
                 .and_then(|_| { let (kind, text) = tickets::summary(name, &result); tickets::close_job(&db, ticket, kind, &text) }),
             Err(e) => db.execute("UPDATE agent_runs SET status='failed',error=?1,finished=?2 WHERE id=?3", params![e.1, now(), id])
