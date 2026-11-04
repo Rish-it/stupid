@@ -10,7 +10,7 @@ import { Switch } from "@astryxdesign/core/Switch";
 import { Text } from "@astryxdesign/core/Text";
 import { Token } from "@astryxdesign/core/Token";
 import { api, apps, appStatus, oauthStartUrl, setupDone } from "./api";
-import type { Account, AssetKind } from "./api";
+import type { Account, AssetKind, Persona } from "./api";
 import { Modal, Page, Tile } from "./Surface";
 import MetaProblem from "./MetaProblem";
 
@@ -23,7 +23,11 @@ const phase = (state: Account, kind: AssetKind) => {
 };
 const message = (cause: unknown) => cause instanceof Error ? cause.message : String(cause);
 
-export default function Setup({ state, onChange, onConnect, embedded }: { state: Account; onChange: (next: Account) => void; onConnect: () => void; embedded?: boolean }) {
+export default function Setup({ state, onChange, onConnect, embedded, persona }: {
+  state: Account; onChange: (next: Account) => void; onConnect: () => void; embedded?: boolean; persona?: Persona | null;
+}) {
+  // A business sees its WhatsApp and Page first, as in onboarding.
+  const shown = persona === "business" ? [...apps].sort((a, b) => Number(b.kind === "whatsapp" || b.kind === "messenger") - Number(a.kind === "whatsapp" || a.kind === "messenger")) : apps;
   const [error, setError] = useState("");
   const checking = useRef(false);
   const [waiting, setWaiting] = useState(false);
@@ -91,7 +95,7 @@ export default function Setup({ state, onChange, onConnect, embedded }: { state:
         </VStack>
       ))}
       <div className="bento">
-        {apps.map(app => {
+        {shown.map(app => {
           const { status, on, refused } = appStatus(state, app.kind);
           const accounts = state.assets.filter(a => a.kind === app.kind);
           const [label, color] = labels[status];

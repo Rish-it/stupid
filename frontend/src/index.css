@@ -125,6 +125,9 @@ body { background: var(--color-background-body); }
 }
 @keyframes arrive { from { opacity: 0; translate: 0 6px; } }
 .settings-row { display: grid; gap: 1rem; }
+/* A long choice wraps its words instead of pushing the panel wider than a phone. */
+.prefs-panel .astryx-segmented-control { max-width: 100%; }
+.prefs-panel .astryx-segmented-control-item { min-width: 0; height: auto; white-space: normal; text-align: center; }
 .settings-row + .settings-row { margin-block-start: 2rem; }
 
 /* Home, after the "Today" reference: a centred status line and date, then two quiet panels. */

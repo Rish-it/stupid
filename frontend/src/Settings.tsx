@@ -48,13 +48,18 @@ export default function Settings({ name, persona, account, onAccount, onConnect,
   const tabs = useRef<HTMLDivElement>(null);
   // Arrow keys move between sections, as in any tab list.
   const move = (event: KeyboardEvent<HTMLDivElement>) => {
-    const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[event.key];
-    if (!step) return;
+    const at = sections.indexOf(section);
+    const to = { ArrowDown: at + 1, ArrowRight: at + 1, ArrowUp: at - 1, ArrowLeft: at - 1, Home: 0, End: sections.length - 1 }[event.key];
+    if (to === undefined) return;
     event.preventDefault();
-    const next = sections[(sections.indexOf(section) + step + sections.length) % sections.length];
+    const next = sections[(to + sections.length) % sections.length];
     setSection(next);
     tabs.current?.querySelector<HTMLElement>(`[data-section="${next}"]`)?.focus();
   };
+  // The chosen tab stays in view on the phone's tab row.
+  useEffect(() => { tabs.current?.querySelector(`[data-section="${section}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" }); }, [section]);
+  // Opening lands on the chosen tab, not on the list around it.
+  useEffect(() => void requestAnimationFrame(() => tabs.current?.querySelector<HTMLElement>("[aria-selected=true]")?.focus()), []);
   // Closing fades the window into the page behind it (a View Transition); without one, or with reduced motion, it just closes.
   const close = () => {
     if (!document.startViewTransition || matchMedia("(prefers-reduced-motion: reduce)").matches) return onClose();
@@ -84,7 +89,7 @@ export default function Settings({ name, persona, account, onAccount, onConnect,
           <div key={section} id="prefs-panel" role="tabpanel" aria-labelledby={`tab-${section}`} className="prefs-panel">
             {section === "Your work" && <Path persona={persona} onPersona={onPersona} />}
             {section === "Connections" && <Row id="setup-heading" title="Apps and accounts" description="Which accounts Stupid reads, and anything Meta still needs.">
-              <Setup state={account} onChange={onAccount} onConnect={onConnect} embedded />
+              <Setup state={account} persona={persona} onChange={onAccount} onConnect={onConnect} embedded />
             </Row>}
             {section === "Your agent" && <AgentRules />}
             {section === "AI model" && <AiAccess />}
