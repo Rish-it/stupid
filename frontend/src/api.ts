@@ -86,7 +86,7 @@ export type AgentRun = {
   cost_usd: number | null; created: number; finished: number | null;
 };
 export type Agents = { runs: AgentRun[]; ai_ready: boolean; own_key: boolean; model: string };
-export type AiSettings = { has_key: boolean; key_saved_at?: number | null; model: string; workspace_ai: boolean };
+export type AiSettings = { has_key: boolean; key_saved_at?: number | null; model: string; workspace_ai: boolean; brain: "open" | "meta"; meta_brain: boolean; open_model: string; meta_model: string };
 
 /** The customer message a piece of agent work is about. */
 export type AgentMessage = { kind: InboxKind; sender: string; sender_name: string | null; text?: string };
@@ -151,6 +151,7 @@ export const api = {
   run: (agent: AgentId) => call<{ agent: AgentId; status: string }>("POST", `/api/agents/${agent}/run`),
   aiSettings: () => call<AiSettings>("GET", "/api/settings/ai"),
   setAiKey: (api_key: string, consent = false) => call<Omit<AiSettings, "workspace_ai">>("PUT", "/api/settings/ai", { api_key, consent }),
+  setBrain: (brain: AiSettings["brain"]) => call<AiSettings>("PUT", "/api/settings/ai/brain", { brain }),
   agent: () => call<AgentHome>("GET", "/api/agent"),
   mcpKey: () => call<McpKey>("GET", "/api/mcp/key"),
   createMcpKey: () => call<{ key: string; created: number }>("POST", "/api/mcp/key"),

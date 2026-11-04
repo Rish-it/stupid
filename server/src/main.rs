@@ -220,6 +220,8 @@ ALTER TABLE users ADD COLUMN agent_rules TEXT NOT NULL DEFAULT '';
     "ALTER TABLE events ADD COLUMN voice INTEGER NOT NULL DEFAULT 0; ALTER TABLE events ADD COLUMN media TEXT;",
     // Keys Muse uses to reach Stupid over MCP, stored as hashes like sessions.
     "CREATE TABLE access_keys (id INTEGER PRIMARY KEY, user_id TEXT NOT NULL, hash TEXT UNIQUE NOT NULL, created INTEGER NOT NULL, last_used INTEGER, revoked INTEGER);",
+    // Which model runs the person's agents: `open` (Muse Spark Open) or `meta` (Muse Spark 1.3 on the Model API).
+    "ALTER TABLE users ADD COLUMN ai_brain TEXT NOT NULL DEFAULT 'open';",
 ];
 
 fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
@@ -684,6 +686,7 @@ async fn main() {
         .route("/api/stream", get(stream))
         .route("/api/inbox/{id}/reply", post(meta::reply))
         .route("/api/settings/ai", get(agents::settings).put(agents::save_key))
+        .route("/api/settings/ai/brain", put(agents::save_brain))
         .route("/api/agents", get(agents::list))
         .route("/api/agents/{agent}/run", post(agents::run))
         .route("/api/agent", get(attention::home))

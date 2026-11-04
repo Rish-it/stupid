@@ -31,6 +31,56 @@ pub fn own_key(s: &AppState, user_id: &str) -> ApiResult<Option<String>> {
     Ok(f.decrypt(&blob).ok().and_then(|k| String::from_utf8(k).ok()))
 }
 
+/// Which model runs a person's agents, and who pays for it.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Ai {
+    /// Muse Spark Open at `muse_base` on Stupid's key, under STUPID_MUSE_BUDGET_USD.
+    Workspace,
+    /// Muse Spark Open on the person's own Baseten key.
+    Own(String),
+    /// Muse Spark 1.3 on Meta's Model API with Stupid's key, under STUPID_META_API_BUDGET_USD.
+    Meta,
+}
+
+/// The Model API model that runs agents when the person picks Meta's API. Multimodal, with tool calling.
+pub const META_MODEL: &str = "muse-spark-1.3";
+
+impl Ai {
+    pub fn model<'a>(&self, s: &'a AppState) -> &'a str {
+        if *self == Ai::Meta { META_MODEL } else { &s.cfg.muse_model }
+    }
+    pub fn own(&self) -> bool {
+        matches!(self, Ai::Own(_))
+    }
+}
+
+/// What the person picked in Settings: Meta's API when chosen (or when it is the only one set up), else their own
+/// Baseten key, else Stupid's Baseten key.
+pub fn ai(s: &AppState, user_id: &str) -> ApiResult<Ai> {
+    let choice: Option<String> = lock(&s.db).query_row("SELECT ai_brain FROM users WHERE id=?1", [user_id], |r| r.get(0)).optional()?;
+    let meta = !s.cfg.meta_api_key.is_empty();
+    if meta && choice.as_deref() == Some("meta") {
+        return Ok(Ai::Meta);
+    }
+    if let Some(key) = own_key(s, user_id)? {
+        return Ok(Ai::Own(key));
+    }
+    Ok(if meta && s.cfg.muse_key.is_empty() { Ai::Meta } else { Ai::Workspace })
+}
+
+/// Whether this model can still be paid for.
+pub fn ready(s: &AppState, ai: &Ai) -> ApiResult<bool> {
+    match ai {
+        Ai::Own(_) => Ok(true),
+        Ai::Workspace => workspace_ready(s),
+        Ai::Meta => Ok(meta_spent(s)? < s.cfg.meta_api_budget_usd),
+    }
+}
+
+fn meta_spent(s: &AppState) -> ApiResult<f64> {
+    Ok(lock(&s.db).query_row("SELECT COALESCE(SUM(usd),0) FROM meta_api_spend", [], |r| r.get(0))?)
+}
+
 /// Whether the workspace key can still pay for a run.
 pub fn workspace_ready(s: &AppState) -> ApiResult<bool> {
     let spent: f64 = lock(&s.db).query_row("SELECT COALESCE(SUM(usd),0) FROM spend WHERE own=0", [], |r| r.get(0))?;
@@ -43,7 +93,27 @@ fn saved_at(s: &AppState, user_id: &str) -> ApiResult<Option<i64>> {
 
 pub async fn settings(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Value>> {
     let u = user(&s, &headers)?;
-    Ok(Json(json!({ "has_key": own_key(&s, &u.id)?.is_some(), "key_saved_at": saved_at(&s, &u.id)?, "model": s.cfg.muse_model, "workspace_ai": workspace_ready(&s)? })))
+    let ai = ai(&s, &u.id)?;
+    Ok(Json(json!({ "has_key": own_key(&s, &u.id)?.is_some(), "key_saved_at": saved_at(&s, &u.id)?, "model": ai.model(&s), "workspace_ai": workspace_ready(&s)?,
+        "brain": if ai == Ai::Meta { "meta" } else { "open" }, "meta_brain": !s.cfg.meta_api_key.is_empty(), "open_model": s.cfg.muse_model, "meta_model": META_MODEL })))
+}
+
+#[derive(Deserialize)]
+pub struct BrainBody {
+    brain: String,
+}
+
+/// Pick the model that runs the person's agents: Muse Spark Open (`open`) or Muse Spark 1.3 on Meta's Model API (`meta`).
+pub async fn save_brain(State(s): State<AppState>, headers: HeaderMap, Json(body): Json<BrainBody>) -> ApiResult<Json<Value>> {
+    let u = user(&s, &headers)?;
+    match body.brain.as_str() {
+        "open" => {}
+        "meta" if !s.cfg.meta_api_key.is_empty() => {}
+        "meta" => return Err(AppError::new(400, "Meta's Model API is not set up on this server.")),
+        _ => return Err(AppError::new(400, "Pick open or meta.")),
+    }
+    lock(&s.db).execute("UPDATE users SET ai_brain=?1 WHERE id=?2", params![body.brain, u.id])?;
+    settings(State(s), headers).await
 }
 
 #[derive(Deserialize)]
@@ -100,8 +170,8 @@ pub async fn list(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Js
     })?.collect::<Result<Vec<_>, _>>()?;
     drop(stmt);
     drop(db);
-    let own = own_key(&s, &u.id)?.is_some();
-    Ok(Json(json!({ "runs": runs, "ai_ready": own || workspace_ready(&s)?, "own_key": own, "model": s.cfg.muse_model })))
+    let ai = ai(&s, &u.id)?;
+    Ok(Json(json!({ "runs": runs, "ai_ready": ready(&s, &ai)?, "own_key": ai.own(), "model": ai.model(&s) })))
 }
 
 pub async fn run(State(s): State<AppState>, headers: HeaderMap, Path(agent): Path<String>) -> ApiResult<Json<Value>> {
@@ -112,8 +182,8 @@ pub async fn run(State(s): State<AppState>, headers: HeaderMap, Path(agent): Pat
 /// Start one job for the person, from a Run tap or from Muse over MCP: same spend cap and daily limit.
 pub async fn start(s: &AppState, u: User, agent: &str) -> ApiResult<Value> {
     let (name, system) = AGENTS.iter().find(|(n, _)| *n == agent).copied().ok_or_else(|| AppError::new(404, "Unknown agent."))?;
-    let own = own_key(s, &u.id)?;
-    if own.is_none() && s.cfg.muse_key.is_empty() {
+    let ai = ai(s, &u.id)?;
+    if ai == Ai::Workspace && s.cfg.muse_key.is_empty() {
         return Err(AppError::new(503, "Add an AI key in Settings to run agents."));
     }
     // Checked again below under the same lock as the insert; this only avoids Meta calls for a refused run.
@@ -151,12 +221,12 @@ pub async fn start(s: &AppState, u: User, agent: &str) -> ApiResult<Value> {
     let inbox: Vec<String> = u.assets.iter().filter(|a| u.selected.contains(&a.key)).map(|a| a.id.clone()).collect();
     tokio::spawn(async move {
         let mut outcome = match name {
-            "reels" => reels::direct(&state, &u.id, &context, own.as_deref()).await,
-            "ideas" => ideas(&state, system, &context, &pictures_for_ideas, own.as_deref()).await,
-            _ => muse(&state, name, system, &context, own.as_deref()).await,
+            "reels" => reels::direct(&state, &u.id, &context, &ai).await,
+            "ideas" => ideas(&state, system, &context, &pictures_for_ideas, &ai).await,
+            _ => muse(&state, name, system, &context, &ai).await,
         };
         if let (Ok((result, cost)), Some(ig)) = (&mut outcome, &pictures) {
-            let (pack, more) = crops::pack(&state, &u.id, ig, own.as_deref()).await;
+            let (pack, more) = crops::pack(&state, &u.id, ig, &ai).await;
             result["creative_pack"] = json!(pack);
             *cost += more;
         }
@@ -176,10 +246,10 @@ pub async fn start(s: &AppState, u: User, agent: &str) -> ApiResult<Value> {
 }
 
 /// Post ideas that look at the creator's best pictures too. If a picture can't be fetched, it tries once more on text alone.
-async fn ideas(s: &AppState, system: &str, context: &Value, pictures: &[String], own_key: Option<&str>) -> ApiResult<(Value, f64)> {
+async fn ideas(s: &AppState, system: &str, context: &Value, pictures: &[String], ai: &Ai) -> ApiResult<(Value, f64)> {
     if !pictures.is_empty() {
         let seeing = format!("{system} You also see the pictures of their best posts, best first. Use what is in them (the product, setting, light, colours, people or not) in \"why\", and say which picture you mean.");
-        match muse_seeing(s, "ideas", &seeing, context, pictures, own_key).await {
+        match muse_seeing(s, "ideas", &seeing, context, pictures, ai).await {
             Ok((mut result, cost)) => {
                 result["looked_at"] = json!(pictures.len());
                 return Ok((result, cost));
@@ -187,7 +257,7 @@ async fn ideas(s: &AppState, system: &str, context: &Value, pictures: &[String],
             Err(e) => tracing::warn!("ideas with pictures: {}; trying on text alone", e.1),
         }
     }
-    let (mut result, cost) = muse(s, "ideas", system, context, own_key).await?;
+    let (mut result, cost) = muse(s, "ideas", system, context, ai).await?;
     result["looked_at"] = json!(0);
     Ok((result, cost))
 }
@@ -234,12 +304,12 @@ fn busy(db: &rusqlite::Connection, user_id: &str, agent: &str) -> ApiResult<()> 
 
 /// One Muse call with a JSON answer, under the workspace spend cap unless the person brought their own key.
 /// Returns the parsed JSON answer and its cost in USD.
-pub async fn muse(s: &AppState, agent: &str, system: &str, context: &Value, own_key: Option<&str>) -> ApiResult<(Value, f64)> {
-    muse_seeing(s, agent, system, context, &[], own_key).await
+pub async fn muse(s: &AppState, agent: &str, system: &str, context: &Value, ai: &Ai) -> ApiResult<(Value, f64)> {
+    muse_seeing(s, agent, system, context, &[], ai).await
 }
 
 /// Like `muse`, with pictures the model looks at after the text (Muse Spark Open on Baseten reads `image_url` parts).
-pub async fn muse_seeing(s: &AppState, agent: &str, system: &str, context: &Value, images: &[String], own_key: Option<&str>) -> ApiResult<(Value, f64)> {
+pub async fn muse_seeing(s: &AppState, agent: &str, system: &str, context: &Value, images: &[String], ai: &Ai) -> ApiResult<(Value, f64)> {
     let mut input = context.to_string();
     if input.len() > MAX_INPUT_CHARS {
         input = input.chars().take(MAX_INPUT_CHARS).collect();
@@ -248,38 +318,44 @@ pub async fn muse_seeing(s: &AppState, agent: &str, system: &str, context: &Valu
         json!([json!({ "type": "text", "text": input })].into_iter().chain(images.iter().map(|url| json!({ "type": "image_url", "image_url": { "url": url } }))).collect::<Vec<_>>())
     };
     let messages = [json!({ "role": "system", "content": format!("{system} Reply with the JSON object only.") }), json!({ "role": "user", "content": content })];
-    let (data, cost) = chat(s, agent, &messages, None, own_key).await?;
+    let (data, cost) = chat(s, agent, &messages, None, ai).await?;
     Ok((extract_json(answer(&data)?).ok_or_else(|| AppError::new(502, "Muse answered without the expected format."))?, cost))
 }
 
 /// One chat call to Muse with these messages and, for the agent's executor, its tools.
 /// Spend is recorded whatever the answer says. Returns the whole answer and its cost in USD.
-pub async fn chat(s: &AppState, agent: &str, messages: &[Value], tools: Option<&[Value]>, own_key: Option<&str>) -> ApiResult<(Value, f64)> {
+pub async fn chat(s: &AppState, agent: &str, messages: &[Value], tools: Option<&[Value]>, ai: &Ai) -> ApiResult<(Value, f64)> {
     // Rough worst case: 3 characters per token, every output token used.
     let chars = Value::from(messages.to_vec()).to_string().len() + tools.map_or(0, |t| Value::from(t.to_vec()).to_string().len());
     let estimate = (chars as f64 / 3.0 * PRICE.0 + MAX_TOKENS as f64 * PRICE.1) / 1e6;
-    if own_key.is_none() {
-        let db = lock(&s.db);
-        let spent: f64 = db.query_row("SELECT COALESCE(SUM(usd),0) FROM spend WHERE own=0", [], |r| r.get(0))?;
-        // ponytail: check-then-record, so parallel runs can pass the cap by one call (about $0.01).
-        if spent + estimate > s.cfg.muse_budget_usd {
-            return Err(AppError::new(402, "The AI budget for this workspace is used up."));
-        }
+    // ponytail: check-then-record, so parallel runs can pass a cap by one call (about $0.01).
+    let over = match ai {
+        Ai::Own(_) => false,
+        Ai::Workspace => lock(&s.db).query_row("SELECT COALESCE(SUM(usd),0) FROM spend WHERE own=0", [], |r| r.get::<_, f64>(0))? + estimate > s.cfg.muse_budget_usd,
+        Ai::Meta => meta_spent(s)? + estimate > s.cfg.meta_api_budget_usd,
+    };
+    if over {
+        return Err(AppError::new(402, "The AI budget for this workspace is used up."));
     }
+    let (base, key, model) = match ai {
+        Ai::Workspace => (&s.cfg.muse_base, s.cfg.muse_key.as_str(), s.cfg.muse_model.as_str()),
+        Ai::Own(key) => (&s.cfg.muse_base, key.as_str(), s.cfg.muse_model.as_str()),
+        Ai::Meta => (&s.cfg.meta_api_base, s.cfg.meta_api_key.as_str(), META_MODEL),
+    };
     // Muse Spark Open defaults to xhigh reasoning, which can use up max_tokens before the answer starts.
-    let mut body = json!({ "model": s.cfg.muse_model, "max_tokens": MAX_TOKENS, "reasoning_effort": "low", "messages": messages });
+    let mut body = json!({ "model": model, "max_tokens": MAX_TOKENS, "reasoning_effort": "low", "messages": messages });
     if let Some(tools) = tools {
         body["tools"] = json!(tools);
         body["tool_choice"] = json!("auto");
     }
     let started = std::time::Instant::now();
-    let response = s.http.post(format!("{}/chat/completions", s.cfg.muse_base.trim_end_matches('/'))).bearer_auth(own_key.unwrap_or(&s.cfg.muse_key)).timeout(std::time::Duration::from_secs(120)).json(&body).send().await
+    let response = s.http.post(format!("{}/chat/completions", base.trim_end_matches('/'))).bearer_auth(key).timeout(std::time::Duration::from_secs(120)).json(&body).send().await
         .map_err(|e| if e.is_timeout() { AppError::new(504, refusal(504, None)) } else { AppError::new(502, "Muse could not be reached.") })?;
     let status = response.status();
     if !status.is_success() {
         let retry_after = response.headers().get("retry-after").and_then(|v| v.to_str().ok()).map(str::to_owned);
         let detail: String = response.text().await.unwrap_or_default().chars().take(300).collect();
-        tracing::warn!(agent, model = %s.cfg.muse_model, %status, detail, "muse refused");
+        tracing::warn!(agent, model, %status, detail, "muse refused");
         return Err(AppError::new(502, refusal(status.as_u16(), retry_after.as_deref())));
     }
     let data: Value = response.json().await.map_err(|_| AppError::new(502, "Muse sent an unreadable answer."))?;
@@ -289,9 +365,14 @@ pub async fn chat(s: &AppState, agent: &str, messages: &[Value], tools: Option<&
         (Some(i), Some(o)) => (i * PRICE.0 + o * PRICE.1) / 1e6,
         _ => estimate,
     };
-    lock(&s.db).execute("INSERT INTO spend (usd,created,own) VALUES (?1,?2,?3)", params![cost, now(), own_key.is_some()])?;
-    tracing::info!(agent, model = %s.cfg.muse_model, prompt_tokens = usage["prompt_tokens"].as_u64(), completion_tokens = usage["completion_tokens"].as_u64(),
-        cost_usd = format!("{cost:.4}"), ms = started.elapsed().as_millis() as u64, own_key = own_key.is_some(), "muse call");
+    // Muse Spark 1.3 has the same list price as Muse Spark Open, and is billed to the Model API ledger.
+    if *ai == Ai::Meta {
+        lock(&s.db).execute("INSERT INTO meta_api_spend (model,usd,created) VALUES (?1,?2,?3)", params![model, cost, now()])?;
+    } else {
+        lock(&s.db).execute("INSERT INTO spend (usd,created,own) VALUES (?1,?2,?3)", params![cost, now(), ai.own()])?;
+    }
+    tracing::info!(agent, model, prompt_tokens = usage["prompt_tokens"].as_u64(), completion_tokens = usage["completion_tokens"].as_u64(),
+        cost_usd = format!("{cost:.4}"), ms = started.elapsed().as_millis() as u64, own_key = ai.own(), "muse call");
     Ok((data, cost))
 }
 
@@ -341,10 +422,30 @@ mod tests {
             { "type": "text", "text": "In five words or fewer, what is in this picture?" },
             { "type": "image_url", "image_url": { "url": "https://raw.githubusercontent.com/github/explore/main/topics/rust/rust.png" } },
         ] })];
-        match chat(&s, "image-test", &messages, None, None).await {
+        match chat(&s, "image-test", &messages, None, &Ai::Workspace).await {
             Ok((data, cost)) => println!("IMAGE ok ${cost:.4} tokens={} answer={}", data["usage"]["prompt_tokens"], answer(&data).unwrap_or("?")),
             Err(e) => println!("IMAGE refused: {}", e.1),
         }
+    }
+
+    /// The agent on Muse Spark 1.3 through Meta's Model API: a picture and a tool call.
+    /// `STUPID_META_API_KEY` set; `cargo test live_meta_brain -- --ignored --nocapture`.
+    #[tokio::test]
+    #[ignore]
+    async fn live_meta_brain() {
+        let _ = tracing_subscriber::fmt().try_init();
+        let _ = dotenvy::dotenv();
+        let (s, _) = crate::tests_support::state_with_user();
+        let mut cfg = crate::Config::load();
+        cfg.meta_api_budget_usd = 1.0;
+        let s = AppState { cfg: std::sync::Arc::new(cfg), ..s };
+        let tools = crate::tools::specs();
+        let messages = [json!({ "role": "user", "content": [
+            { "type": "text", "text": "A customer sent this picture and asks how much it costs. You don't know the price." },
+            { "type": "image_url", "image_url": { "url": "https://raw.githubusercontent.com/github/explore/main/topics/rust/rust.png" } },
+        ] })];
+        let (data, cost) = chat(&s, "meta-test", &messages, Some(&tools), &Ai::Meta).await.unwrap();
+        println!("META ${cost:.4} {}", data["choices"][0]["message"]);
     }
 
     /// Post ideas with a picture, and the text-only retry when a picture can't be fetched. `cargo test live_ideas_pictures -- --ignored --nocapture`.
@@ -358,9 +459,36 @@ mod tests {
         let system = AGENTS.iter().find(|(n, _)| *n == "ideas").unwrap().1;
         let context = json!({ "accounts": [{ "bio": "Rust stickers and tees", "followers": 120, "posts": [{ "caption": "New Rust crab sticker drop", "likes": 40, "comments": 6 }] }] });
         for picture in ["https://raw.githubusercontent.com/github/explore/main/topics/rust/rust.png", "https://upload.wikimedia.org/wikipedia/commons/4/45/A_small_cup_of_coffee.JPG"] {
-            let (result, cost) = ideas(&s, system, &context, &[picture.to_string()], None).await.unwrap();
+            let (result, cost) = ideas(&s, system, &context, &[picture.to_string()], &Ai::Workspace).await.unwrap();
             println!("IDEAS looked_at={} ${cost:.4} first why: {}", result["looked_at"], result["ideas"][0]["why"]);
         }
+    }
+
+    #[test]
+    fn the_person_picks_which_model_runs_their_agents() {
+        let (s, u) = crate::tests_support::state_with_user();
+        let with = |muse: &str, meta: &str| {
+            let mut cfg = crate::Config::load();
+            (cfg.muse_key, cfg.meta_api_key) = (muse.into(), meta.into());
+            AppState { cfg: std::sync::Arc::new(cfg), ..s.clone() }
+        };
+        let both = with("baseten", "meta");
+        assert_eq!(ai(&both, &u.id).unwrap(), Ai::Workspace);
+        lock(&s.db).execute("UPDATE users SET ai_brain='meta' WHERE id=?1", [&u.id]).unwrap();
+        assert_eq!(ai(&both, &u.id).unwrap(), Ai::Meta);
+        assert_eq!(Ai::Meta.model(&both), "muse-spark-1.3");
+        // Picked Meta, but this server has no Model API key: Muse Spark Open runs instead.
+        assert_eq!(ai(&with("baseten", ""), &u.id).unwrap(), Ai::Workspace);
+        // Only the Model API is set up: it runs whatever was picked.
+        lock(&s.db).execute("UPDATE users SET ai_brain='open' WHERE id=?1", [&u.id]).unwrap();
+        assert_eq!(ai(&with("", "meta"), &u.id).unwrap(), Ai::Meta);
+        // Meta's runs are paid from the Model API budget.
+        let mut cfg = crate::Config::load();
+        (cfg.meta_api_key, cfg.meta_api_budget_usd) = ("meta".into(), 0.01);
+        let capped = AppState { cfg: std::sync::Arc::new(cfg), ..s.clone() };
+        assert!(ready(&capped, &Ai::Meta).unwrap());
+        lock(&s.db).execute("INSERT INTO meta_api_spend (model,usd,created) VALUES ('muse-spark-1.3',0.01,0)", []).unwrap();
+        assert!(!ready(&capped, &Ai::Meta).unwrap());
     }
 
     #[test]

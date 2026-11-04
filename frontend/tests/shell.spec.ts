@@ -206,6 +206,20 @@ test("Agents point to Settings when there is no AI access", async ({ page }) => 
   await expect(page.getByRole("link", { name: "Open Settings" })).toHaveAttribute("href", "#settings");
 });
 
+test("Settings switches the agents to Muse Spark 1.3 on Meta's Model API", async ({ page }) => {
+  await page.route("**/api/me", route => route.fulfill(json(signedIn)));
+  const settings = (brain: string) => ({ has_key: false, model: brain === "meta" ? "muse-spark-1.3" : "open-model", workspace_ai: true, brain, meta_brain: true, open_model: "open-model", meta_model: "muse-spark-1.3" });
+  let picked = "";
+  await page.route("**/api/settings/ai", route => route.fulfill(json(settings("open"))));
+  await page.route("**/api/settings/ai/brain", route => { picked = route.request().postDataJSON().brain; route.fulfill(json(settings(picked))); });
+  await page.goto("/#settings");
+  await expect(page.getByText("Agents run on open-model using Stupid's shared allowance.", { exact: false })).toBeVisible();
+  await page.getByRole("radio", { name: "Muse Spark 1.3 · Meta API" }).click();
+  await expect(page.getByText("Agents run on muse-spark-1.3 through Meta's Model API, using Stupid's shared allowance.")).toBeVisible();
+  expect(picked).toBe("meta");
+  await expect(page.getByLabel("Your own Baseten API key")).toBeVisible();
+});
+
 test("Settings saves an AI key, confirms before deleting and signs out", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json(signedIn)));
   await page.route("**/api/settings/ai", route => route.request().method() === "GET"

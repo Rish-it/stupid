@@ -41,10 +41,10 @@ pub fn context(ig: &Value) -> Value {
 }
 
 /// Run the director. Returns the result and its cost: Wonder spend goes to the Model API ledger, Spark Open to Baseten's.
-pub async fn direct(s: &AppState, user_id: &str, context: &Value, own_key: Option<&str>) -> ApiResult<(Value, f64)> {
+pub async fn direct(s: &AppState, user_id: &str, context: &Value, ai: &agents::Ai) -> ApiResult<(Value, f64)> {
     let videos = context["videos"].as_array().cloned().unwrap_or_default();
     if videos.is_empty() {
-        let (mut result, cost) = agents::muse(s, "reels", FROM_CAPTIONS, &json!({ "posts": context["posts"] }), own_key).await?;
+        let (mut result, cost) = agents::muse(s, "reels", FROM_CAPTIONS, &json!({ "posts": context["posts"] }), ai).await?;
         result["watched"] = json!([]);
         result["from_captions_only"] = json!(true);
         return Ok((result, cost));
@@ -106,7 +106,7 @@ mod tests {
         let s = AppState { cfg: std::sync::Arc::new(cfg), ..s };
         let ig = json!({ "accounts": [{ "media": [{ "media_type": "VIDEO", "media_product_type": "REELS", "media_url": "https://www.w3schools.com/html/mov_bbb.mp4",
             "permalink": "https://www.instagram.com/", "caption": "A bunny wakes up in the meadow", "like_count": 40, "comments_count": 3 }] }] });
-        let (result, cost) = direct(&s, "u", &context(&ig), None).await.unwrap();
+        let (result, cost) = direct(&s, "u", &context(&ig), &crate::agents::Ai::Workspace).await.unwrap();
         println!("REELS ${cost:.4}\nWATCHED {}", serde_json::to_string_pretty(&result["watched"]).unwrap());
         for script in result["scripts"].as_array().into_iter().flatten() {
             println!("SCRIPT {} | hook: {} | {} shots", script["title"], script["hook"], script["shots"].as_array().map_or(0, Vec::len));
