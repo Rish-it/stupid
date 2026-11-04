@@ -342,8 +342,15 @@ pub fn instagram_context(ig: &Value) -> Value {
 /// Only what a draft needs from inbox rows. The sender's phone number, PSID or IGSID and the asset id never reach the model.
 pub fn for_model(rows: Vec<Value>) -> Vec<Value> {
     let t = now();
-    rows.into_iter().map(|m| json!({ "id": m["id"], "kind": m["kind"], "sender_name": m["sender_name"], "text": m["text"],
-        "hours_ago": m["created"].as_i64().map(|c| (t - c).max(0) / 3600) })).collect()
+    rows.into_iter().map(|m| {
+        let mut row = json!({ "id": m["id"], "kind": m["kind"], "sender_name": m["sender_name"], "text": m["text"],
+            "hours_ago": m["created"].as_i64().map(|c| (t - c).max(0) / 3600) });
+        // A customer photo compared with the owner's posts says which one it is, or that it is none.
+        if let Some(line) = crate::voice::photo_line(&m["matched_post"]) {
+            row["photo_match"] = json!(line);
+        }
+        row
+    }).collect()
 }
 
 /// Reply drafts from a Reply drafts run become durable drafts, for messages in this person's own inbox only.

@@ -109,9 +109,9 @@ pub async fn call(s: &AppState, u: &User, ticket: Option<i64>, name: &str, args:
         "read_thread" => {
             let id = args["event_id"].as_i64().ok_or("`event_id` must be a number.")?;
             let (asset, sender) = own_event(s, u, id)?;
-            let conversation = rows(s, "SELECT id,kind,sender_name,text,created FROM events WHERE asset_id=?1 AND sender=?2 ORDER BY created, id",
+            let conversation = rows(s, "SELECT id,kind,sender_name,text,created,matched_json FROM events WHERE asset_id=?1 AND sender=?2 ORDER BY created, id",
                 params![asset, sender], |r| Ok(json!({ "id": r.get::<_, i64>(0)?, "kind": r.get::<_, String>(1)?, "sender_name": r.get::<_, Option<String>>(2)?,
-                    "text": r.get::<_, String>(3)?, "created": r.get::<_, i64>(4)? })))?;
+                    "text": r.get::<_, String>(3)?, "created": r.get::<_, i64>(4)?, "matched_post": matched(r.get(5)?) })))?;
             json!(agents::for_model(conversation))
         }
         "get_ads" => meta::ads_data(s, u).await.map_err(|e| e.1)?,
@@ -199,6 +199,11 @@ pub fn save_draft(s: &AppState, u: &User, ticket: Option<i64>, event_id: i64, te
     lock(&s.db).execute("INSERT INTO drafts (user_id,ticket_id,event_id,text,source,created,learned_id) VALUES (?1,?2,?3,?4,?5,?6,(SELECT id FROM learned WHERE id=?7 AND user_id=?1))",
         params![u.id, ticket, event_id, text, source, now(), fact])
         .map(drop).map_err(|_| "Storage failed.".to_string())
+}
+
+/// A stored photo match as JSON, or null when the photo wasn't compared.
+pub fn matched(stored: Option<String>) -> Value {
+    stored.and_then(|v| serde_json::from_str(&v).ok()).unwrap_or(Value::Null)
 }
 
 /// A tool result as the text the model reads, cut to size.

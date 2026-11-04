@@ -238,6 +238,8 @@ ALTER TABLE users ADD COLUMN agent_rules TEXT NOT NULL DEFAULT '';
     // How the owner writes, learned from their sent replies at most daily; drafts made with it say so.
     "ALTER TABLE users ADD COLUMN style_json TEXT; ALTER TABLE users ADD COLUMN style_at INTEGER; ALTER TABLE users ADD COLUMN style_from INTEGER;
      ALTER TABLE drafts ADD COLUMN styled INTEGER NOT NULL DEFAULT 0;",
+    // Whether a customer's photo is one of the owner's Instagram posts: {"matched":true,post_id,…} or {"matched":false}.
+    "ALTER TABLE events ADD COLUMN matched_json TEXT;",
 ];
 
 fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
