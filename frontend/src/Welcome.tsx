@@ -4,6 +4,7 @@ import { Button } from "@astryxdesign/core/Button";
 import { Grid } from "@astryxdesign/core/Grid";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Icon } from "@astryxdesign/core/Icon";
+import { Link } from "@astryxdesign/core/Link";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
@@ -58,6 +59,15 @@ const features: { title: string; text: string; art: ReactNode }[] = [
 /** The signed-out home. `onPassed` says whether the sign-in buttons have scrolled out of view. */
 export default function Welcome({ instagram, onConnect, onPassed }: { instagram?: string; onConnect: () => void; onPassed: (passed: boolean) => void }) {
   const signIn = useRef<HTMLDivElement>(null);
+  const footerMascot = useRef<HTMLDivElement>(null);
+  const [showMascot, setShowMascot] = useState(false);
+  useEffect(() => {
+    const seen = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) { setShowMascot(true); seen.disconnect(); }
+    }, { rootMargin: "200px" });
+    if (footerMascot.current) seen.observe(footerMascot.current);
+    return () => seen.disconnect();
+  }, []);
   const tour = useRef<HTMLElement>(null);
   const [excited, setExcited] = useState(false);
   useEffect(() => {
@@ -86,7 +96,7 @@ export default function Welcome({ instagram, onConnect, onPassed }: { instagram?
           <details className="before-start">
             <summary>Before you start</summary>
             <Text as="p" type="supporting" size="sm">Use the Facebook profile that manages your business Page. For Instagram, have a public Professional account (Creator or Business) linked to that Page. For WhatsApp, use a Business Platform account and registered number, or Meta's test number. Ads needs an ad account you can view. You can connect one app now and add the rest later.</Text>
-            <Text as="p" type="supporting" size="sm">A business portfolio groups these accounts. In Meta Business Suite, the dropdown below Home → Create a business portfolio lets you make one. Business verification is needed only when Meta asks for it; it is separate from the paid Meta Verified badge. Stupid walks you through each app after sign-in.</Text>
+            <Text as="p" type="supporting" size="sm">A business portfolio groups these accounts. In <Link hasUnderline isExternalLink href="https://business.facebook.com/">Meta Business Suite</Link>, use the dropdown below Home → Create a business portfolio. Enter the business name, your name and business email → Create or Create portfolio, then confirm your email. Business verification is needed only when Meta asks for it; it is separate from the paid Meta Verified badge. Stupid walks you through each app after sign-in.</Text>
           </details>
           <Text as="p" type="supporting" size="sm" justify="center">Meta will ask which Page, Instagram account and WhatsApp number to share. Pick the ones you use for your business.</Text>
         </VStack>
@@ -121,7 +131,7 @@ export default function Welcome({ instagram, onConnect, onPassed }: { instagram?
       ))}
 
       <footer className="outro" aria-label="Footer">
-        <div className="mascot-stage" aria-hidden><Suspense><Mascot busy={excited} size="var(--mascot-size)" /></Suspense></div>
+        <div className="mascot-stage" ref={footerMascot} aria-hidden>{showMascot && <Suspense><Mascot busy={excited} size="var(--mascot-size)" /></Suspense>}</div>
         <div className="outro-start">
           <span className="tag">How it works</span>
           <p className="outro-line">Agents prepare,<br />you decide</p>
@@ -187,12 +197,13 @@ function Headline() {
 function Avatar({ swapping }: { swapping?: number }) {
   const ref = useRef<HTMLSpanElement>(null);
   const [busy, setBusy] = useState(false);
+  const [awake, setAwake] = useState(false);
   useEffect(() => {
     if (swapping !== undefined && !still()) ref.current?.animate([{ scale: 1 }, { scale: 1.06 }, { scale: 1 }], { duration: 600, easing: "ease-in-out" });
   }, [swapping]);
   const hold = (e: PointerEvent) => {
     if (e.pointerType === "mouse") return;
-    const timer = setTimeout(() => setBusy(true), 400);
+    const timer = setTimeout(() => { setAwake(true); setBusy(true); }, 400);
     const release = () => {
       clearTimeout(timer);
       setBusy(false);
@@ -204,8 +215,9 @@ function Avatar({ swapping }: { swapping?: number }) {
   };
   return (
     <span className="rebus-avatar" ref={ref} onPointerDown={e => hold(e.nativeEvent)}
-      onPointerEnter={e => e.pointerType === "mouse" && setBusy(true)} onPointerLeave={() => setBusy(false)}>
-      <Suspense fallback={<span className="rebus-avatar-wait" />}><Mascot busy={busy} size="100%" /></Suspense>
+      onPointerEnter={e => { if (e.pointerType === "mouse") { setAwake(true); setBusy(true); } }} onPointerLeave={() => setBusy(false)}>
+      {awake ? <Suspense fallback={<span className="rebus-avatar-wait" />}><Mascot busy={busy} size="100%" /></Suspense>
+        : <img src="/favicon.svg" width="100%" height="100%" alt="" />}
     </span>
   );
 }
