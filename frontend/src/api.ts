@@ -244,6 +244,8 @@ export const api = {
   instagram: () => call<Instagram>("GET", "/api/instagram"),
   inbox: () => call<{ items: InboxItem[] }>("GET", "/api/inbox"),
   reply: (id: string, text: string) => call<{ sent: true }>("POST", `/api/inbox/${encodeURIComponent(id)}/reply`, { text }),
+  /** Ask the agent from Home, about the conversation open beside it. A reply it writes is saved as a draft and waits for a tap. */
+  ask: (text: string, about?: string) => call<{ answer: string; drafts: { event_id: number | string; text: string }[] }>("POST", "/api/agent/ask", { text, about: about === undefined ? null : Number(about) }),
   skip: (id: string) => call<{ skipped: true }>("POST", `/api/inbox/${encodeURIComponent(id)}/skip`),
   agents: () => call<Agents>("GET", "/api/agents"),
   control: (agent: AgentId, mode: AgentMode, note: string) => call<AgentControl & { agent: AgentId }>("PUT", `/api/agents/${agent}/control`, { mode, note }),

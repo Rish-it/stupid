@@ -587,12 +587,57 @@ pub async fn chat(s: &AppState, u: &User, text: &str) -> ApiResult<(String, Vec<
         json!({ "owner_message": text, "recent_chat": recent_chat(&db, &u.id, now())?, "owner_facts": attention::facts_for_model(&db, &u.id)?, "now": executor::local_now(&db, &u.id)? })
     };
     let (end, report, drafts, _) = work(s, u, "owner", CHAT, &input, &CHAT_TOOLS).await?;
-    let reply = match &end {
+    Ok((answer(&end, &report), drafts))
+}
+
+/// What the agent says back once a chat job ends.
+fn answer(end: &executor::End, report: &str) -> String {
+    match end {
         executor::End::Done(t) if !t.is_empty() => t.clone(),
         executor::End::Done(_) => "Done.".into(),
         _ => format!("I couldn't finish that: {report}"),
+    }
+}
+
+const IN_APP: &str = "Here the owner is asking from their Stupid Home, not texting. `open_conversation` is the customer conversation they have open, or null: \
+read_thread it before answering about it. If they want a reply for it, call save_reply_draft with its event_id; the draft waits in their Home for a Send tap, so never mention replying 1.";
+
+#[derive(serde::Deserialize)]
+pub struct Ask {
+    text: String,
+    /// The message (event id) of the conversation open beside the question, if any.
+    about: Option<i64>,
+}
+
+/// `POST /api/agent/ask`: the owner asks their agent from Home, in the same space as the conversation they have open.
+/// The same brain, tools and spend cap as the owner chat; a reply it writes is saved as a draft and waits for a tap.
+pub async fn ask(State(s): State<AppState>, headers: HeaderMap, Json(body): Json<Ask>) -> ApiResult<Json<Value>> {
+    let u = user(&s, &headers)?;
+    let text = body.text.trim();
+    if !(1..=1000).contains(&text.chars().count()) {
+        return Err(AppError::new(400, "Write a question of up to 1000 characters."));
+    }
+    let input = {
+        let db = lock(&s.db);
+        let about = match body.about {
+            Some(id) => {
+                let row: Option<(String, String, String, Option<String>, String)> = db.query_row("SELECT kind,asset_id,sender,sender_name,text FROM events WHERE id=?1", [id],
+                    |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))).optional()?;
+                let Some((kind, _, sender, name, said)) = row.filter(|r| u.assets.iter().any(|a| a.id == r.1)) else {
+                    return Err(AppError::new(404, "That message isn't in your inbox."));
+                };
+                json!({ "event_id": id, "app": app_name(&kind), "customer": name.filter(|n| !n.is_empty()).unwrap_or(sender), "message": said })
+            }
+            None => Value::Null,
+        };
+        tickets::note(&db, &u.id, body.about, "owner", "answer", &format!("You wrote on Home: {}", clip(text, 200)))?;
+        json!({ "owner_message": text, "open_conversation": about, "recent_chat": recent_chat(&db, &u.id, now())?,
+            "owner_facts": attention::facts_for_model(&db, &u.id)?, "now": executor::local_now(&db, &u.id)? })
     };
-    Ok((reply, drafts))
+    let (end, report, drafts, _) = work(&s, &u, "owner", &format!("{CHAT} {IN_APP}"), &input, &CHAT_TOOLS).await?;
+    let said = answer(&end, &report);
+    tickets::note(&lock(&s.db), &u.id, body.about, "owner", "ready", &format!("Told you on Home: {}", clip(&said, 300)))?;
+    Ok(Json(json!({ "answer": said, "drafts": drafts.iter().map(|d| json!({ "event_id": d.event_id, "text": d.draft })).collect::<Vec<_>>() })))
 }
 
 /// One job on its own ticket with only the `allowed` tools: how it ended, its report, the drafts it saved and its cost.
@@ -1013,6 +1058,26 @@ mod tests {
         assert_eq!(recent_chat(&db, "u", now()).unwrap(), ["You wrote on WhatsApp: what's pending?",
             "Told you on WhatsApp: 2 things: Ravi asked about a refund, Meena wants the price list. Want drafts for both?", "You wrote on WhatsApp: yes"]);
         assert!(recent_chat(&db, "u", now() + 3601).unwrap().is_empty(), "an hour later it starts fresh");
+    }
+
+    #[tokio::test]
+    async fn asking_from_home_drafts_for_the_open_conversation_and_sends_nothing() {
+        let (s, seen) = setup_with(vec![
+            json!({ "content": null, "tool_calls": [{ "id": "c1", "type": "function", "function": { "name": "save_reply_draft", "arguments": r#"{"event_id":1,"text":"Yes, ₹450 each."}"# } }] }),
+            json!({ "content": "Priya wants 10 mugs. I drafted: Yes, ₹450 each." }),
+        ]).await;
+        let h = signed_in(&s);
+        assert_eq!(customer_draft(&s, "Price for 10 mugs?"), 1);
+        lock(&s.db).execute("DELETE FROM drafts", []).unwrap();
+        lock(&s.db).execute("INSERT INTO events (id,kind,asset_id,sender,text,created) VALUES (9,'whatsapp','elsewhere','92','hi',1)", []).unwrap();
+        let ask_about = |about: i64| ask(State(s.clone()), h.clone(), Json(Ask { text: "What does she want? Draft a yes.".into(), about: Some(about) }));
+        assert!(ask_about(9).await.is_err_and(|e| e.0 == 404), "someone else's conversation stays theirs");
+        let Json(out) = ask_about(1).await.unwrap();
+        assert_eq!(out, json!({ "answer": "Priya wants 10 mugs. I drafted: Yes, ₹450 each.", "drafts": [{ "event_id": 1, "text": "Yes, ₹450 each." }] }));
+        assert!(sends(&seen).is_empty(), "nothing goes to the customer or the owner's WhatsApp");
+        assert_eq!(lock(&s.db).query_row("SELECT COUNT(*) FROM replies", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+        assert!(recent_chat(&lock(&s.db), "u", now()).unwrap().iter().any(|l| l.starts_with("You wrote on Home: What does she want?")));
+        assert!(ask(State(s.clone()), h.clone(), Json(Ask { text: " ".into(), about: None })).await.is_err_and(|e| e.0 == 400));
     }
 
     #[tokio::test]

@@ -487,6 +487,10 @@ h1[tabindex="-1"]:focus-visible { outline: none; }
 .space-row[aria-current="true"] { background: var(--color-background-muted); }
 .space-face { grid-area: face; position: relative; display: grid; width: 36px; height: 36px; align-self: start; }
 .space-agent { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: #0064E0; color: #fff; }
+.space-agent-sm { flex: none; width: 24px; height: 24px; }
+/* Asking the agent sits on its own line under the open item's actions. */
+.space-ask { flex: 1 0 100%; }
+.space-orb { display: block; width: 64px; height: 64px; }
 .space-app { position: absolute; right: -4px; bottom: -4px; display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: var(--color-background-card); color: var(--color-text-primary); }
 .space-row-who { grid-area: who; overflow: hidden; font-weight: 600; font-size: .9375rem; white-space: nowrap; text-overflow: ellipsis; }
 .space-row-when { grid-area: when; color: var(--color-text-secondary); font-size: .75rem; font-variant-numeric: tabular-nums; }
