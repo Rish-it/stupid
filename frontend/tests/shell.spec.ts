@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import type { Page } from "@playwright/test";
+import type { Page, Route } from "@playwright/test";
 
 const json = (body: unknown) => ({ contentType: "application/json", body: JSON.stringify(body) });
 // The preview server proxies /api to a local backend; keep the live stream out of tests that don't mock it.
@@ -883,13 +883,15 @@ test("Inbox shows one card per person, with their recent messages on hover, focu
   await expect(ana.getByRole("listitem")).toHaveText([/Hi, it's Ana.*you replied/, /Are you open\?/]);
   await page.keyboard.press("Escape");
   await expect(ana).toHaveCount(0);
-  // Keyboard: focus opens it, the corner's button toggles it; one message says there's nothing earlier.
+  // Keyboard: focus shows it; the corner's button pins it, so its first Enter keeps it open (QA 10-5), the next closes it.
   await page.mouse.move(0, 0);
   await page.getByRole("button", { name: /Do you deliver\?/ }).focus();
   const ben = page.getByRole("region", { name: "Recent messages from Ben" });
   await expect(ben).toContainText("No earlier messages from Ben.");
   await page.keyboard.press("Tab");
   await expect(page.getByRole("button", { name: "Recent messages from Ben" })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(ben).toBeVisible();
   await page.keyboard.press("Enter");
   await expect(ben).toHaveCount(0);
   await page.keyboard.press("Enter");
@@ -900,6 +902,8 @@ test("Inbox shows one card per person, with their recent messages on hover, focu
 });
 
 test("a new message or draft from the live stream shows a toast, and the new card arrives", async ({ page }) => {
+  // On a phone, where the tab bar is (QA 10-2).
+  await page.setViewportSize({ width: 390, height: 844 });
   let fresh = false;
   const ana = { id: "w1", kind: "whatsapp", asset_id: "1", sender: "15550001", sender_name: "Ana", text: "Are you open?", created: now() - 60, replied: false };
   const zoe = { id: "w9", kind: "whatsapp", asset_id: "1", sender: "15550009", sender_name: "Zoe", text: "Is the cake ready?", created: now(), replied: false };
@@ -915,6 +919,9 @@ test("a new message or draft from the live stream shows a toast, and the new car
   const toasts = page.getByRole("region", { name: "Notifications" });
   await expect(toasts.getByText("New WhatsApp message from Zoe")).toHaveCount(1, { timeout: 15000 });
   await expect(toasts.getByText("Draft ready for Zoe")).toHaveCount(1);
+  // The toast sits above the tab bar, not over it.
+  const toast = await toasts.boundingBox(), bar = await page.getByRole("navigation", { name: "Main" }).boundingBox();
+  expect(toast!.y + toast!.height).toBeLessThanOrEqual(bar!.y + 1);
   await expect(page.locator(".person-card")).toHaveCount(2);
   await expect(page.locator(".person-card").first()).toHaveCSS("animation-name", "arrive");
 });
@@ -945,4 +952,49 @@ test("an Inbox draft for a voice note names the model that transcribed it, and s
   await page.locator(".person", { hasText: "Open now?" }).click();
   await expect(page.getByRole("dialog", { name: "Ben" })).toBeVisible();
   await expect(page.getByRole("list", { name: "How it got here" })).toHaveCount(0);
+});
+
+test("Home keeps its heading still while the panels load", async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { shift: number };
+    w.shift = 0;
+    new PerformanceObserver(list => { for (const e of list.getEntries() as unknown as { value: number; hadRecentInput: boolean }[]) if (!e.hadRecentInput) w.shift += e.value; }).observe({ type: "layout-shift", buffered: true });
+  });
+  const late = (ms: number, body: unknown) => async (route: Route) => { await new Promise(done => setTimeout(done, ms)); await route.fulfill(json(body)); };
+  await page.route("**/api/me", route => route.fulfill(json({ ...signedIn, persona: "business" })));
+  await page.route("**/api/agent", late(900, { ...agentHome(), watching: ["whatsapp"], last_checked: now() - 60 }));
+  await page.route("**/api/agents", late(1000, { ai_ready: true, own_key: false, model: "m", order: ["replies"], runs: [] }));
+  await page.route("**/api/setup/next", late(300, { persona: "business", done: true, step: null, progress: { done: 3, total: 3 } }));
+  await page.goto("/#home");
+  const heading = page.getByRole("heading", { level: 1 });
+  await heading.waitFor();
+  const before = (await heading.boundingBox())!.y;
+  await expect(page.getByText("Watching WhatsApp")).toBeVisible();
+  await page.waitForTimeout(1200);
+  expect((await heading.boundingBox())!.y).toBe(before);
+  // Under the 0.1 that counts as good (QA 10-1 measured 0.38).
+  expect(await page.evaluate(() => (window as unknown as { shift: number }).shift)).toBeLessThan(0.1);
+});
+
+test("See results opens over its app's window and Escape steps back one level at a time", async ({ page }) => {
+  await page.goto("/?fixtures=1&persona=creator&stage=busy#agents");
+  await page.getByRole("button", { name: "Instagram", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  const app = page.getByRole("dialog", { name: "Instagram" });
+  await expect(app).toBeVisible();
+  const see = app.getByRole("button", { name: "See results: Lead finder" });
+  await see.focus();
+  await page.keyboard.press("Enter");
+  const results = page.getByRole("dialog", { name: "Lead finder" });
+  await expect(results).toBeVisible();
+  expect(await results.evaluate(el => el.contains(document.activeElement))).toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(results).toHaveCount(0);
+  await expect(app).toBeVisible();
+  await expect(see).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(app).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Instagram", exact: true })).toBeFocused();
+  // The sample names a real model (QA 9-3).
+  await expect(page.getByText("Agents run on Muse Spark Open (sample).")).toBeVisible();
 });

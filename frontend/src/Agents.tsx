@@ -101,7 +101,8 @@ export default function Agents({ state }: { state: Connections }) {
   const [waiting, setWaiting] = useState<AgentId>();
   const runs = list.data?.runs;
   const shownId = open ?? (waiting && runs?.find(r => r.agent === waiting)?.status === "done" ? waiting : undefined);
-  const back = () => { setOpen(undefined); setWaiting(undefined); };
+  // Leaving results keeps their app's window open behind them.
+  const back = () => { if (current) setApp(current.id); setOpen(undefined); setWaiting(undefined); };
   const close = () => { back(); setApp(undefined); };
 
   const on = (kinds: AssetKind[]) => state.assets.some(a => kinds.includes(a.kind) && state.selected.includes(a.key));
@@ -132,13 +133,8 @@ export default function Agents({ state }: { state: Connections }) {
               ))}
             </div>
             {data.model && <Text as="p" type="supporting" size="sm">Agents run on {data.model}{data.own_key ? " with your own key" : ""}.</Text>}
-            {current && (result && shown && shownRun
-              ? <Modal isOpen onClose={close} title={shown.name} width={720}
-                subtitle={shownRun.finished ? `Finished ${ago(shownRun.finished)}${shownRun.models.length ? ` · made with ${shownRun.models.join(", ")}` : ""}${shownRun.cost_usd != null ? ` · cost $${shownRun.cost_usd.toFixed(3)}` : ""}` : undefined}
-                footer={<><Button label={`Back to ${current.name}`} onClick={() => { back(); setApp(current.id); }} /><Button label="Close" onClick={close} /></>}>
-                <Result result={result} onLeave={close} />
-              </Modal>
-              : <Modal isOpen onClose={close} title={current.name} subtitle={current.does} width={inApp.length > 1 ? 960 : 560}>
+            {/* Results open over their app's window; Escape steps back one level at a time. */}
+            {current && <Modal isOpen onClose={close} title={current.name} subtitle={current.does} width={inApp.length > 1 ? 960 : 560}>
                 <div className="agent-list">
                   {inApp.map(agent => (
                     <Agent key={agent.id} agent={agent} run={data.runs.find(r => r.agent === agent.id)} control={data.controls?.[agent.id]}
@@ -150,7 +146,12 @@ export default function Agents({ state }: { state: Connections }) {
                       }} />
                   ))}
                 </div>
-              </Modal>)}
+              </Modal>}
+            {current && result && shown && shownRun && <Modal isOpen onClose={back} title={shown.name} width={720}
+                subtitle={shownRun.finished ? `Finished ${ago(shownRun.finished)}${shownRun.models.length ? ` · made with ${shownRun.models.join(", ")}` : ""}${shownRun.cost_usd != null ? ` · cost $${shownRun.cost_usd.toFixed(3)}` : ""}` : undefined}
+                footer={<><Button label={`Back to ${current.name}`} onClick={back} /><Button label="Close" onClick={close} /></>}>
+                <Result result={result} onLeave={close} />
+              </Modal>}
           </VStack>
         );
       }}</Load>

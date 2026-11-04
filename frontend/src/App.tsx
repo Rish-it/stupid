@@ -81,7 +81,8 @@ export default function App() {
     addEventListener("pageshow", onShow);
     return () => removeEventListener("pageshow", onShow);
   }, []);
-  const loading = <Center minHeight={240}><Spinner size="lg" aria-label="Loading" /></Center>;
+  // As tall as a page, so the footer below doesn't jump once the page arrives.
+  const loading = <Center minHeight="calc(100dvh - 12rem)"><Spinner size="lg" aria-label="Loading" /></Center>;
   const signedIn = Boolean(user);
   const signOut = useCallback(() => { setMe({ signed_in: false }); location.hash = ""; }, [setMe]);
   const reconnecting = useStream(signedIn, signOut);
@@ -98,6 +99,8 @@ export default function App() {
     </Center>
   );
 
+  // Until we know who this is, a bare spinner: the shell around it (rail or top bar) depends on the answer.
+  if (!me.data && !me.error) return <Center minHeight="100dvh">{loading}</Center>;
   const welcome = !user && Boolean(me.data || me.error?.status === 401);
   let body;
   if (user && shown === "setup") body = <Suspense fallback={loading}><Setup state={user} persona={user.persona} onChange={next => me.setData({ ...user, ...next })} onConnect={connect} /></Suspense>;
@@ -118,9 +121,9 @@ export default function App() {
         <Link href={`/?fixtures=1&persona=${other}&stage=busy#home`}>{other === "creator" ? "See the creator desk" : "See the business desk"}</Link>
         <Link href="/">Leave the sample</Link>
       </HStack>} />}
-      topNav={!user && <TopNav label="Main navigation" heading={<TopNavHeading logo={<Logo />} heading="Stupid" headingHref="/" />}
+      topNav={!user && (me.data || me.error) && <TopNav label="Main navigation" heading={<TopNavHeading logo={<Logo />} heading="Stupid" headingHref="/" />}
         endContent={welcome && <span className="sticky-mark" data-passed={passed || undefined}><Button variant="primary" size="lg" label="Sign in" onClick={() => setSignIn("any")} /></span>} />}
-      sideNav={user && <Suspense fallback={null}><SideBar page={page} name={user.name} /></Suspense>}>
+      sideNav={user && <Suspense fallback={<div className="rail" aria-hidden />}><SideBar page={page} name={user.name} /></Suspense>}>
       <VStack gap={6}>
         {failed && <VStack paddingInline={welcome ? 4 : 0} paddingBlockStart={welcome ? 4 : 0}>
           <Banner status="warning" isDismissable onDismiss={() => setFailed(null)} title="Facebook didn't connect" description={failed}
