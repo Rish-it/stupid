@@ -43,7 +43,7 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
 
 /** One line for the tile: what the last run found. */
 function found(result: AgentResult) {
-  if ("empty" in result) return "Nothing new to look at yet.";
+  if ("empty" in result) return result.why ? "No posts yet." : "Nothing new to look at yet.";
   if ("leads" in result) return result.leads.length ? `Found ${plural(result.leads.length, "lead", "leads")}.` : "No one ready to buy yet.";
   if ("ideas" in result) return `Drafted ${plural(result.ideas.length, "post idea", "post ideas")}${result.looked_at ? ` after looking at ${result.looked_at} of your pictures` : ""}.`;
   if ("replies" in result) return `Drafted ${plural(result.replies.length, "reply", "replies")}.`;
@@ -223,7 +223,7 @@ function Control({ agent, control, onSaved }: { agent: (typeof agents)[number]; 
 }
 
 export function Result({ result, onLeave }: { result: AgentResult; onLeave: () => void }) {
-  if ("empty" in result) return <Text as="p">Nothing new to look at yet. Try again after more activity.</Text>;
+  if ("empty" in result) return <Text as="p">{result.why ?? "Nothing new to look at yet. Try again after more activity."}</Text>;
   const items = (children: ReactNode[]) => <VStack gap={4} as="ul">{children.map((child, i) => <VStack key={i} as="li" gap={4}>{child}</VStack>)}</VStack>;
   if ("leads" in result) return result.leads.length ? items(result.leads.map((l, i) => (
     <VStack key={i} gap={1}>

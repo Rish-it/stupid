@@ -42,7 +42,14 @@ pub fn context(ig: &Value) -> Value {
 
 /// Run the director. Returns the result and its cost: Wonder spend goes to the Model API ledger, Spark Open to Baseten's.
 pub async fn direct(s: &AppState, user_id: &str, context: &Value, ai: &agents::Ai) -> ApiResult<(Value, f64)> {
-    let videos = context["videos"].as_array().cloned().unwrap_or_default();
+    // Each video is read here first; one that can't be (over 16 MB, link expired) is left out, not guessed at.
+    let (mut videos, mut inline) = (Vec::new(), Vec::new());
+    for v in context["videos"].as_array().into_iter().flatten() {
+        match crate::voice::inline_video(s, v["media_url"].as_str().unwrap_or_default()).await {
+            Ok(url) => { videos.push(v.clone()); inline.push(url) }
+            Err(e) => tracing::warn!("reel director skipped a video: {e}"),
+        }
+    }
     if videos.is_empty() {
         let (mut result, cost) = agents::muse(s, "reels", FROM_CAPTIONS, &json!({ "posts": context["posts"] }), ai).await?;
         result["watched"] = json!([]);
@@ -51,7 +58,7 @@ pub async fn direct(s: &AppState, user_id: &str, context: &Value, ai: &agents::A
     }
     let listed: Vec<Value> = videos.iter().enumerate().map(|(i, v)| json!({ "video": i + 1, "post": v["post"] })).collect();
     let mut content = vec![json!({ "type": "input_text", "text": format!("{}\n\nVideos: {}\n\nAll recent posts: {}", watching(), json!(listed), context["posts"]) })];
-    content.extend(videos.iter().map(|v| json!({ "type": "input_video", "video_url": v["media_url"] })));
+    content.extend(inline.into_iter().map(|url| json!({ "type": "input_video", "video_url": url })));
     let (text, cost) = meta_ai::wonder(s, user_id, content).await?;
     let mut result = agents::extract_json(&text).ok_or_else(|| AppError::new(502, "Muse Wonder answered without the expected format."))?;
     // Point each note back at its post, so the person can open it.
@@ -67,9 +74,10 @@ pub async fn direct(s: &AppState, user_id: &str, context: &Value, ai: &agents::A
 
 /// The executor's `watch_video` tool: Wonder watches one of the creator's own videos and answers a question about it.
 pub async fn watch(s: &AppState, user_id: &str, media_url: &str, question: &str) -> ApiResult<String> {
+    let video = crate::voice::inline_video(s, media_url).await.map_err(|e| AppError::new(502, format!("Couldn't read that video: {e}.")))?;
     let content = vec![
         json!({ "type": "input_text", "text": format!("Watch this video from the creator's own Instagram and answer in plain words, with timestamps where they help. Label guesses as guesses. Question: {question}") }),
-        json!({ "type": "input_video", "video_url": media_url }),
+        json!({ "type": "input_video", "video_url": video }),
     ];
     meta_ai::wonder(s, user_id, content).await.map(|(text, _)| text)
 }

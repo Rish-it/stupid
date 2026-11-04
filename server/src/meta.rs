@@ -795,12 +795,15 @@ pub fn parse_webhook(payload: &Value) -> Vec<Event> {
                         out.push(Event { kind: "whatsapp".into(), asset_id: phone.clone(), sender, sender_name, text, dedupe: format!("wa:{}", clip(&m["id"])), media });
                     }
                 }
-            } else if object == "instagram" && change["field"] == "comments" {
+            } else if object == "instagram" && change["field"] == "comments" && clip(&v["from"]["id"]) != entry_id {
+                // The account's own comments, such as a reply sent from Stupid, are not someone writing in.
                 let sender = Some(clip(&v["from"]["username"])).filter(|s| !s.is_empty()).unwrap_or_else(|| clip(&v["from"]["id"]));
                 out.push(Event { kind: "instagram_comment".into(), asset_id: entry_id.clone(), sender_name: clip(&v["from"]["username"]), sender, text: clip(&v["text"]), dedupe: format!("igc:{}", clip(&v["id"])), media: None });
             }
         }
-        for m in entry["messaging"].as_array().into_iter().flatten() {
+        // Instagram DMs come as `messaging`, or as a `messages` change (Meta's dashboard test, Instagram Login), same shape.
+        let as_changes = entry["changes"].as_array().into_iter().flatten().filter(|c| object == "instagram" && c["field"] == "messages").map(|c| &c["value"]);
+        for m in entry["messaging"].as_array().into_iter().flatten().chain(as_changes) {
             let message = &m["message"];
             let text = clip(&message["text"]);
             let media = message["attachments"].as_array().into_iter().flatten().find_map(|x| {
@@ -898,6 +901,18 @@ mod tests {
         let e = parse_webhook(&ig);
         assert_eq!(e.len(), 1);
         assert_eq!((e[0].kind.as_str(), e[0].asset_id.as_str()), ("instagram", "77"));
+        // Meta's documented comment shape, and the account's own reply under it, which is not someone writing in.
+        let comments = json!({"object":"instagram","entry":[{"id":"77","time":1730700000,"changes":[
+            {"field":"comments","value":{"from":{"id":"232323232","username":"brandco"},"media":{"id":"123","media_product_type":"REELS"},"id":"17865799348089039","text":"Love this! DM us about a paid collab?"}},
+            {"field":"comments","value":{"from":{"id":"77","username":"me"},"media":{"id":"123"},"id":"17865799348089040","parent_id":"17865799348089039","text":"Thanks!"}}]}]});
+        let e = parse_webhook(&comments);
+        assert_eq!(e.len(), 1);
+        assert_eq!((e[0].kind.as_str(), e[0].asset_id.as_str(), e[0].sender.as_str(), e[0].dedupe.as_str()), ("instagram_comment", "77", "brandco", "igc:17865799348089039"));
+        // A DM as a `messages` change, as Meta's dashboard test and Instagram Login send it.
+        let changed = json!({"object":"instagram","entry":[{"id":"77","time":1730700000,"changes":[{"field":"messages","value":{"sender":{"id":"12334"},"recipient":{"id":"77"},"timestamp":"1527459824","message":{"mid":"random_mid","text":"random_text"}}}]}]});
+        let e = parse_webhook(&changed);
+        assert_eq!((e.len(), e[0].kind.as_str(), e[0].sender.as_str(), e[0].dedupe.as_str()), (1, "instagram", "12334", "instagram:random_mid"));
+        assert!(parse_webhook(&json!({"object":"page","entry":[{"id":"5","changes":[{"field":"messages","value":{"sender":{"id":"1"},"message":{"mid":"m","text":"t"}}}]}]})).is_empty(), "only Instagram sends DMs as changes");
         assert!(numeric("act_123") && !numeric("act_") && !numeric("12a"));
         let voice = json!({"object":"whatsapp_business_account","entry":[{"id":"1","changes":[{"field":"messages","value":{"metadata":{"phone_number_id":"55"},"messages":[{"id":"m2","from":"91","type":"audio","audio":{"id":"777","mime_type":"audio/ogg; codecs=opus","voice":true}}]}}]}]});
         let e = parse_webhook(&voice);

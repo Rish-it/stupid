@@ -339,19 +339,25 @@ pub async fn start(s: &AppState, u: User, agent: &str) -> ApiResult<Value> {
     // Checked again below under the same lock as the insert; this only avoids Meta calls for a refused run.
     busy(&lock(&s.db), &u.id, name)?;
     let mut pictures_for_ideas: Vec<String> = Vec::new();
+    let mut why: Option<&str> = None;
     let context = match name {
         // The inbox already holds Instagram comments next to messages.
         "leads" => json!({ "messages": for_model(meta::fresh_inbox(s, &u).await?) }),
         "ideas" => {
             let ig = meta::instagram_data(s, &u).await?;
+            why = no_posts(&ig);
             pictures_for_ideas = crops::best(&ig, IDEA_PICTURES).iter().filter_map(|m| crops::picture(m).map(str::to_owned)).collect();
             instagram_context(&ig)
         }
-        "reels" => reels::context(&meta::instagram_data(s, &u).await?),
+        "reels" => {
+            let ig = meta::instagram_data(s, &u).await?;
+            why = no_posts(&ig);
+            reels::context(&ig)
+        }
         "replies" => json!({ "messages": for_model(meta::fresh_inbox(s, &u).await?.into_iter().filter(|m| m["kind"] != "instagram_comment").take(20).collect()) }),
         _ => meta::ads_data(s, &u).await?,
     };
-    let empty = context.as_object().is_some_and(|o| o.values().all(|v| v.as_array().is_some_and(|a| a.is_empty())));
+    let empty = why.is_some() || context.as_object().is_some_and(|o| o.values().all(|v| v.as_array().is_some_and(|a| a.is_empty())));
     let mut context = context;
     // What the owner told the agent before; added after the empty check, since facts alone are nothing to read.
     if matches!(name, "leads" | "replies") {
@@ -371,10 +377,11 @@ pub async fn start(s: &AppState, u: User, agent: &str) -> ApiResult<Value> {
         let db = lock(&s.db);
         busy(&db, &u.id, name)?;
         if empty {
-            db.execute("INSERT INTO agent_runs (user_id,agent,status,result_json,created,finished) VALUES (?1,?2,'done','{\"empty\":true}',?3,?3)", params![u.id, name, now()])?;
+            let result = json!({ "empty": true, "why": why });
+            db.execute("INSERT INTO agent_runs (user_id,agent,status,result_json,created,finished) VALUES (?1,?2,'done',?3,?4,?4)", params![u.id, name, result.to_string(), now()])?;
             let ticket = tickets::open_job(&db, &u.id, name, db.last_insert_rowid())?;
-            tickets::close_job(&db, ticket, "dropped", "Nothing to read yet.")?;
-            return Ok(json!({ "agent": name, "status": "done", "result": { "empty": true } }));
+            tickets::close_job(&db, ticket, "dropped", why.unwrap_or("Nothing to read yet."))?;
+            return Ok(json!({ "agent": name, "status": "done", "result": result }));
         }
         db.execute("INSERT INTO agent_runs (user_id,agent,status,created) VALUES (?1,?2,'running',?3)", params![u.id, name, now()])?;
         let id = db.last_insert_rowid();
@@ -409,6 +416,13 @@ pub async fn start(s: &AppState, u: User, agent: &str) -> ApiResult<Value> {
         }
     });
     Ok(json!({ "agent": name, "status": "running" }))
+}
+
+/// Ideas and the Reel director learn from the creator's own posts; a connected Instagram with none says so instead of guessing.
+fn no_posts(ig: &Value) -> Option<&'static str> {
+    let accounts = ig["accounts"].as_array().map(Vec::as_slice).unwrap_or_default();
+    (!accounts.is_empty() && accounts.iter().all(|a| a["media"].as_array().is_none_or(Vec::is_empty)))
+        .then_some("Your Instagram has no posts yet, so there is nothing of yours to learn from. Post a few, then run this again.")
 }
 
 /// Post ideas that look at the creator's best pictures too. If a picture can't be fetched, it tries once more on text alone.
@@ -786,6 +800,13 @@ mod tests {
         // SAM 3.1 never answered (budget spent): the pack holds centred crops only.
         assert_eq!(open("ads", json!({ "creative_pack": [{ "box": null, "note": "The Meta Model API budget is spent." }] })), ["Muse Spark Open"]);
         assert_eq!(open("ads", json!({ "creative_pack": [] })), ["Muse Spark Open"]);
+    }
+
+    #[test]
+    fn no_posts_is_said_not_guessed() {
+        assert!(no_posts(&json!({ "accounts": [{ "id": "1", "media": [] }] })).is_some_and(|w| w.contains("no posts yet")));
+        assert_eq!(no_posts(&json!({ "accounts": [{ "id": "1", "media": [{ "id": "m" }] }] })), None);
+        assert_eq!(no_posts(&json!({ "accounts": [] })), None, "no Instagram connected is the plain empty case");
     }
 
     #[test]
