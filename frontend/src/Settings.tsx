@@ -111,15 +111,19 @@ export default function Settings({ name, persona, account, onAccount, onConnect,
 /** Creator or business: which apps setup asks for and which agents come first. */
 function Path({ persona, onPersona }: { persona: Persona | null; onPersona: (persona: Persona) => Promise<void> }) {
   const [error, setError] = useState("");
+  const [changed, setChanged] = useState(false);
   return (
     <Row id="path-heading" title="Your work on Meta" description="Changes the setup steps and the order of your agents. Nothing you connected is removed.">
       <HStack>
-        <SegmentedControl label="I mostly" value={persona ?? ""} onChange={v => void onPersona(v as Persona).then(() => setError(""), (cause: unknown) => setError(message(cause)))}>
+        <SegmentedControl label="I mostly" value={persona ?? ""} onChange={v => void onPersona(v as Persona).then(() => { setError(""); setChanged(true); }, (cause: unknown) => setError(message(cause)))}>
           <SegmentedControlItem value="creator" label="Create content" />
           <SegmentedControlItem value="business" label="Run a business" />
         </SegmentedControl>
       </HStack>
-      <div aria-live="polite">{error && <Text as="p">{error}</Text>}</div>
+      <div aria-live="polite">{error ? <Text as="p">{error}</Text> : changed && <VStack gap={2} hAlign="start">
+        <Text as="p">{persona === "creator" ? "Your Home now starts with Reel director and Post ideas, and setup asks for Instagram." : "Your Home now starts with reply drafts and leads, and setup asks for WhatsApp and your Page."}</Text>
+        <Button variant="primary" label="Go to Home" href="#home" />
+      </VStack>}</div>
     </Row>
   );
 }

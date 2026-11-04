@@ -66,6 +66,11 @@ function Ping({ onSkip }: { onSkip: () => void }) {
   );
 }
 
+const choices: { id: Persona; label: string; what: string }[] = [
+  { id: "creator", label: "I create content", what: "Instagram first: Reel scripts, post ideas, comment replies and brand deals." },
+  { id: "business", label: "I run a business", what: "WhatsApp and your Page first: reply drafts, leads and ad advice." },
+];
+
 /** Signed in without picking a door: ask once. */
 function Choose({ onPersona }: { onPersona: (persona: Persona) => Promise<void> }) {
   const [error, setError] = useState("");
@@ -74,8 +79,12 @@ function Choose({ onPersona }: { onPersona: (persona: Persona) => Promise<void> 
     <VStack gap={4}>
       <Text as="p" type="supporting">Stupid sets up the apps and the agents for your kind of work. You can change this in Settings.</Text>
       <VStack gap={2}>
-        <Button size="lg" variant="primary" label="I create content" clickAction={() => pick("creator")} />
-        <Button size="lg" variant="primary" label="I run a business" clickAction={() => pick("business")} />
+        {choices.map(c => (
+          <button key={c.id} type="button" className="choice" onClick={() => void pick(c.id)}>
+            <Text weight="semibold">{c.label}</Text>
+            <Text type="supporting" size="sm">{c.what}</Text>
+          </button>
+        ))}
       </VStack>
       <div aria-live="polite">{error && <Text as="p">{error}</Text>}</div>
     </VStack>
@@ -112,7 +121,7 @@ function Step({ data, step, reload, onAccount, onConnect, onSkip }: {
         <ProgressBar value={done} max={total} label="Setup progress" isLabelHidden style={track} />
       </VStack>
       <Text as="p">{step.why}</Text>
-      {step.action === "tell_agent" ? <Facts step={step} onSaved={reload} onSkip={onSkip} /> : <>
+      {step.action === "tell_agent" ? <Facts step={step} creator={data.persona === "creator"} onSaved={reload} onSkip={onSkip} /> : <>
         {step.fix && <Text as="p" type="supporting">{step.fix}</Text>}
         <HStack gap={2} wrap="wrap">
           {step.action === "connect"
@@ -131,14 +140,20 @@ function Step({ data, step, reload, onAccount, onConnect, onSkip }: {
 }
 
 /** A sentence or two for the agent's rules. Saving keeps the drafting switch as it is; Home and Settings read the new rules. */
-function Facts({ step, onSaved, onSkip }: { step: SetupStep; onSaved: () => Promise<void>; onSkip: () => void }) {
+function Facts({ step, creator, onSaved, onSkip }: { step: SetupStep; creator: boolean; onSaved: () => Promise<void>; onSkip: () => void }) {
   const [text, setText] = useState("");
   const [error, setError] = useState("");
+  // A creator's last step: Reel director and Post ideas start on their real posts, so Home has work on it.
+  const start = () => {
+    if (!creator || sample) return;
+    void Promise.allSettled([api.run("reels"), api.run("ideas")]).then(() => refetch("agents"));
+  };
   const save = async () => {
     try {
       const home = await api.agent();
       await api.agentSettings(home.proactive, text.trim());
       refetch("agent");
+      start();
       await onSaved();
     } catch (cause) {
       setError(message(cause));
@@ -146,12 +161,13 @@ function Facts({ step, onSaved, onSkip }: { step: SetupStep; onSaved: () => Prom
   };
   return (
     <VStack gap={4}>
-      <TextArea label="About you" isLabelHidden value={text} onChange={v => { setText(v); setError(""); }} rows={3} maxLength={2000}
+      <TextArea label="About you" isLabelHidden value={text} placeholder={creator ? "What you post about, who watches, and which brand deals you take or turn down." : "Your prices, opening hours and where you deliver."} onChange={v => { setText(v); setError(""); }} rows={3} maxLength={2000}
         status={error ? { type: "error", message: error } : undefined} description="Your agent uses this when it drafts. Change it any time in Settings." />
       <HStack gap={2} wrap="wrap">
         <Button variant="primary" label={step.button} isDisabled={!text.trim()} clickAction={save} />
-        {step.optional && <Button variant="ghost" label="Skip for now" onClick={onSkip} />}
+        {step.optional && <Button variant="ghost" label="Skip for now" onClick={() => { start(); onSkip(); }} />}
       </HStack>
+      {creator && <Text as="p" type="supporting" size="sm">Next, Reel director and Post ideas start reading your posts. Their work lands on Home.</Text>}
     </VStack>
   );
 }

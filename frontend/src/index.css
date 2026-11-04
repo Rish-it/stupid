@@ -437,3 +437,9 @@ input[role="switch"]:not(:checked) + div { background: #3a3a40; }
 .owner-error { color: var(--color-text-error); }
 /* Home, once paired: the agent is one message away on WhatsApp. */
 .agent-chat { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 14px 18px; border-radius: 16px; background: #1b1d1a; }
+
+/* Onboarding's first question: two quiet cards, one tap each. */
+.choice { display: grid; gap: 4px; padding: 16px; border: 0; border-radius: 12px; background: var(--color-background-muted); color: inherit; font: inherit; text-align: start; cursor: pointer; }
+.choice:hover { background: color-mix(in srgb, var(--color-background-muted), var(--color-text-primary) 6%); }
+.choice:focus-visible { outline: 2px solid var(--color-text-primary); outline-offset: 2px; }
+@media (prefers-reduced-motion: no-preference) { .choice { transition: background-color .15s, scale .12s ease-out; } .choice:active { scale: .98; } }
