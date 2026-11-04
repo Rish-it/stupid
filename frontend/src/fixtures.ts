@@ -70,7 +70,7 @@ const results: Record<AgentId, AgentRun["result"]> = {
 const runs = new Map<AgentId, AgentRun>();
 const customer = { kind: "whatsapp" as const, sender: "15550000001", sender_name: "Sample customer" };
 let home: AgentHome = {
-  proactive: true, rules: "",
+  proactive: true, rules: "", watching: ["whatsapp", "instagram"], last_checked: now() - 120,
   needs: [
     { type: "question", id: 2, question: "Sample question: what does delivery to Pune cost?", created: now() - 300, message: { ...customer, sender_name: "Sample buyer", text: "Sample: how much is delivery to Pune?" } },
     { type: "draft", id: 1, event_id: "m1", text: "Sample draft: yes, we're open until 7 today.", source: "agent", created: now() - 540, message: { ...customer, text: "Hi, are you open today?" } },
@@ -125,13 +125,14 @@ const messages: Record<Persona, InboxItem[]> = {
 };
 const order: Record<Persona, AgentId[]> = { creator: ["reels", "ideas", "leads", "replies", "ads"], business: ["replies", "leads", "ads", "ideas", "reels"] };
 if (world) {
-  home = { proactive: true, rules: stage === "ready" || stage === "busy" ? "Sample rules." : "", needs: [], tickets: [] };
+  const watching = me.signed_in ? [...new Set(me.assets.filter(a => a.kind !== "ads").map(a => a.kind))] : [];
+  home = { proactive: true, rules: stage === "ready" || stage === "busy" ? "Sample rules." : "", needs: [], tickets: [], watching, last_checked: watching.length ? now() - 120 : null };
   if (stage === "busy" && persona) {
     home.needs = ask[persona];
     home.tickets = ask[persona].map(n => ({ id: n.id, job: "replies", state: n.type === "question" ? "open" : "ended", created: n.created, message: n.message,
       reports: [{ kind: n.type === "question" ? "waiting" : "ready", text: n.type === "question" ? "Waiting for your answer." : "Sample: drafted a reply.", created: n.created }] }));
     for (const [agent, result] of Object.entries(found[persona]) as [AgentId, AgentRun["result"]][])
-      runs.set(agent, { agent, status: "done", result, error: null, cost_usd: 0.004, created: now() - 1200, finished: now() - 1140 });
+      runs.set(agent, { agent, status: "done", result, error: null, cost_usd: 0.004, created: now() - 1200, finished: now() - 1140, models: agent === "reels" ? ["Muse Wonder"] : ["Muse Spark Open"] });
   }
 }
 const inbox = () => world ? (stage === "busy" && persona ? messages[persona] : []) : [
@@ -193,7 +194,7 @@ export async function answer(method: string, path: string, body: unknown): Promi
   if (route === "GET /api/inbox") return { items: inbox() };
   if (/^POST \/api\/inbox\/[^/]+\/reply$/.test(route)) return { sent: true };
   if (route === "GET /api/agents") {
-    for (const [id, run] of runs) if (run.status === "running" && now() - run.created >= 4) runs.set(id, { ...run, status: "done", result: results[id], cost_usd: 0.004, finished: now() });
+    for (const [id, run] of runs) if (run.status === "running" && now() - run.created >= 4) runs.set(id, { ...run, status: "done", result: results[id], cost_usd: 0.004, finished: now(), models: ["Muse Spark Open"] });
     const path: AgentId[] = me.signed_in && me.persona ? order[me.persona] : ["leads", "ideas", "replies", "reels", "ads"];
     return { runs: [...runs.values()], ai_ready: true, own_key: hasKey, model: "sample-model", order: path };
   }
@@ -201,7 +202,7 @@ export async function answer(method: string, path: string, body: unknown): Promi
   if (run) {
     const agent = run[1] as AgentId;
     if (runs.get(agent)?.status === "running") throw new ApiError(409, "That agent is already running.");
-    runs.set(agent, { agent, status: "running", result: null, error: null, cost_usd: null, created: now(), finished: null });
+    runs.set(agent, { agent, status: "running", result: null, error: null, cost_usd: null, created: now(), finished: null, models: [] });
     return { agent, status: "running" };
   }
   if (route === "GET /api/agent") return home;
