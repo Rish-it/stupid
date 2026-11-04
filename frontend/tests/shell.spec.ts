@@ -188,7 +188,7 @@ test("Agents run, poll to a result and hand a reply draft to the Inbox", async (
   await page.getByRole("button", { name: "Run" }).nth(1).click();
   await expect(page.getByText("This month's AI budget is used up.")).toBeVisible();
 
-  await page.getByRole("button", { name: "Run" }).nth(2).click();
+  await page.getByRole("button", { name: "Run" }).nth(3).click();
   await expect(page.getByText("Working on it.")).toBeVisible();
   await expect(page.getByText("We're open until 7.")).toBeVisible({ timeout: 10000 });
   await expect(page.getByText("cost $0.002")).toBeVisible();
@@ -354,4 +354,24 @@ test("a voice note shows its transcript, marked as one", async ({ page }) => {
   await expect(page.getByText("Transcribing the voice note…")).toBeVisible();
   await page.getByText("Hi, how much is the blue mug?").click();
   await expect(page.getByRole("dialog").getByText("Voice note · transcript")).toBeVisible();
+});
+
+test("Reel director shows what works, labelled guesses and scripts to copy", async ({ page }) => {
+  await page.route("**/api/me", route => route.fulfill(json({ ...signedIn, selected: ["instagram:1"] })));
+  await page.route("**/api/agent", route => route.fulfill(json({ proactive: true, rules: "", needs: [], tickets: [] })));
+  await page.route("**/api/agents", route => route.fulfill(json({ ai_ready: true, own_key: false, model: "test-model", runs: [{ agent: "reels", status: "done", error: null, cost_usd: 0.045, created: 1, finished: 2, result: {
+    from_captions_only: false,
+    watched: [{ video: 1, caption: "Morning bake", permalink: "https://www.instagram.com/p/x", works: [{ at: "0:00-0:02", what: "Hands pull the bread apart in the first second." }], drop_off_guesses: [{ at: "0:09", what: "Guess: the oven shot is slow." }] }],
+    scripts: [{ title: "Three breads in 15 seconds", hook: "Which one would you tear first?", caption: "Fresh at 8.", shots: [{ shot: "Close-up of the crust", seconds: 2, on_screen: "Crackle test", sound: "Crust crackle" }] }],
+  } }] })));
+  await page.goto("/#agents");
+  await expect(page.getByText("Watched 1 Reel and wrote 1 script.")).toBeVisible();
+  await page.getByRole("button", { name: "See results" }).click();
+  const dialog = page.getByRole("dialog", { name: "Reel director" });
+  await expect(dialog.getByRole("link", { name: "Morning bake" })).toBeVisible();
+  await expect(dialog.getByText("Hands pull the bread apart in the first second.")).toBeVisible();
+  await expect(dialog.getByText("Guess", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("the oven shot is slow.")).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Copy script" })).toBeVisible();
+  await expect(dialog.getByText("Nothing is posted.", { exact: false })).toBeVisible();
 });

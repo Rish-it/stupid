@@ -298,6 +298,8 @@ pub fn summary(job: &str, result: &Value) -> (&'static str, String) {
         "ideas" => ("ready", format!("Wrote {}.", plural(n("ideas"), "post idea", "post ideas"))),
         "replies" if n("replies") == 0 => ("dropped", "Nothing needs a reply.".into()),
         "replies" => ("ready", format!("Drafted {}.", plural(n("replies"), "reply", "replies"))),
+        "reels" if result["from_captions_only"] == true => ("ready", format!("Wrote {} from your captions; no Reels to watch yet.", plural(n("scripts"), "Reel script", "Reel scripts"))),
+        "reels" => ("ready", format!("Watched {} and wrote {}.", plural(n("watched"), "Reel", "Reels"), plural(n("scripts"), "script", "scripts"))),
         _ => ("ready", result["summary"].as_str().unwrap_or("Read your ad results.").chars().take(200).collect()),
     }
 }

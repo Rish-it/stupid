@@ -9,7 +9,7 @@ import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { Token } from "@astryxdesign/core/Token";
 import { Heading } from "@astryxdesign/core/Heading";
 import { api, drafts, jobNames, lastReport, senderName, useLoad } from "./api";
-import type { AgentId, AgentResult, AgentRun, AssetKind, Connections, Ticket } from "./api";
+import type { AgentId, AgentResult, AgentRun, AssetKind, Connections, ReelScript, Ticket } from "./api";
 import { ReportMark } from "./Attention";
 import { Load } from "./Load";
 import { Modal, Page, Tile } from "./Surface";
@@ -17,6 +17,7 @@ import { Modal, Page, Tile } from "./Surface";
 const agents: { id: AgentId; name: string; does: string; needs: AssetKind[] }[] = [
   { id: "leads", name: "Lead finder", does: "Reads your comments and messages, spots people ready to buy, and says what to send them.", needs: ["instagram", "whatsapp", "messenger"] },
   { id: "ideas", name: "Post ideas", does: "Looks at what worked for you lately and drafts posts in your voice.", needs: ["instagram"] },
+  { id: "reels", name: "Reel director", does: "Muse Wonder watches your best Reels, says what works and where people may stop watching, and writes three new scripts with shot lists.", needs: ["instagram"] },
   { id: "replies", name: "Reply drafts", does: "Drafts answers to new messages. Nothing is sent until you tap send in the Inbox.", needs: ["whatsapp", "messenger", "instagram"] },
   { id: "ads", name: "Ad watcher", does: "Checks your ads and says which to pause, keep, grow or fix, and why.", needs: ["ads"] },
 ];
@@ -29,6 +30,9 @@ function found(result: AgentResult) {
   if ("leads" in result) return result.leads.length ? `Found ${plural(result.leads.length, "lead", "leads")}.` : "No one ready to buy yet.";
   if ("ideas" in result) return `Drafted ${plural(result.ideas.length, "post idea", "post ideas")}.`;
   if ("replies" in result) return `Drafted ${plural(result.replies.length, "reply", "replies")}.`;
+  if ("scripts" in result) return result.from_captions_only
+    ? `Wrote ${plural(result.scripts.length, "Reel script", "Reel scripts")} from your captions. No Reels to watch yet.`
+    : `Watched ${plural(result.watched.length, "Reel", "Reels")} and wrote ${plural(result.scripts.length, "script", "scripts")}.`;
   return result.summary;
 }
 
@@ -139,6 +143,30 @@ function Result({ result, onLeave }: { result: AgentResult; onLeave: () => void 
       <HStack><Copy text={idea.caption} /></HStack>
     </VStack>
   )));
+  if ("scripts" in result) return (
+    <VStack gap={6}>
+      {result.from_captions_only && <Text as="p" type="supporting">No Reels to watch yet, so these come from your captions. Post a Reel and run this again for notes on what works.</Text>}
+      {result.watched.map(w => (
+        <VStack key={w.video} gap={2}>
+          {w.permalink ? <Link hasUnderline href={w.permalink} isExternalLink maxLines={1}>{w.caption?.split("\n")[0] || `Reel ${w.video}`}</Link> : <Text weight="semibold">Reel {w.video}</Text>}
+          {w.works.map((n, i) => <Text key={i} as="p" size="sm"><Text weight="semibold" size="sm" hasTabularNumbers>{n.at}</Text> {n.what}</Text>)}
+          {w.drop_off_guesses?.map((n, i) => <Text key={`g${i}`} as="p" size="sm" type="supporting"><Token size="sm" label="Guess" /> <Text size="sm" hasTabularNumbers>{n.at}</Text> {n.what.replace(/^Guess:\s*/i, "")}</Text>)}
+        </VStack>
+      ))}
+      {items(result.scripts.map((sc, i) => (
+        <VStack key={i} gap={2}>
+          <Text weight="semibold">{sc.title}</Text>
+          <Text as="p"><strong>Hook:</strong> {sc.hook}</Text>
+          <VStack gap={1} as="ol">
+            {sc.shots.map((shot, j) => <li key={j}><Text size="sm"><Text weight="semibold" size="sm" hasTabularNumbers>{shot.seconds}s</Text> {shot.shot} <Text type="supporting" size="sm">{shot.on_screen && shot.on_screen !== "No text" ? `Text: ${shot.on_screen}. ` : ""}Sound: {shot.sound}</Text></Text></li>)}
+          </VStack>
+          <Text as="p" type="supporting">{sc.caption}</Text>
+          <HStack gap={2} wrap="wrap"><Copy text={sc.caption} /><Copy text={scriptText(sc)} label="Copy script" /></HStack>
+        </VStack>
+      )))}
+      <Text as="p" type="supporting" size="sm">Nothing is posted. Film it, then post from Instagram.</Text>
+    </VStack>
+  );
   if ("replies" in result) return items(result.replies.map(r => (
     <VStack key={r.event_id} gap={2}>
       <Text weight="semibold">To {r.to}</Text>
@@ -201,7 +229,10 @@ function ideaLine(text: string) {
   }
 }
 
-function Copy({ text }: { text: string }) {
-  const [label, setLabel] = useState("Copy caption");
+/** A script as plain text to paste into notes or a teleprompter. */
+const scriptText = (sc: ReelScript) => [sc.title, `Hook: ${sc.hook}`, ...sc.shots.map((s, i) => `${i + 1}. ${s.seconds}s · ${s.shot} · Text: ${s.on_screen} · Sound: ${s.sound}`), `Caption: ${sc.caption}`].join("\n");
+
+function Copy({ text, label: idle = "Copy caption" }: { text: string; label?: string }) {
+  const [label, setLabel] = useState(idle);
   return <Button size="sm" label={label} clickAction={() => navigator.clipboard.writeText(text).then(() => setLabel("Copied"), () => setLabel("Couldn't copy"))} />;
 }

@@ -23,6 +23,8 @@ pub fn specs() -> Vec<Value> {
         tool("get_ads", "Last 7 days of results for the owner's ad accounts.", none.clone(), &[]),
         tool("get_instagram", "The owner's Instagram bio, followers and recent posts with likes and comments.", none.clone(), &[]),
         tool("list_leads", "The latest leads found by Lead finder.", none.clone(), &[]),
+        tool("watch_video", "Muse Wonder watches one of the owner's own Instagram videos (an id from get_instagram) and answers a question about it.",
+            json!({ "media_id": { "type": "string" }, "question": { "type": "string" } }), &["media_id", "question"]),
         tool("list_drafts", "Reply drafts already prepared, so you don't repeat one.", none.clone(), &[]),
         tool("save_reply_draft", "Save a reply draft for one inbox message. The owner reviews it and taps Send; this sends nothing.",
             json!({ "event_id": { "type": "integer" }, "text": { "type": "string", "description": "The reply, at most 1000 characters." } }), &["event_id", "text"]),
@@ -110,6 +112,15 @@ pub async fn call(s: &AppState, u: &User, ticket: Option<i64>, name: &str, args:
             let found = rows(s, "SELECT result_json FROM agent_runs WHERE user_id=?1 AND agent='leads' AND status='done' ORDER BY id DESC LIMIT 1", [&u.id],
                 |r| Ok(r.get::<_, Option<String>>(0)?.and_then(|v| serde_json::from_str(&v).ok()).unwrap_or(Value::Null)))?;
             found.into_iter().next().map(|r| r["leads"].clone()).filter(Value::is_array).unwrap_or_else(|| json!([]))
+        }
+        "watch_video" => {
+            let id = text_arg(args, "media_id", 64)?;
+            let question = text_arg(args, "question", 500)?;
+            let ig = meta::instagram_data(s, u).await.map_err(|e| e.1)?;
+            let url = ig["accounts"].as_array().into_iter().flatten().flat_map(|a| a["media"].as_array().into_iter().flatten())
+                .find(|m| m["id"] == id.as_str() && m["media_type"] == "VIDEO").and_then(|m| m["media_url"].as_str()).map(str::to_owned)
+                .ok_or_else(|| format!("No video {id} on this Instagram account."))?;
+            json!({ "notes": crate::reels::watch(s, &u.id, &url, &question).await.map_err(|e| e.1)? })
         }
         "list_drafts" => json!(rows(s, "SELECT event_id,text,source,created FROM drafts WHERE user_id=?1 ORDER BY id DESC LIMIT 20", [&u.id],
             |r| Ok(json!({ "event_id": r.get::<_, i64>(0)?, "text": r.get::<_, String>(1)?, "source": r.get::<_, String>(2)?, "created": r.get::<_, i64>(3)? })))?),

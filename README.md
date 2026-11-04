@@ -7,7 +7,8 @@ WhatsApp, your Facebook Page and Meta Ads, and let it do the busywork while you 
   drafts a reply within a minute or asks you one concrete question when it needs a fact. Today
   shows only what needs you, then what it did. Nothing is sent, posted or changed without your tap.
 - **Inbox.** Messenger, Instagram DMs and comments, and WhatsApp, newest first, updating live.
-- **Jobs on a tap.** Lead finder, post ideas, reply drafts and an ad watcher run when you ask.
+- **Jobs on a tap.** Lead finder, post ideas, a Reel director that watches your best Reels with
+  Muse Wonder, reply drafts and an ad watcher run when you ask.
 - **Results in plain words.** Ad results for the last 7 days and Instagram reach, followers and
   engagement, straight from Meta. An empty or unconnected account says so; no numbers are invented.
 - **Setup without the maze.** Each connected account says what Meta still needs (a payment
@@ -37,6 +38,7 @@ data-deletion callback removes a person's data in one transaction. AI spend stop
 |---|---|---|
 | Lead finder, post ideas, reply drafts, ad watcher (`server/src/agents.rs`) | Muse Spark Open, `meta-models/muse-spark-open-1026` | Baseten Model APIs (`STUPID_MUSE_BASE_URL`) |
 | The agent on new messages: intake decision (`tickets.rs`) and a tool-calling executor that drafts replies or asks you one question (`executor.rs`, `tools.rs`) | Muse Spark Open, same model | Baseten Model APIs |
+| Reel director watches your best Reels (up to 3) and writes three new scripts with shot lists (`reels.rs`), plus the agent's `watch_video` tool | Muse Wonder, `muse-wonder-1.0` (preview) | Meta Model API, same key and cap |
 | Customer voice notes on WhatsApp, Messenger and Instagram become text the agent reads (`voice.rs`) | Muse Voice Transcribe, `muse-voice-transcribe-1.0` | Meta Model API (`STUPID_META_API_KEY`, its own cap `STUPID_META_API_BUDGET_USD`) |
 
 - One chat call per agent run, from the server only. The browser never sees a model key.
@@ -58,6 +60,7 @@ Stupid sends Meta Platform Data to these model providers, only to do the work th
 
 | Provider | What it gets | Retention | Agreement |
 |---|---|---|---|
+| Meta Model API (Muse Wonder) | When the person runs Reel director: links to their own top Reels, and their captions and counts | Same terms as below | Same |
 | Meta Model API (Muse Voice Transcribe) | The audio of a customer's voice note, once, to turn it into words. The audio isn't stored by Stupid; only the words are, for 30 days | Standard tier: not used for training; Meta may keep requests for safety review | [Model API terms](https://dev.meta.ai/legal/terms-of-service) |
 | Baseten (model inference) | For the agent a person runs: message and comment text with the sender's first name, Instagram bio, captions and post counts, ad campaign totals. Never phone numbers, Meta IDs or tokens | Zero data retention on Model APIs; no training on customer data | [DPA](https://www.baseten.co/dpa/), [security practices](https://www.baseten.co/security-practices/) |
 | The person's own Baseten account | The same, only after they save their own Baseten API key in Settings and tick the consent box (the time is stored) | Their account's terms | Their own account |
