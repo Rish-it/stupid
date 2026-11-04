@@ -80,6 +80,10 @@ impl Config {
             bind: or("BIND", "127.0.0.1:8000"),
         }
     }
+    /// Contributor-tier Model API models may train on inputs and must not receive personal data (Model API ToS §6).
+    fn model_allowed(&self) -> bool {
+        !self.muse_model.to_ascii_lowercase().contains("contributor")
+    }
     fn secure(&self) -> bool {
         self.public_url.starts_with("https://")
     }
@@ -564,6 +568,7 @@ async fn main() {
     let _ = dotenvy::dotenv();
     tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into())).init();
     let cfg = Config::load();
+    assert!(cfg.model_allowed(), "STUPID_MUSE_MODEL is a contributor-tier model, which must not receive customer messages; pick a standard model");
     std::fs::create_dir_all(&cfg.data_dir).expect("create data dir");
     let mut conn = Connection::open(cfg.data_dir.join("stupid.sqlite3")).expect("open database");
     migrate(&mut conn).expect("migrate database");
@@ -665,5 +670,13 @@ mod tests {
         assert!(local.origin_allowed("http://localhost:5173") && local.origin_allowed("http://127.0.0.1:8000"));
         assert!(!local.origin_allowed("http://localhost.evil.com"));
         assert_eq!(local.cookie_name("stupid_session"), "stupid_session");
+    }
+
+    #[test]
+    fn contributor_models_are_refused() {
+        let model = |m: &str| Config { muse_model: m.into(), ..Config::load() };
+        assert!(model("meta-models/muse-spark-open-1026").model_allowed());
+        assert!(!model("muse-spark-1.3-contributor").model_allowed());
+        assert!(!model("Muse-Spark-1.2-Contributor").model_allowed());
     }
 }
