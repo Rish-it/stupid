@@ -18,7 +18,8 @@ pub async fn home(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Js
     let (proactive, rules): (bool, String) = db.query_row("SELECT agent_proactive,agent_rules FROM users WHERE id=?1", [&u.id], |r| Ok((r.get(0)?, r.get(1)?)))?;
     // The newest draft per message, while the message can still be answered and nobody has.
     let mut stmt = db.prepare(
-        "SELECT d.id,d.event_id,d.text,d.source,d.created,e.kind,e.asset_id,e.sender,e.sender_name,e.text,l.answer,l.created,d.styled,e.matched_json,e.heard_json,d.model FROM drafts d JOIN events e ON e.id=d.event_id
+        "SELECT d.id,d.event_id,d.text,d.source,d.created,e.kind,e.asset_id,e.sender,e.sender_name,e.text,l.answer,l.created,d.styled,e.matched_json,e.heard_json,d.model,
+          (SELECT category FROM owner_pings p WHERE p.user_id=d.user_id AND p.kind='draft' AND p.ref_id=d.id) FROM drafts d JOIN events e ON e.id=d.event_id
          LEFT JOIN learned l ON l.id=d.learned_id AND l.user_id=d.user_id
          WHERE d.id IN (SELECT MAX(id) FROM drafts WHERE user_id=?1 GROUP BY event_id)
            AND NOT EXISTS (SELECT 1 FROM replies r WHERE r.event_id=d.event_id AND r.error IS NULL)
@@ -31,19 +32,22 @@ pub async fn home(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Js
         "event_id": r.get::<_, i64>(1)?, "text": r.get::<_, String>(2)?, "source": r.get::<_, String>(3)?, "created": r.get::<_, i64>(4)?,
         "message": { "kind": r.get::<_, String>(5)?, "sender": r.get::<_, String>(7)?, "sender_name": r.get::<_, Option<String>>(8)?, "text": r.get::<_, String>(9)?, "voice": voice, "photo": photo },
         "models": crate::tools::models(described_by, r.get(15)?),
+        // Why the agent pinged the owner about it as urgent (big_order, complaint, …), or null.
+        "urgent": r.get::<_, Option<String>>(16)?,
         "styled": r.get::<_, bool>(12)?, "matched_post": crate::tools::matched(r.get(13)?, &u.id),
         "used": r.get::<_, Option<String>>(10)?.map(|a| -> rusqlite::Result<Value> { Ok(json!({ "answer": a, "told": r.get::<_, i64>(11)? })) }).transpose()? })))
     })?
         .collect::<Result<Vec<_>, _>>()?
         .into_iter().filter(|(asset, _)| ids.contains(asset)).map(|(_, v)| v);
     let mut stmt = db.prepare(
-        "SELECT k.id,q.text,q.created,e.kind,e.sender,e.sender_name,e.text FROM tickets k
+        "SELECT k.id,q.text,q.created,e.kind,e.sender,e.sender_name,e.text,
+           (SELECT category FROM owner_pings p WHERE p.user_id=k.user_id AND p.kind='question' AND p.ref_id=k.id) FROM tickets k
          JOIN reports q ON q.id=(SELECT MAX(id) FROM reports WHERE ticket_id=k.id AND kind='question')
          LEFT JOIN triggers t ON t.id=k.trigger_id LEFT JOIN events e ON e.id=t.event_id
          WHERE k.user_id=?1 AND k.state='open' AND (SELECT kind FROM reports WHERE ticket_id=k.id ORDER BY id DESC LIMIT 1)='waiting'
          ORDER BY k.id DESC LIMIT 10")?;
     let questions = stmt.query_map([&u.id], |r| Ok(json!({ "type": "question", "id": r.get::<_, i64>(0)?, "question": r.get::<_, String>(1)?, "created": r.get::<_, i64>(2)?,
-        "ask_first": r.get::<_, String>(1)? == control::ASK_FIRST,
+        "ask_first": r.get::<_, String>(1)? == control::ASK_FIRST, "urgent": r.get::<_, Option<String>>(7)?,
         "message": r.get::<_, Option<String>>(3)?.map(|kind| -> rusqlite::Result<Value> { Ok(json!({ "kind": kind, "sender": r.get::<_, String>(4)?, "sender_name": r.get::<_, Option<String>>(5)?, "text": r.get::<_, String>(6)? })) }).transpose()? })))?
         .collect::<Result<Vec<_>, _>>()?;
     let mut stmt = db.prepare(
@@ -192,6 +196,7 @@ mod tests {
             }
             db.execute("INSERT INTO replies (event_id,user_id,text,created) VALUES (3,'u','sent',?1)", [now()]).unwrap();
             db.execute("INSERT INTO triggers (id,user_id,thread_id,source,ref,event_id,created) VALUES (1,'u',1,'inbox','wa:x',1,?1)", [now()]).unwrap();
+            db.execute("INSERT INTO owner_pings (user_id,kind,ref_id,event_id,category,text,state,created) VALUES ('u','draft',1,1,'big_order','x','sent',?1)", [now()]).unwrap();
             db.execute("INSERT INTO tickets (id,user_id,thread_id,trigger_id,job,created) VALUES (1,'u',1,1,'replies',?1)", [now()]).unwrap();
             for (kind, text) in [("progress", "Asks the price."), ("question", "What does the tote cost?"), ("waiting", "Waiting for your answer.")] {
                 db.execute("INSERT INTO reports (ticket_id,kind,text,created) VALUES (1,?1,?2,?3)", params![kind, text, now()]).unwrap();
@@ -203,6 +208,7 @@ mod tests {
         assert_eq!(needs[0]["type"], "question");
         assert_eq!(needs[0]["question"], "What does the tote cost?");
         assert_eq!(needs[1]["event_id"], 1);
+        assert_eq!((needs[1]["urgent"].clone(), needs[0]["urgent"].clone()), (json!("big_order"), Value::Null), "an urgent ping marks its draft");
         assert_eq!(home["tickets"][0]["reports"].as_array().unwrap().len(), 3);
         assert_eq!(home["proactive"], true);
 

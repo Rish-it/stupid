@@ -491,7 +491,10 @@ h1[tabindex="-1"]:focus-visible { outline: none; }
 .space-row-meta { grid-area: meta; display: flex; flex-wrap: wrap; gap: 4px 10px; color: var(--color-text-secondary); font-size: .75rem; }
 .space-row-meta [data-state] { display: inline-flex; align-items: center; gap: 4px; }
 .space-row-meta [data-state="Draft ready"], .space-row-meta [data-state="New"], .space-row-meta [data-state="Question"], .space-row-meta [data-state="Asks first"] { color: var(--color-text-primary); font-weight: 600; }
-.space-row-meta [data-state="Not delivered"], .space-warn { color: var(--live); }
+.space-row-meta [data-state="Not delivered"], .space-warn, .space-urgent { color: var(--live); }
+.space-urgent { font-weight: 600; }
+/* A phone shows no row as open until one is tapped. */
+@media (max-width: 47.99rem) { .space:not([data-open]) .space-row[aria-current="true"] { background: none; } }
 .space-detail { min-width: 0; padding: 24px; border-radius: 20px; background: var(--color-background-surface); view-transition-name: space-detail; }
 @media (min-width: 48rem) { .space-detail { position: sticky; top: 12px; max-height: calc(100dvh - 24px); overflow-y: auto; box-sizing: border-box; } }
 .space-back { display: none; }
