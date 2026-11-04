@@ -923,23 +923,31 @@ test("each draft says how it got here, step by step, from what the server sent",
   await page.goto("http://127.0.0.1:8032/?fixtures=1&persona=business&stage=busy#home");
   const draft = page.getByRole("listitem").filter({ hasText: "Sample draft: yes, the chocolate cake" });
   const steps = draft.getByRole("list", { name: "How it got here" }).getByRole("listitem");
-  await expect(steps).toHaveText([/^Matched your post of /, /^Used what you told me on /, "Written in your style", "Drafted the reply", "Waiting for your tap"]);
+  // Each step names the model that did it, by the app's names for the ids the server sends.
+  await expect(steps).toHaveText(["Described the photoMuse Spark 1.3", /^Matched your post of /, /^Used what you told me on /, "Written in your style", "Drafted the replyMuse Spark Open", "Waiting for your tap"]);
   // One after another, 60 ms apart.
   await expect(steps.nth(2)).toHaveCSS("animation-delay", "0.12s");
   await page.emulateMedia({ reducedMotion: "reduce" });
   await expect(steps.nth(2)).toHaveCSS("animation-name", "none");
 });
 
-test("an Inbox draft for a voice note names the model that transcribed it, and skips what it doesn't have", async ({ page }) => {
+test("an Inbox draft for a voice note names the models behind it, and an older one skips what it doesn't have", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json(signedIn)));
   await page.route("**/api/inbox", route => route.fulfill(json({ items: [
-    { id: "v1", kind: "whatsapp", asset_id: "1", sender: "15550001", sender_name: "Ana", text: "Do you deliver?", created: now() - 60, replied: false, voice: true, draft: { text: "Yes, today.", source: "agent" } },
+    { id: "v1", kind: "whatsapp", asset_id: "1", sender: "15550001", sender_name: "Ana", text: "Do you deliver?", created: now() - 60, replied: false, voice: true,
+      draft: { text: "Yes, today.", source: "agent", styled: true, used: null, models: { described_by: "muse-voice-transcribe-1.0", drafted_by: "meta-models/muse-spark-open-1026" } } },
+    { id: "v0", kind: "whatsapp", asset_id: "1", sender: "15550003", sender_name: "Cy", text: "Still open?", created: now() - 80, replied: false, voice: true, draft: { text: "Yes.", source: "agent" } },
     { id: "v2", kind: "whatsapp", asset_id: "1", sender: "15550002", sender_name: "Ben", text: "Open now?", created: now() - 90, replied: false },
   ] })));
   await page.goto("/#inbox");
   await page.locator(".person", { hasText: "Do you deliver?" }).click();
   const steps = page.getByRole("dialog").getByRole("list", { name: "How it got here" }).getByRole("listitem");
-  await expect(steps).toHaveText(["Transcribed the voice noteMuse Voice Transcribe", "Drafted the reply", "Waiting for your tap"]);
+  await expect(steps).toHaveText(["Transcribed the voice noteMuse Voice Transcribe", "Written in your style", "Drafted the replyMuse Spark Open", "Waiting for your tap"]);
+  await page.keyboard.press("Escape");
+  // An older message has no model ids: the steps stay, without names.
+  await page.locator(".person", { hasText: "Still open?" }).click();
+  await expect(page.getByRole("dialog", { name: "Cy" }).getByRole("list", { name: "How it got here" }).getByRole("listitem"))
+    .toHaveText(["Transcribed the voice note", "Drafted the reply", "Waiting for your tap"]);
   await page.keyboard.press("Escape");
   // No draft, no chain.
   await page.locator(".person", { hasText: "Open now?" }).click();
