@@ -114,6 +114,8 @@ export type AgentResult =
 export type AgentRun = {
   agent: AgentId; status: "running" | "done" | "failed"; result: AgentResult | null; error: string | null;
   cost_usd: number | null; created: number; finished: number | null;
+  /** The Meta models that made this result, e.g. "Muse Spark Open", "Muse Wonder", "SAM 3.1". */
+  models: string[];
 };
 /** `order` lists agents in the order this person's path shows them. */
 export type Agents = { runs: AgentRun[]; ai_ready: boolean; own_key: boolean; model: string; order: AgentId[] };
@@ -127,10 +129,20 @@ export type Need =
   | { type: "question"; id: number; question: string; created: number; message: AgentMessage | null };
 export type ReportKind = "progress" | "waiting" | "ready" | "blocked" | "failed" | "dropped" | "question" | "answer" | "idea" | "advice";
 export type Ticket = { id: number; job: string; state: "open" | "ended"; created: number; message: AgentMessage | null; reports: { kind: ReportKind; text: string; created: number }[] };
-export type AgentHome = { needs: Need[]; tickets: Ticket[]; proactive: boolean; rules: string };
+/** `watching` lists the switched-on channels the agent reads; `last_checked` is unix time, or null if never. */
+export type AgentHome = { needs: Need[]; tickets: Ticket[]; proactive: boolean; rules: string; watching: string[]; last_checked: number | null };
 /** The last thing a ticket said that a person would read. */
 export const lastReport = (t: Ticket) => t.reports.filter(r => !["question", "answer", "idea", "advice"].includes(r.kind)).at(-1);
 export const jobNames: Record<string, string> = { replies: "Reply drafts", leads: "Lead finder", ideas: "Post ideas", reels: "Reel director", ads: "Ad watcher" };
+
+const relative = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+/** "2 minutes ago", as plain text: no tab stop or tooltip, unlike a Timestamp. */
+export function ago(unix: number) {
+  const s = unix - Date.now() / 1000, abs = Math.abs(s);
+  if (abs < 45) return "just now";
+  const [n, unit] = abs < 3600 ? [s / 60, "minute"] as const : abs < 86400 ? [s / 3600, "hour"] as const : [s / 86400, "day"] as const;
+  return relative.format(Math.round(n), unit);
+}
 
 /** status 0 = server unreachable; 401 = signed out; any other 4xx carries a message written for the person. */
 export class ApiError extends Error {

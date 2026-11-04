@@ -76,15 +76,15 @@ for (const [reason, title, link] of [
   });
 }
 
-test("Today explains empty reporting periods without inventing results", async ({ page }) => {
+test("Home numbers explain empty reporting periods without inventing results", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json({ ...me, selected: ["ads:1", "instagram:1"], assets: [
     { key: "ads:1", kind: "ads", id: "1", name: "Sample ads" }, { key: "instagram:1", kind: "instagram", id: "1", name: "Sample IG" },
   ] })));
   await page.route("**/api/ads", route => route.fulfill(json({ accounts: [] })));
   await page.route("**/api/instagram", route => route.fulfill(json({ accounts: [] })));
   await page.route("**/api/inbox", route => route.fulfill(json({ items: [] })));
-  await page.route("**/api/agent", route => route.fulfill(json({ proactive: false, rules: "", needs: [], tickets: [] })));
-  await page.goto("/#today");
+  await page.route("**/api/agent", route => route.fulfill(json({ proactive: false, rules: "", needs: [], tickets: [], watching: [], last_checked: null })));
+  await page.goto("/#home");
   await page.getByRole("button", { name: "Your numbers, last 7 days" }).click();
   await expect(page.getByText("No ad results in the last 7 days.")).toBeVisible();
   await expect(page.getByText(/select the same ad account and Last 7 days/)).toBeVisible();

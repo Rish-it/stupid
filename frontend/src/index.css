@@ -82,6 +82,26 @@ body { background: var(--color-background-body); }
 .settings-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; padding: 1.25rem; border-radius: 12px; background: var(--color-background-muted); }
 @media (min-width: 48rem) { .settings-row { grid-template-columns: minmax(0, 18rem) minmax(0, 1fr); gap: 2.5rem; } }
 
+/* Home, after the "Today" reference: a centred status line and date, then two quiet panels. */
+.home { max-width: 1040px; }
+.status-line { display: inline-flex; align-items: center; gap: 8px; font-variant-numeric: tabular-nums; }
+.live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-text-secondary); }
+.live-dot[data-on] { background: var(--live); }
+@media (prefers-reduced-motion: no-preference) { .live-dot[data-on] { animation: breathe 2.4s ease-in-out infinite; } }
+@keyframes breathe { 50% { opacity: .45; } }
+.home-panels { display: grid; gap: 12px; align-items: start; }
+@media (min-width: 64rem) { .home-panels { grid-template-columns: 1fr 1fr; } }
+.panel { padding: 20px; border-radius: 16px; background: var(--color-background-surface); }
+.panel-title { font-size: 1rem; font-weight: 600; outline: none; }
+.panel-title:focus-visible { outline: 2px solid var(--color-text-primary); outline-offset: 4px; border-radius: 4px; }
+.count { min-width: 20px; padding: 0 6px; border-radius: 9999px; background: var(--live); color: #0E0E0F; font-size: 12px; font-weight: 700; line-height: 20px; text-align: center; font-variant-numeric: tabular-nums; }
+.rows { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.row { padding: 14px 16px; border-radius: 12px; background: var(--color-background-muted); outline: none; }
+.row:focus-visible { outline: 2px solid var(--color-text-primary); outline-offset: 2px; }
+.tag { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--color-text-secondary); }
+.tag::before { content: ""; width: 2px; height: 10px; border-radius: 1px; background: var(--live); }
+.bubble-out { align-self: flex-start; background: #232327; }
+
 /* Loading words: a light sweeps across, then rests. */
 @media (prefers-reduced-motion: no-preference) {
   .shimmer { mask-image: linear-gradient(90deg, #000 40%, #0006 50%, #000 60%); mask-size: 200% 100%; animation: shimmer 2s linear infinite; }

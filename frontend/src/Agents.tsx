@@ -10,7 +10,6 @@ import { Token } from "@astryxdesign/core/Token";
 import { Heading } from "@astryxdesign/core/Heading";
 import { api, drafts, jobNames, lastReport, senderName, useLoad } from "./api";
 import type { AgentId, AgentResult, AgentRun, AssetKind, Connections, ReelScript, Ticket } from "./api";
-import { ReportMark } from "./Attention";
 import { objectPosition, ratios, savePng } from "./crop";
 import type { Crop } from "./crop";
 import { Load } from "./Load";
@@ -23,6 +22,15 @@ const agents: { id: AgentId; name: string; does: string; needs: AssetKind[] }[] 
   { id: "replies", name: "Reply drafts", does: "Drafts answers to new messages. Nothing is sent until you tap send in the Inbox.", needs: ["whatsapp", "messenger", "instagram"] },
   { id: "ads", name: "Ad watcher", does: "Checks your ads and says which to pause, keep, grow or fix, and why.", needs: ["ads"] },
 ];
+const marks: Partial<Record<string, { label: string; color?: "green" | "red" | "yellow" | "blue" }>> = {
+  progress: { label: "Working", color: "blue" }, waiting: { label: "Needs you" }, ready: { label: "Ready", color: "green" },
+  blocked: { label: "Stopped", color: "yellow" }, failed: { label: "Didn't finish", color: "red" },
+};
+function ReportMark({ kind }: { kind?: string }) {
+  const mark = kind ? marks[kind] : undefined;
+  return mark ? <Token size="sm" label={mark.label} color={mark.color} /> : null;
+}
+
 const verbs = { pause: "Pause", keep: "Keep", scale: "Grow", fix: "Fix" } as const;
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
@@ -69,7 +77,7 @@ export default function Agents({ state }: { state: Connections }) {
                 onOpen={() => setOpen(agent.id)}
                 onStarted={() => {
                   setWaiting(agent.id);
-                  list.setData(d => d && { ...d, runs: [...d.runs.filter(r => r.agent !== agent.id), { agent: agent.id, status: "running", result: null, error: null, cost_usd: null, created: Date.now() / 1000, finished: null }] });
+                  list.setData(d => d && { ...d, runs: [...d.runs.filter(r => r.agent !== agent.id), { agent: agent.id, status: "running", result: null, error: null, cost_usd: null, created: Date.now() / 1000, finished: null, models: [] }] });
                 }} />
             ))}
           </div>
@@ -125,7 +133,7 @@ function Agent({ agent, run, ready, connected, onStarted, onOpen }: { agent: (ty
   );
 }
 
-function Result({ result, onLeave }: { result: AgentResult; onLeave: () => void }) {
+export function Result({ result, onLeave }: { result: AgentResult; onLeave: () => void }) {
   if ("empty" in result) return <Text as="p">Nothing new to look at yet. Try again after more activity.</Text>;
   const items = (children: ReactNode[]) => <VStack gap={4} as="ul">{children.map((child, i) => <VStack key={i} as="li" gap={4}>{child}</VStack>)}</VStack>;
   if ("leads" in result) return result.leads.length ? items(result.leads.map((l, i) => (

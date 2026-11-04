@@ -16,7 +16,7 @@ import Landing from "./Landing";
 const pages = { home: "Home", inbox: "Inbox", agents: "Agents", setup: "Setup", settings: "Settings" } as const;
 type Page = keyof typeof pages;
 const Setup = lazy(() => import("./Setup"));
-const Today = lazy(() => import("./Today"));
+const Home = lazy(() => import("./Home"));
 const Inbox = lazy(() => import("./Inbox"));
 const Agents = lazy(() => import("./Agents"));
 const Settings = lazy(() => import("./Settings"));
@@ -87,7 +87,7 @@ export default function App() {
   const welcome = !user && Boolean(me.data || me.error?.status === 401);
   let body;
   if (user && page === "setup") body = <Suspense fallback={loading}><Setup state={user} onChange={next => me.setData({ ...user, ...next })} onConnect={connect} /></Suspense>;
-  else if (user && page === "home") body = <Suspense fallback={loading}><Today state={user} /></Suspense>;
+  else if (user && page === "home") body = <Suspense fallback={loading}><Home state={user} persona={user.persona} /></Suspense>;
   else if (user && page === "inbox") body = <Suspense fallback={loading}><Inbox /></Suspense>;
   else if (user && page === "agents") body = <Suspense fallback={loading}><Agents state={user} /></Suspense>;
   else if (user) body = <Suspense fallback={loading}><Settings name={user.name} onSignedOut={signOut} /></Suspense>;
