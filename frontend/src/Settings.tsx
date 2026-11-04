@@ -19,6 +19,7 @@ import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { api, useLoad } from "./api";
 import type { Account, AiModel, AiSettings, Fact, Persona } from "./api";
 import { Load } from "./Load";
+import { modelName } from "./Trace";
 import OnYourWhatsApp from "./OwnerChannel";
 import Setup from "./Setup";
 
@@ -287,9 +288,9 @@ function AiAccess() {
       <Load state={ai}>{s => (
         <VStack gap={4}>
           {s.models?.length > 0 && <Models s={s} onSaved={next => ai.setData(next)} />}
-          {s.brain === "meta" ? <Text as="p">Agents run on {s.model} through Meta's Model API, using Stupid's shared allowance.</Text> : <Text as="p">
-            {s.has_key ? `Agents run on ${s.model} with your own Baseten API key.`
-              : s.workspace_ai ? `Agents run on ${s.model} using Stupid's shared allowance. Add your own Baseten API key to run them on your account instead.`
+          {s.brain === "meta" ? <Text as="p">Agents run on {modelName(s.model)} through Meta's Model API, using Stupid's shared allowance.</Text> : <Text as="p">
+            {s.has_key ? `Agents run on ${modelName(s.model)} with your own Baseten API key.`
+              : s.workspace_ai ? `Agents run on ${modelName(s.model)} using Stupid's shared allowance. Add your own Baseten API key to run them on your account instead.`
               : "Add your own Baseten API key so agents can run."}
           </Text>}
           {s.has_key && s.key_saved_at && <Text as="p" type="supporting" size="sm">Saved <Timestamp value={s.key_saved_at} format="relative" /></Text>}

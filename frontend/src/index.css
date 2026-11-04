@@ -121,7 +121,7 @@ body { background: var(--color-background-body); }
   .people > li:nth-child(3), .covers > .cover:nth-child(3) { animation-delay: 60ms; }
   .people > li:nth-child(4) { animation-delay: 90ms; }
   .people > li:nth-child(n+5) { animation-delay: 120ms; }
-  .cover-art { transition: translate .15s ease-out; }
+  .cover-art { transition: translate .15s ease-out, scale .12s ease-out; }
   .cover:hover .cover-art { translate: 0 -2px; }
   ::view-transition-old(root), ::view-transition-new(root) { animation-duration: .18s; }
 }
@@ -200,7 +200,9 @@ body { background: var(--color-background-body); }
 @media (prefers-reduced-motion: no-preference) {
   .person { transition: background-color .15s ease-out, translate .18s ease-out, scale .12s ease-out; }
   .person:hover { translate: 0 -2px; }
-  .person:active, .corner-button:active, .cover-open:active { scale: .97; }
+  .person:active, .corner-button:active { scale: .97; }
+  /* Press the artwork, not the button: a transform on the button would shrink its full-cover ::after and lose the click. */
+  .cover:has(.cover-open:active) .cover-art { scale: .98; }
   .corner-button { transition: opacity .18s ease-out, scale .22s cubic-bezier(.34, 1.56, .64, 1), translate .22s cubic-bezier(.34, 1.56, .64, 1), background-color .15s; }
   .corner-button + .corner-button { transition-delay: 40ms; }
   .history { animation: spring-in .22s cubic-bezier(.34, 1.56, .64, 1) both; }

@@ -17,6 +17,7 @@ import type { Crop } from "./crop";
 import { Load } from "./Load";
 import OwnAgents from "./OwnAgents";
 import SourceIcon from "./SourceIcon";
+import { modelName } from "./Trace";
 import { Modal, Page } from "./Surface";
 
 const agents: { id: AgentId; name: string; does: string; needs: AssetKind[] }[] = [
@@ -37,7 +38,7 @@ function ReportMark({ kind }: { kind?: string }) {
 
 const appNames: Record<AssetKind, string> = { instagram: "Instagram", whatsapp: "WhatsApp", messenger: "your Facebook Page", ads: "Meta Ads" };
 // Before a run, a tile names the model it will use: the Reel director watches with Muse Wonder.
-const plannedModel = (id: AgentId, model: string) => id === "reels" ? "Muse Wonder" : model;
+const plannedModel = (id: AgentId, model: string) => id === "reels" ? "Muse Wonder" : model && modelName(model);
 
 const verbs = { pause: "Pause", keep: "Keep", scale: "Grow", fix: "Fix" } as const;
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
@@ -133,7 +134,7 @@ export default function Agents({ state }: { state: Connections }) {
                 </article>
               ))}
             </div>
-            {data.model && <Text as="p" type="supporting" size="sm">Agents run on {data.model}{data.own_key ? " with your own key" : ""}.</Text>}
+            {data.model && <Text as="p" type="supporting" size="sm">Agents run on {modelName(data.model)}{data.own_key ? " with your own key" : ""}.</Text>}
             {/* Results open over their app's window; Escape steps back one level at a time. */}
             {current && <Modal isOpen onClose={close} title={current.name} subtitle={current.does} width={inApp.length > 1 ? 960 : 560}>
                 <div className="agent-list">
@@ -185,13 +186,14 @@ function Agent({ agent, run, control, onControl, model, ready, connected, onStar
         {error && <Text as="p" size="sm">{error}</Text>}
         {running && <Text as="p" size="sm" className="shimmer">Working on it. This usually takes under a minute.</Text>}
         {run?.status === "failed" && <Text as="p" size="sm">This run didn't finish: {run.error ?? "no reason given"}</Text>}
-        {run?.status === "done" && run.result && <Text as="p" size="sm">{found(run.result)}{run.finished ? ` ${ago(run.finished)}.` : ""}</Text>}
+        {run?.status === "done" && run.result && <Text as="p" size="sm">{found(run.result)}</Text>}
+        {run?.finished && !running && <Text as="p" size="sm" type="supporting">Last ran {ago(run.finished)}</Text>}
         {control?.mode === "off" ? <Text as="p" size="sm">Off. It won't run until you choose Ask me first or Draft for me.</Text>
           : !run && <Text as="p" size="sm">{agent.does}</Text>}
       </div>
       <HStack gap={2} wrap="wrap">
         {connected
-          ? <Button variant="primary" size="sm" label={running ? "Working…" : run ? "Run again" : "Run"} isLoading={running} isDisabled={!ready || control?.mode === "off"} clickAction={start}
+          ? <Button variant="primary" size="sm" label={running ? "Working…" : "Run now"} isLoading={running} isDisabled={!ready || control?.mode === "off"} clickAction={start}
             aria-label={running ? `${agent.name} is working` : run ? `Run again: ${agent.name}` : `Run ${agent.name}`} />
           : <Button size="sm" label={`Connect ${appNames[agent.needs[0]]}`} href="#setup" />}
         {run?.status === "done" && run.result && <Button size="sm" label="See results" aria-label={`See results: ${agent.name}`} onClick={onOpen} />}
