@@ -234,20 +234,35 @@ export function Result({ result, onLeave }: { result: AgentResult; onLeave: () =
       <HStack><Link hasUnderline href="#inbox" onClick={onLeave}>Open their messages</Link></HStack>
     </VStack>
   ))) : <Text as="p">No one ready to buy yet. Try again after more messages come in.</Text>;
-  if ("ideas" in result) return items(result.ideas.map((idea, i) => (
+  if ("ideas" in result) return (
+    <VStack gap={4}>
+      {result.looked_at_posts?.length ? (
+        <VStack gap={2}>
+          <Text size="sm" type="supporting">Looked at these posts of yours</Text>
+          <HStack gap={2} wrap="wrap">{result.looked_at_posts.map(p => (
+            <a key={p.id} href={p.permalink} target="_blank" rel="noreferrer" title={p.caption}><img className="match-thumb" src={mediaImage(p.id)} alt={p.caption || "Your post"} width={40} height={40} loading="lazy" /></a>
+          ))}</HStack>
+        </VStack>
+      ) : result.looked_at === 0 && <Text size="sm" type="supporting">Written from your captions and numbers; your pictures couldn't be read this time.</Text>}
+      {items(result.ideas.map((idea, i) => (
     <VStack key={i} gap={2}>
       <HStack gap={2} align="center" wrap="wrap"><Text weight="semibold">{idea.hook}</Text><Token size="sm" label={idea.format} /></HStack>
       <Text as="p">{idea.caption}</Text>
       <Text as="p" type="supporting">{idea.why}</Text>
       <HStack><Copy text={idea.caption} /></HStack>
     </VStack>
-  )));
+  )))}
+    </VStack>
+  );
   if ("scripts" in result) return (
     <VStack gap={6}>
       {result.from_captions_only && <Text as="p" type="supporting">No Reels to watch yet, so these come from your captions. Post a Reel and run this again for notes on what works.</Text>}
       {result.watched.map(w => (
         <VStack key={w.video} gap={2}>
-          {w.permalink ? <Link hasUnderline href={w.permalink} isExternalLink maxLines={1}>{w.caption?.split("\n")[0] || `Reel ${w.video}`}</Link> : <Text weight="semibold">Reel {w.video}</Text>}
+          <HStack gap={3} align="center">
+            {w.id && <img className="match-thumb" src={mediaImage(w.id)} alt="" width={40} height={40} loading="lazy" />}
+            {w.permalink ? <Link hasUnderline href={w.permalink} isExternalLink maxLines={1}>{w.caption?.split("\n")[0] || `Reel ${w.video}`}</Link> : <Text weight="semibold">Reel {w.video}</Text>}
+          </HStack>
           {w.works.map((n, i) => <Text key={i} as="p" size="sm"><Text weight="semibold" size="sm" hasTabularNumbers>{n.at}</Text> {n.what}</Text>)}
           {w.drop_off_guesses?.map((n, i) => <Text key={`g${i}`} as="p" size="sm" type="supporting"><Token size="sm" label="Guess" /> <Text size="sm" hasTabularNumbers>{n.at}</Text> {n.what.replace(/^Guess:\s*/i, "")}</Text>)}
         </VStack>
