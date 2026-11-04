@@ -244,6 +244,8 @@ ALTER TABLE users ADD COLUMN agent_rules TEXT NOT NULL DEFAULT '';
     "ALTER TABLE events ADD COLUMN matched_json TEXT;",
     // The chat model the person picked for their agents (see agents::choices); NULL runs `ai_brain`'s default.
     "ALTER TABLE users ADD COLUMN ai_model TEXT;",
+    // How each step of a draft's trace was made: what a media model heard in a message and which model wrote the draft.
+    "ALTER TABLE events ADD COLUMN heard_json TEXT; ALTER TABLE drafts ADD COLUMN model TEXT;",
 ];
 
 /// The built app. A missing hashed asset answers 404, so a stale page fails loudly instead of loading

@@ -18,17 +18,21 @@ pub async fn home(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Js
     let (proactive, rules): (bool, String) = db.query_row("SELECT agent_proactive,agent_rules FROM users WHERE id=?1", [&u.id], |r| Ok((r.get(0)?, r.get(1)?)))?;
     // The newest draft per message, while the message can still be answered and nobody has.
     let mut stmt = db.prepare(
-        "SELECT d.id,d.event_id,d.text,d.source,d.created,e.kind,e.asset_id,e.sender,e.sender_name,e.text,l.answer,l.created,d.styled,e.matched_json FROM drafts d JOIN events e ON e.id=d.event_id
+        "SELECT d.id,d.event_id,d.text,d.source,d.created,e.kind,e.asset_id,e.sender,e.sender_name,e.text,l.answer,l.created,d.styled,e.matched_json,e.heard_json,d.model FROM drafts d JOIN events e ON e.id=d.event_id
          LEFT JOIN learned l ON l.id=d.learned_id AND l.user_id=d.user_id
          WHERE d.id IN (SELECT MAX(id) FROM drafts WHERE user_id=?1 GROUP BY event_id)
            AND NOT EXISTS (SELECT 1 FROM replies r WHERE r.event_id=d.event_id AND r.error IS NULL)
            AND (e.kind='instagram_comment' OR e.created>?2)
          ORDER BY d.id DESC LIMIT 20")?;
-    let drafts = stmt.query_map(params![u.id, now() - 86_400], |r| Ok((r.get::<_, String>(6)?, json!({ "type": "draft", "id": r.get::<_, i64>(0)?,
+    let drafts = stmt.query_map(params![u.id, now() - 86_400], |r| {
+        let (voice, photo, described_by) = crate::voice::trace(r.get(14)?);
+        Ok((r.get::<_, String>(6)?, json!({ "type": "draft", "id": r.get::<_, i64>(0)?,
         "event_id": r.get::<_, i64>(1)?, "text": r.get::<_, String>(2)?, "source": r.get::<_, String>(3)?, "created": r.get::<_, i64>(4)?,
-        "message": { "kind": r.get::<_, String>(5)?, "sender": r.get::<_, String>(7)?, "sender_name": r.get::<_, Option<String>>(8)?, "text": r.get::<_, String>(9)? },
+        "message": { "kind": r.get::<_, String>(5)?, "sender": r.get::<_, String>(7)?, "sender_name": r.get::<_, Option<String>>(8)?, "text": r.get::<_, String>(9)?, "voice": voice, "photo": photo },
+        "models": crate::tools::models(described_by, r.get(15)?),
         "styled": r.get::<_, bool>(12)?, "matched_post": crate::tools::matched(r.get(13)?, &u.id),
-        "used": r.get::<_, Option<String>>(10)?.map(|a| -> rusqlite::Result<Value> { Ok(json!({ "answer": a, "told": r.get::<_, i64>(11)? })) }).transpose()? }))))?
+        "used": r.get::<_, Option<String>>(10)?.map(|a| -> rusqlite::Result<Value> { Ok(json!({ "answer": a, "told": r.get::<_, i64>(11)? })) }).transpose()? })))
+    })?
         .collect::<Result<Vec<_>, _>>()?
         .into_iter().filter(|(asset, _)| ids.contains(asset)).map(|(_, v)| v);
     let mut stmt = db.prepare(
@@ -265,6 +269,32 @@ mod tests {
         assert_eq!(left["facts"], json!([]));
         assert_eq!(executor::context(&lock(&s.db), "u", 2, 2).unwrap()["owner_facts"], json!([]));
         assert!(forget(State(s), h, Path(all[0]["id"].as_i64().unwrap())).await.is_err(), "already gone");
+    }
+
+    #[tokio::test]
+    async fn a_draft_need_traces_the_voice_note_or_photo_and_the_models() {
+        let (s, _) = state_with_user();
+        let h = signed_in(&s);
+        {
+            let db = lock(&s.db);
+            for (id, media) in [(1, "wa:7"), (2, "photo:wa:8"), (3, "wa:9")] {
+                db.execute("INSERT INTO events (id,kind,asset_id,sender,text,created,media) VALUES (?1,'whatsapp','p1','91','',?2,?3)", params![id, now(), media]).unwrap();
+            }
+            crate::voice::store(&db, 1, crate::voice::Media::Voice, Ok(("Is it in stock?".into(), crate::meta_ai::VOICE.into()))).unwrap();
+            crate::voice::store(&db, 2, crate::voice::Media::Photo, Ok(("A red mug.".into(), "muse-spark-1.3".into()))).unwrap();
+            crate::voice::store(&db, 3, crate::voice::Media::Voice, Err("the file is over 16 MB".into())).unwrap();
+            db.execute("INSERT INTO drafts (user_id,ticket_id,event_id,text,source,created) VALUES ('u',7,1,'Yes!','agent',1),('u',7,2,'That mug, yes.','agent',2),('u',8,3,'Could you type it?','agent',3)", []).unwrap();
+            crate::tools::drafted_by(&db, 7, "meta-models/muse-spark-open-1026").unwrap();
+        }
+        let Json(home) = super::home(State(s.clone()), h).await.unwrap();
+        let need = |event: i64| home["needs"].as_array().unwrap().iter().find(|n| n["event_id"] == event).unwrap().clone();
+        let (voice, photo, failed) = (need(1), need(2), need(3));
+        assert_eq!((voice["message"]["voice"].clone(), voice["message"]["photo"].clone()), (json!({ "transcript": "Is it in stock?", "model": "muse-voice-transcribe-1.0" }), Value::Null));
+        assert_eq!(voice["models"], json!({ "described_by": "muse-voice-transcribe-1.0", "drafted_by": "meta-models/muse-spark-open-1026" }));
+        assert_eq!((photo["message"]["photo"].clone(), photo["message"]["voice"].clone()), (json!({ "description": "A red mug.", "model": "muse-spark-1.3" }), Value::Null));
+        assert_eq!(photo["models"], json!({ "described_by": "muse-spark-1.3", "drafted_by": "meta-models/muse-spark-open-1026" }));
+        assert_eq!(failed["message"]["voice"], json!({ "transcript": null, "model": null }), "a voice note no model could hear");
+        assert_eq!(failed["models"], json!({}), "nothing known, nothing claimed");
     }
 
     #[test]

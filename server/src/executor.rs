@@ -158,6 +158,7 @@ pub async fn work(s: &AppState, ticket: i64) -> ApiResult<()> {
     if style.is_some() {
         style::mark(&db, ticket)?;
     }
+    tools::drafted_by(&db, ticket, brain.ai.model())?;
     db.execute("INSERT INTO reports (ticket_id,kind,text,created) VALUES (?1,?2,?3,?4)", params![ticket, kind, text, now()])?;
     if !open {
         db.execute("UPDATE tickets SET state='ended',ended=?2 WHERE id=?1", params![ticket, now()])?;
