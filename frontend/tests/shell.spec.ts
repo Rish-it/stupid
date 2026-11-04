@@ -430,6 +430,9 @@ test("Settings makes a key for Muse, shows it once, and revokes it", async ({ pa
   await page.goto("/#settings");
   await expect(page.getByLabel("MCP server URL")).toHaveValue("https://app.example.com/mcp");
   await expect(page.getByLabel("Ask Muse to add Stupid")).toHaveValue(/MCP server URL: https:\/\/app\.example\.com\/mcp/);
+  await page.getByText("Use it from Muse Code").click();
+  await expect(page.getByLabel("Muse Code settings")).toHaveValue(/"url": "https:\/\/app\.example\.com\/mcp"/);
+  await expect(page.getByLabel("Muse Code settings")).toHaveValue(/"Authorization": "\$\{STUPID_MCP_AUTH\}"/);
   await page.getByRole("button", { name: "Make a key" }).click();
   await expect(page.getByLabel("Access key")).toHaveValue("stupid_test_key");
   await expect(page.getByText("Not used yet.")).toBeVisible();

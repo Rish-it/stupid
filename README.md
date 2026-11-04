@@ -62,16 +62,36 @@ Stupid is also an MCP server, for a Muse custom connector or any MCP client: `PO
 Muse", make an access key (shown once; stored as a hash, revocable) and paste the URL, the key and
 the ready-made words into Muse.
 
-- Read tools, from the agent's own registry: `get_today`, `list_inbox`, `read_thread`,
-  `list_leads`, `list_drafts`, `get_ad_advice`.
+- Read tools, from the agent's own registry: `get_today`, `list_inbox`, `read_thread`, `get_ads`,
+  `get_instagram`, `list_leads`, `list_drafts`, `get_ad_advice`, and the media tools
+  `watch_video` (Muse Wonder), `find_subject` (SAM 3.1) and `transcribe_voice_note` (Voice
+  Transcribe, or what a customer's photo or video shows). The media tools spend from Stupid's
+  Model API budget.
 - Prepare tools: `queue_reply_draft(item_id, text)` queues a draft that opens in Stupid's Inbox
-  marked "From Muse"; `run_agent(name)` starts a job under the same spend cap and daily limit.
+  marked "From Muse"; `save_idea` and `save_ad_advice` leave work in Stupid for review;
+  `run_agent(name)` starts a job under the same spend cap and daily limit.
 - There is no send, post or spend tool. Only a Bearer key opens `/mcp`; cookies are ignored.
 
 ```bash
 curl -s https://app.secndai.com/mcp -H "Authorization: Bearer $STUPID_KEY" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
+
+**Muse Code.** Add the server to `~/.config/muse/settings.json` (Settings in Stupid shows this with
+your URL filled in) and keep the key in an environment variable:
+
+```json
+{ "schema_version": 1,
+  "mcp_servers": { "stupid": { "transport": "streamable_http", "url": "https://app.secndai.com/mcp",
+    "headers": { "Authorization": "${STUPID_MCP_AUTH}" }, "mode": "optional" } } }
+```
+
+```bash
+export STUPID_MCP_AUTH="Bearer $STUPID_KEY"
+muse exec "What's waiting in my Stupid inbox? Queue a short reply to the newest message."
+```
+
+Muse Code then reads the inbox and queues a draft marked "From Muse"; you send it from Stupid.
 
 ## Service providers
 

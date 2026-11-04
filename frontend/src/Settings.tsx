@@ -79,7 +79,13 @@ function AgentForm({ proactive, rules, onSaved }: { proactive: boolean; rules: s
 const connectorPrompt = (url: string) => `Create a custom connector called Stupid.
 MCP server URL: ${url}
 Authentication: Bearer token. I'll paste my Stupid access key when you ask.
-It reads my Stupid inbox, leads, drafts and ad advice, can queue reply drafts and start Stupid's jobs. It can't send anything: I send from Stupid.`;
+It reads my Stupid inbox, ads, Instagram, leads, drafts and ad advice, watches my videos, can queue reply drafts, save post ideas and start Stupid's jobs. It can't send anything: I send from Stupid.`;
+
+/** Muse Code's user settings, ~/.config/muse/settings.json. The key stays in an environment variable. */
+const museCodeSettings = (url: string) => JSON.stringify({
+  schema_version: 1,
+  mcp_servers: { stupid: { transport: "streamable_http", url, headers: { Authorization: "${STUPID_MCP_AUTH}" }, mode: "optional" } },
+}, null, 2);
 
 /** A key for Muse's custom connector, shown once, with the URL and the words to paste into Muse. */
 function UseFromMuse() {
@@ -88,7 +94,7 @@ function UseFromMuse() {
   const [error, setError] = useState("");
   const act = (call: () => Promise<unknown>) => () => call().then(() => status.reload(), (cause: unknown) => setError(message(cause)));
   return (
-    <Row id="muse-heading" title="Use Stupid from Muse" description="Muse can read your inbox and queue reply drafts here. Sending still needs your tap in Stupid.">
+    <Row id="muse-heading" title="Use Stupid from Muse" description="Muse and Muse Code can read your inbox and queue reply drafts here, on your Muse subscription. Sending still needs your tap in Stupid.">
       <Load state={status}>{k => (
         <VStack gap={4}>
           <Text as="p">{k.has_key
@@ -106,6 +112,18 @@ function UseFromMuse() {
             <Button variant="primary" label={k.has_key ? "Make a new key" : "Make a key"} clickAction={() => api.createMcpKey().then(r => { setMade(r.key); setError(""); return status.reload(); }, (cause: unknown) => setError(message(cause)))} />
             {k.has_key && <Button variant="ghost" label="Revoke the key" clickAction={act(() => api.revokeMcpKey().then(() => setMade(undefined)))} />}
           </HStack>
+          <details>
+            <summary>Use it from Muse Code</summary>
+            <VStack gap={3}>
+              <ol className="steps">
+                <li>Add the stupid server to <code>~/.config/muse/settings.json</code>. If the file already exists, add only the <code>stupid</code> entry under <code>mcp_servers</code>.</li>
+                <li>In your shell profile, set <code>export STUPID_MCP_AUTH="Bearer your-key"</code>, so the key never sits in the settings file.</li>
+                <li>Start Muse Code and run <code>/mcp</code> to see Stupid's tools. Then ask, for example, "What's waiting in my Stupid inbox? Queue a reply to the newest message."</li>
+              </ol>
+              <TextArea label="Muse Code settings" value={museCodeSettings(k.url)} onChange={() => undefined} rows={9} />
+              <HStack><Copy text={museCodeSettings(k.url)} label="Copy the settings" /></HStack>
+            </VStack>
+          </details>
           <div aria-live="polite">{error && <Text as="p">{error}</Text>}</div>
         </VStack>
       )}</Load>
