@@ -11,36 +11,38 @@ test("shows a clear offline state when the server is down", async ({ page }) => 
   await expect(page.getByText("Not an official Meta product.")).toBeVisible();
 });
 
-test("asks a signed-out visitor to continue with Facebook", async ({ page }) => {
+test("the landing page offers two doors, each with its own sign-in", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json({ signed_in: false })));
   await page.goto("/");
-  await expect(page.getByRole("link", { name: "Continue with Facebook" }).first()).toHaveAttribute("href", "/api/v1/meta/oauth/start");
+  await expect(page.getByRole("heading", { level: 1, name: "Stupid does your Meta busywork" })).toBeVisible();
   await expect(page.getByText("Stupid only reads what you allow.")).toBeVisible();
+  await expect(page.getByText("Not an official Meta product.")).toBeVisible();
   for (const [name, href] of [["Privacy", "/privacy.html"], ["Terms", "/terms.html"], ["Data deletion", "/deletion.html"]])
-    await expect(page.getByRole("link", { name })).toHaveAttribute("href", href);
+    await expect(page.getByRole("link", { name, exact: true })).toHaveAttribute("href", href);
+  await expect(page.getByRole("link", { name: "Continue with Facebook" })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "I run a business" }).click();
+  const dialog = page.getByRole("dialog", { name: "Connect your business" });
+  await expect(dialog.getByText("Your WhatsApp Business number.")).toBeVisible();
+  await expect(dialog.getByRole("link", { name: "Continue with Facebook" })).toHaveAttribute("href", "/api/v1/meta/oauth/start");
+  await expect(dialog.getByRole("link", { name: "Privacy policy" })).toHaveAttribute("href", "/privacy.html");
+  expect(await page.evaluate(() => sessionStorage.getItem("stupid.persona"))).toBe("business");
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "I run a business" })).toBeFocused();
+
+  await page.getByRole("button", { name: "I create content" }).click();
+  await expect(page.getByRole("dialog", { name: "Connect as a creator" }).getByText(/Your Instagram account/)).toBeVisible();
+  expect(await page.evaluate(() => sessionStorage.getItem("stupid.persona"))).toBe("creator");
 });
 
-test("the welcome headline cycles, and holds still for reduced motion", async ({ page }) => {
+test("how it works switches between the creator and business paths", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json({ signed_in: false })));
   await page.goto("/");
-  await expect(page.getByRole("heading", { level: 1, name: "Stupid, AI that does your Meta busywork", exact: true })).toBeVisible();
-  const shown = page.locator(".rebus-phrase:not([hidden])");
-  await expect(shown).toHaveText("does your Meta busywork");
-  await expect(shown.last()).toHaveText("drafts your replies", { timeout: 5000 });
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.reload();
-  await page.waitForTimeout(4000);
-  await expect(shown).toHaveText("does your Meta busywork");
-});
-
-test("the footer mascot loads on its own and gets busy over the sign-in buttons", async ({ page }) => {
-  await page.route("**/api/me", route => route.fulfill(json({ signed_in: false })));
-  await page.goto("/");
-  const footer = page.locator("footer.outro");
-  await footer.scrollIntoViewIfNeeded();
-  await expect(footer.locator(".mascot-stage canvas")).toBeVisible();
-  await footer.getByRole("link", { name: "Continue with Facebook" }).hover();
-  await expect(footer.locator(".mascot-stage canvas")).toHaveAttribute("aria-label", /working/i);
+  await expect(page.getByRole("heading", { name: "Stupid watches and writes" })).toBeVisible();
+  await page.getByRole("radio", { name: "Businesses" }).click();
+  await expect(page.getByRole("heading", { name: "Stupid listens and drafts" })).toBeVisible();
+  for (const model of ["Muse Spark", "Voice Transcribe", "Wonder", "SAM 3.1"]) await expect(page.getByText(model, { exact: true })).toBeVisible();
+  await expect(page.getByText("Works with Muse and Muse Code")).toBeVisible();
 });
 
 test("a signed-in person moves between destinations", async ({ page }) => {
@@ -98,9 +100,10 @@ test("continuing with Facebook shows a full-screen loader on the way out and bac
   await page.goto("/?connected=1");
   await expect(page.getByText("Connecting to Meta…")).toBeVisible();
   answer();
-  await expect(page.getByRole("link", { name: "Continue with Instagram" }).first()).toHaveAttribute("href", "/api/v1/instagram/oauth/start");
+  await page.getByRole("button", { name: "I create content" }).click();
+  await expect(page.getByRole("link", { name: "Continue with Instagram" })).toHaveAttribute("href", "/api/v1/instagram/oauth/start");
   await page.route("**/api/v1/meta/oauth/start", route => route.fulfill({ status: 204 })); // 204 keeps the page where it is
-  await page.getByRole("link", { name: "Continue with Facebook" }).first().click({ noWaitAfter: true });
+  await page.getByRole("link", { name: "Continue with Facebook" }).click({ noWaitAfter: true });
   // Locators wait on the pending navigation, so read the page directly.
   await expect.poll(() => page.evaluate(() => document.body.innerText)).toContain("Connecting to Meta…");
 });
@@ -251,7 +254,7 @@ test("Settings saves an AI key, confirms before deleting and signs out", async (
   expect(deleted).toBe(false);
   await page.getByRole("button", { name: "Disconnect and delete my data" }).click();
   await page.getByRole("button", { name: "Yes, delete everything" }).click();
-  await expect(page.getByRole("link", { name: "Continue with Facebook" }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "I run a business" })).toBeVisible();
   expect(deleted).toBe(true);
 });
 
@@ -457,4 +460,16 @@ test("Post ideas say how many of the creator's pictures they looked at", async (
     result: { looked_at: 4, ideas: [{ hook: "Crab sticker unboxing", caption: "New drop", format: "reel", why: "Your second picture, the close-up, got the most comments." }] } }] })));
   await page.goto("/#agents");
   await expect(page.getByText("Drafted 1 post idea after looking at 4 of your pictures.")).toBeVisible();
+});
+
+test("a sender without a name reads as someone on that app, never as an id", async ({ page }) => {
+  await page.route("**/api/me", route => route.fulfill(json(signedIn)));
+  await page.route("**/api/inbox", route => route.fulfill(json({ items: [
+    { id: "i1", kind: "instagram_comment", asset_id: "1", sender: "17841400000000001", sender_name: null, text: "Love it", created: 1, replied: false },
+    { id: "m1", kind: "messenger", asset_id: "1", sender: "24000000000000001", sender_name: "", text: "Open Sunday?", created: 1, replied: false },
+  ] })));
+  await page.goto("/#inbox");
+  await expect(page.getByText("Someone on Instagram")).toBeVisible();
+  await expect(page.getByText("Someone on Messenger")).toBeVisible();
+  await expect(page.getByText("17841400000000001")).toHaveCount(0);
 });

@@ -12,7 +12,7 @@ import { Avatar } from "@astryxdesign/core/Avatar";
 import { TopNav, TopNavHeading } from "@astryxdesign/core/TopNav";
 import { api, door, legal, oauthStartUrl, sample, setupDone, useLoad, useStream } from "./api";
 import { Logo } from "./Icons";
-import Welcome from "./Welcome";
+import Landing from "./Landing";
 
 const pages = { today: "Today", inbox: "Inbox", agents: "Agents", setup: "Setup", settings: "Settings" } as const;
 type Page = keyof typeof pages;
@@ -61,7 +61,6 @@ export default function App() {
   useEffect(() => { if (!named && page === "setup") location.replace("#setup"); }, [named, page]);
   const [failed, setFailed] = useState(failure);
   const [connecting, setConnecting] = useState(false);
-  const [passed, setPassed] = useState(false);
   // Coming back with the browser's Back button restores this page as it was; drop the loader then.
   useEffect(() => {
     const onShow = (event: PageTransitionEvent) => event.persisted && setConnecting(false);
@@ -88,7 +87,7 @@ export default function App() {
   else if (user && page === "inbox") body = <Suspense fallback={loading}><Inbox /></Suspense>;
   else if (user && page === "agents") body = <Suspense fallback={loading}><Agents state={user} /></Suspense>;
   else if (user) body = <Suspense fallback={loading}><Settings name={user.name} onSignedOut={signOut} /></Suspense>;
-  else if (welcome) body = <Welcome instagram={me.data?.signed_in === false ? me.data.instagram_oauth_start : undefined} onConnect={connect} onPassed={setPassed} />;
+  else if (welcome) body = <Landing instagram={me.data?.signed_in === false ? me.data.instagram_oauth_start : undefined} onConnect={connect} />;
   else if (me.error) body = (
     <EmptyState headingLevel={1} title={me.error.status === 0 ? "Stupid is offline" : "Something went wrong"}
       description={me.error.status === 0 ? "We can't reach Stupid's server. Check your connection, then try again." : me.error.message}
@@ -107,7 +106,7 @@ export default function App() {
             {reconnecting && <Text className="shimmer" type="supporting" size="sm" role="status">Reconnecting…</Text>}
             <Avatar name={user.name} size="sm" href="#settings" tooltip={false} alt={`${user.name}, settings`} />
           </HStack>
-        ) : welcome && <span className="sticky-mark" data-passed={passed || undefined}><Button variant="primary" size="lg" label="Continue with Facebook" href={oauthStartUrl} onClick={connect} /></span>} />
+        ) : undefined} />
     }
       sideNav={user && <Suspense fallback={null}><SideBar page={page} setup={!ready} /></Suspense>}>
       <VStack gap={6}>
