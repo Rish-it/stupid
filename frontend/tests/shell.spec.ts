@@ -268,7 +268,7 @@ test("a switched-on Instagram gets its filter before anything arrives, and says 
   await page.goto("/#inbox");
   await page.getByRole("radiogroup", { name: "Show messages from" }).getByRole("radio", { name: "Instagram" }).click();
   await expect(page.getByRole("heading", { name: "Nothing from Instagram yet" })).toBeVisible();
-  await expect(page.getByText(/Stupid reads @Test Instagram's DMs and comments every few seconds.*Connected tools\./)).toBeVisible();
+  await expect(page.getByText(/^Stupid reads @Test Instagram's DMs and comments every few seconds.*Connected tools\./)).toBeVisible();
 });
 
 test("Agents point to Settings when there is no AI access", async ({ page }) => {
