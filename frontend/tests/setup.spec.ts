@@ -46,7 +46,7 @@ test("Setup walks through Meta's fixes, checks again and finishes", async ({ pag
 
   await page.getByRole("button", { name: "Manage WhatsApp" }).click();
   await expect(page.getByText("Add a payment method in WhatsApp Manager.")).toBeVisible();
-  const open = page.getByRole("link", { name: "Open in Meta" });
+  const open = page.getByRole("dialog").getByRole("link", { name: "Open in Meta", exact: true });
   await expect(open).toHaveAttribute("href", unpaid.link);
   await expect(open).toHaveAttribute("target", "_blank");
 
