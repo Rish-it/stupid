@@ -47,16 +47,54 @@ fn whatsapp_issues(health: &Value, business: &str, waba: &str) -> Vec<Issue> {
             }
             seen.push(code);
             let (text, fix, link) = match code {
-                141006 => ("WhatsApp needs a payment method before it can send.", "Add a payment method. Replies within 24 hours of a customer's message are free.", format!("https://business.facebook.com/billing_hub/accounts/details/?business_id={business}&asset_id={waba}")),
+                141006 => ("WhatsApp needs a payment method before it can send.", "Open Billing & payments, select this WhatsApp account, then Payment methods. Production replies can be charged by Meta.", format!("https://business.facebook.com/billing_hub/accounts/details/?business_id={business}&asset_id={waba}")),
                 141007 => ("This WhatsApp account has no time zone.", "Set a time zone for the WhatsApp account.", format!("https://business.facebook.com/latest/settings/whatsapp_account?business_id={business}")),
-                141010 => ("Your business isn't verified, so new chats per day are limited.", "Verify your business with Meta. Replies still work.", format!("https://business.facebook.com/latest/settings/security_center?business_id={business}")),
+                141010 => ("Your business isn't verified, so new chats per day are limited.", "Open Security Center and follow the verification steps Meta asks for. This is different from a paid Meta Verified badge.", format!("https://business.facebook.com/latest/settings/security_center?business_id={business}")),
+                131031 => ("Meta has locked this WhatsApp account.", "Open Business Support Home, select this account and follow the reason shown. Choose Request review if offered. Verification alone may not unlock it.", "https://business.facebook.com/business-support-home/".into()),
+                131042 => ("WhatsApp couldn't use this account's billing setup.", "Open Billing & payments, select this account and check Payment methods, its balance, currency and time zone.", "https://business.facebook.com/latest/billing_hub/payment_methods/".into()),
+                131045 | 133010 => ("This WhatsApp number isn't registered for messaging.", "In WhatsApp Manager, select this account and Phone numbers. Finish verifying and registering your number before trying again.", "https://developers.facebook.com/documentation/business-messaging/whatsapp/business-phone-numbers/registration".into()),
                 131000 => ("Your business profile is missing its legal name, country or website.", "Fill in your business info.", format!("https://business.facebook.com/latest/settings/business_info?business_id={business}")),
                 _ => (e["error_description"].as_str().unwrap_or("Meta reported a problem with this account."), e["possible_solution"].as_str().unwrap_or("Open WhatsApp Manager to see what Meta needs."), format!("https://business.facebook.com/wa/manage/home/?business_id={business}&waba_id={waba}")),
             };
             out.push(Issue { blocking, text: text.chars().take(300).collect(), fix: fix.chars().take(300).collect(), link });
         }
     }
+    if (health["can_send_message"] == "BLOCKED"
+        || health["entities"].as_array().into_iter().flatten().any(|e| e["can_send_message"] == "BLOCKED"))
+        && !out.iter().any(|issue| issue.blocking)
+    {
+        out.push(Issue {
+            blocking: true,
+            text: "Meta is blocking messages from this WhatsApp account.".into(),
+            fix: "Open Business Support Home, select this account and follow the requirement shown. Meta hasn't shared a more specific reason yet.".into(),
+            link: "https://business.facebook.com/business-support-home/".into(),
+        });
+    }
     out
+}
+
+fn ad_account_issues(account: &Value) -> Vec<Issue> {
+    let (text, fix, link) = match account["account_status"].as_i64() {
+        Some(2) => ("Meta has disabled this ad account.", "Select this ad account in Business Support Home. Read the restriction and choose Request review if offered.", "https://business.facebook.com/business-support-home/"),
+        Some(3) => ("This ad account has an unpaid balance.", "In Billing & payments, select this ad account and resolve the balance or failed payment. Reading past results doesn't require a new campaign.", "https://business.facebook.com/latest/billing_hub/payment_methods/"),
+        Some(7..=9) => ("Meta is reviewing this ad account or its payment setup.", "Select this ad account in Business Support Home and check for a review or a payment requirement. Come back here and check again after Meta updates it.", "https://business.facebook.com/business-support-home/"),
+        Some(100 | 101) => ("This ad account is closing or closed.", "Choose another ad account in Stupid, or review this account in Ads Manager. Past results may still be available.", "https://adsmanager.facebook.com/adsmanager/manage/campaigns/"),
+        _ => return Vec::new(),
+    };
+    vec![Issue { blocking: true, text: text.into(), fix: fix.into(), link: link.into() }]
+}
+
+fn page_issues(page: &Value) -> Vec<Issue> {
+    let Some(tasks) = page["tasks"].as_array() else { return Vec::new() };
+    if tasks.iter().any(|task| task == "MESSAGING" || task == "MANAGE") {
+        return Vec::new();
+    }
+    vec![Issue {
+        blocking: true,
+        text: "Your Page access doesn't include messages.".into(),
+        fix: "Ask someone with full control to open Settings, select this Page and assign you messaging access. Then connect again. In the Page's settings, also check How people find and contact you allows messages.".into(),
+        link: "https://www.facebook.com/business/help/1101781386943864".into(),
+    }]
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -78,7 +116,7 @@ fn graph_error(body: &Value) -> AppError {
     }
     let message = e["message"].as_str().unwrap_or("Meta did not answer.");
     tracing::warn!("Graph API error {}: {message}", e["code"]);
-    AppError::new(502, format!("Meta: {message}"))
+    AppError::new(502, format!("Meta: {message} ({})", e["code"].as_i64().unwrap_or_default()))
 }
 
 async fn send(request: reqwest::RequestBuilder) -> ApiResult<Value> {
@@ -142,8 +180,8 @@ async fn discover(state: &AppState, token: &str) -> Grant {
         Vec::new()
     });
     let (ad_accounts, pages, businesses, permissions) = tokio::join!(
-        async { rows(state, "me/adaccounts", "id,name", token).await },
-        async { rows(state, "me/accounts", "id,name,access_token,instagram_business_account{id,username}", token).await },
+        async { rows(state, "me/adaccounts", "id,name,account_status", token).await },
+        async { rows(state, "me/accounts", "id,name,access_token,tasks,instagram_business_account{id,username}", token).await },
         async { rows(state, "me/businesses", "id", token).await },
         async { rows(state, "me/permissions", "permission,status", token).await },
     );
@@ -157,6 +195,16 @@ async fn discover(state: &AppState, token: &str) -> Grant {
     }
     let mut numbers = Vec::new();
     let mut issues = HashMap::new();
+    for account in &ad_accounts {
+        if let Some(id) = account["id"].as_str() {
+            issues.insert(format!("ads:{id}"), ad_account_issues(account));
+        }
+    }
+    for page in &pages {
+        if let Some(id) = page["id"].as_str() {
+            issues.insert(format!("messenger:{id}"), page_issues(page));
+        }
+    }
     for (waba, b) in &wabas {
         let Some(w) = waba["id"].as_str().filter(|w| numeric(w)) else { continue };
         let found = take("WhatsApp numbers", rows(state, &format!("{w}/phone_numbers"), "id,verified_name,display_phone_number,health_status", token).await);
@@ -638,6 +686,95 @@ mod tests {
         assert!(!issues[1].blocking && issues[1].text.contains("verified"));
         assert_eq!((issues[2].text.as_str(), issues[2].fix.as_str()), ("Odd", "Do X"));
         assert!(whatsapp_issues(&Value::Null, "7", "8").is_empty());
+    }
+
+    #[test]
+    fn locked_whatsapp_accounts_offer_review_without_guessing_the_cause() {
+        let issues = whatsapp_issues(&json!({"entities":[{"can_send_message":"BLOCKED","errors":[{"error_code":131031}]}]}), "7", "8");
+        assert_eq!(issues.len(), 1);
+        assert!(issues[0].blocking && issues[0].text.contains("locked"));
+        assert!(issues[0].fix.contains("Request review"));
+        assert_eq!(issues[0].link, "https://business.facebook.com/business-support-home/");
+    }
+
+    #[test]
+    fn whatsapp_billing_errors_explain_what_to_check() {
+        let issues = whatsapp_issues(&json!({"entities":[{"can_send_message":"BLOCKED","errors":[{"error_code":131042}]}]}), "7", "8");
+        assert!(issues[0].fix.contains("currency and time zone"));
+        assert!(issues[0].link.ends_with("/payment_methods/"));
+    }
+
+    #[test]
+    fn whatsapp_registration_errors_link_to_registration() {
+        for code in [131045, 133010] {
+            let issues = whatsapp_issues(&json!({"entities":[{"can_send_message":"BLOCKED","errors":[{"error_code":code}]}]}), "7", "8");
+            assert!(issues[0].text.contains("isn't registered"));
+            assert!(issues[0].link.ends_with("/registration"));
+        }
+    }
+
+    #[test]
+    fn blocked_health_without_error_details_is_never_ready() {
+        for health in [json!({"can_send_message":"BLOCKED"}), json!({"entities":[{"can_send_message":"BLOCKED"}]})] {
+            let issues = whatsapp_issues(&health, "7", "8");
+            assert_eq!(issues.len(), 1);
+            assert!(issues[0].blocking && issues[0].fix.contains("hasn't shared"));
+        }
+        assert!(whatsapp_issues(&json!({"can_send_message":"AVAILABLE"}), "7", "8").is_empty());
+    }
+
+    #[test]
+    fn whatsapp_setup_never_promises_free_production_replies() {
+        let issues = whatsapp_issues(&json!({"entities":[{"can_send_message":"BLOCKED","errors":[{"error_code":141006},{"error_code":141010}]}]}), "7", "8");
+        assert!(issues[0].fix.contains("charged"));
+        assert!(!issues[1].fix.contains("Replies still work"));
+        assert!(issues[1].blocking);
+    }
+
+    #[test]
+    fn disabled_ads_offer_a_review() {
+        let issues = ad_account_issues(&json!({"account_status":2}));
+        assert!(issues[0].blocking && issues[0].fix.contains("Request review"));
+    }
+
+    #[test]
+    fn unsettled_ads_offer_billing() {
+        let issues = ad_account_issues(&json!({"account_status":3}));
+        assert!(issues[0].text.contains("unpaid balance"));
+        assert!(issues[0].link.ends_with("/payment_methods/"));
+    }
+
+    #[test]
+    fn pending_ads_explain_review() {
+        for status in [7, 8, 9] {
+            assert!(ad_account_issues(&json!({"account_status":status}))[0].text.contains("reviewing"));
+        }
+    }
+
+    #[test]
+    fn closed_ads_offer_another_account() {
+        for status in [100, 101] {
+            assert!(ad_account_issues(&json!({"account_status":status}))[0].fix.contains("another ad account"));
+        }
+        for account in [Value::Null, json!({"account_status":1})] {
+            assert!(ad_account_issues(&account).is_empty());
+        }
+    }
+
+    #[test]
+    fn page_without_messaging_access_needs_the_owner() {
+        let issues = page_issues(&json!({"tasks":["ANALYZE"]}));
+        assert!(issues[0].blocking && issues[0].fix.contains("full control"));
+        for page in [json!({"tasks":["MESSAGING"]}), json!({"tasks":["MANAGE"]}), Value::Null] {
+            assert!(page_issues(&page).is_empty());
+        }
+    }
+
+    #[test]
+    fn graph_errors_keep_the_code_for_delivery_help() {
+        let error = graph_error(&json!({"error":{"code":131031,"message":"Business Account locked"}}));
+        assert!(error.1.contains("(131031)"));
+        assert_eq!(graph_error(&json!({"error":{"code":190}})).1, "Meta access expired. Connect again.");
     }
 
     #[test]
