@@ -202,16 +202,16 @@ test("Agents run, poll to a result and hand a reply draft to the Inbox", async (
   await page.route("**/api/inbox", route => route.fulfill(json(inbox)));
   let polls = 0;
   await page.route("**/api/agents", route => route.fulfill(json({ ai_ready: true, own_key: false, model: "test-model", order: ["leads", "ideas", "replies", "reels", "ads"], runs: polls++ < 1 ? [] : [
-    { agent: "replies", status: polls < 3 ? "running" : "done", result: polls < 3 ? null : { replies: [{ event_id: "w1", to: "Ana", draft: "We're open until 7." }] }, error: null, cost_usd: 0.002, created: 1, finished: polls < 3 ? null : 2 },
+    { agent: "replies", status: polls < 3 ? "running" : "done", result: polls < 3 ? null : { replies: [{ event_id: "w1", to: "Ana", draft: "We're open until 7." }] }, error: null, models: [], cost_usd: 0.002, created: 1, finished: polls < 3 ? null : 2 },
   ] })));
   await page.route("**/api/agents/replies/run", route => route.fulfill(json({ agent: "replies", status: "running" })));
   await page.route("**/api/agents/ideas/run", route => route.fulfill({ status: 402, ...json({ message: "This month's AI budget is used up." }) }));
   await page.goto("/#agents");
 
-  await page.getByRole("button", { name: "Run" }).nth(1).click();
+  await page.getByRole("article", { name: "Post ideas" }).getByRole("button", { name: "Run" }).click();
   await expect(page.getByText("This month's AI budget is used up.")).toBeVisible();
 
-  await page.getByRole("button", { name: "Run" }).nth(3).click();
+  await page.getByRole("article", { name: "Reply drafts" }).getByRole("button", { name: "Run" }).click();
   await expect(page.getByText("Working on it.")).toBeVisible();
   await expect(page.getByText("We're open until 7.")).toBeVisible({ timeout: 10000 });
   await expect(page.getByText("cost $0.002")).toBeVisible();
@@ -236,7 +236,7 @@ test("Inbox offers app filters only when messages come from more than one app", 
 
 test("Agents point to Settings when there is no AI access", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json(signedIn)));
-  await page.route("**/api/agents", route => route.fulfill(json({ ai_ready: false, own_key: false, model: "", runs: [] })));
+  await page.route("**/api/agents", route => route.fulfill(json({ ai_ready: false, own_key: false, model: "", order: ["leads", "ideas", "replies", "reels", "ads"], runs: [] })));
   await page.goto("/#agents");
   await expect(page.getByText("Agents need AI access")).toBeVisible();
   await expect(page.getByRole("link", { name: "Open Settings" })).toHaveAttribute("href", "#settings");
@@ -374,8 +374,8 @@ test("Ready for you shows the actual results in the path's order, each naming it
   await page.route("**/api/me", route => route.fulfill(json({ ...signedIn, selected: ["instagram:1"], persona: "creator" })));
   await page.route("**/api/agent", route => route.fulfill(json({ ...agentHome(), needs: [] })));
   await page.route("**/api/agents", route => route.fulfill(json({ ai_ready: true, own_key: false, model: "m", order: ["reels", "ideas", "leads", "replies", "ads"], runs: [
-    { agent: "leads", status: "done", error: null, cost_usd: 0, created: 1, finished: 2, models: ["Muse Spark Open"], result: { leads: [{ who: "Shoe Co", channel: "instagram", said: "What are your rates?", why: "", next_step: "" }] } },
-    { agent: "ideas", status: "done", error: null, cost_usd: 0, created: 1, finished: 2, models: ["Muse Spark 1.3"], result: { ideas: [{ hook: "Closet tour", caption: "", format: "reel", why: "" }] } },
+    { agent: "leads", status: "done", error: null, models: [], cost_usd: 0, created: 1, finished: 2, models: ["Muse Spark Open"], result: { leads: [{ who: "Shoe Co", channel: "instagram", said: "What are your rates?", why: "", next_step: "" }] } },
+    { agent: "ideas", status: "done", error: null, models: [], cost_usd: 0, created: 1, finished: 2, models: ["Muse Spark 1.3"], result: { ideas: [{ hook: "Closet tour", caption: "", format: "reel", why: "" }] } },
   ] })));
   await page.goto("/#home");
   const items = page.locator("section[aria-labelledby=ready-heading] .row");
@@ -440,7 +440,7 @@ test("voice notes and photos show what they say, marked while being read", async
 test("Reel director shows what works, labelled guesses and scripts to copy", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json({ ...signedIn, selected: ["instagram:1"] })));
   await page.route("**/api/agent", route => route.fulfill(json({ proactive: true, rules: "", needs: [], tickets: [], watching: [], last_checked: null })));
-  await page.route("**/api/agents", route => route.fulfill(json({ ai_ready: true, own_key: false, model: "test-model", order: ["leads", "ideas", "replies", "reels", "ads"], runs: [{ agent: "reels", status: "done", error: null, cost_usd: 0.045, created: 1, finished: 2, result: {
+  await page.route("**/api/agents", route => route.fulfill(json({ ai_ready: true, own_key: false, model: "test-model", order: ["leads", "ideas", "replies", "reels", "ads"], runs: [{ agent: "reels", status: "done", error: null, models: [], cost_usd: 0.045, created: 1, finished: 2, result: {
     from_captions_only: false,
     watched: [{ video: 1, caption: "Morning bake", permalink: "https://www.instagram.com/p/x", works: [{ at: "0:00-0:02", what: "Hands pull the bread apart in the first second." }], drop_off_guesses: [{ at: "0:09", what: "Guess: the oven shot is slow." }] }],
     scripts: [{ title: "Three breads in 15 seconds", hook: "Which one would you tear first?", caption: "Fresh at 8.", shots: [{ shot: "Close-up of the crust", seconds: 2, on_screen: "Crackle test", sound: "Crust crackle" }] }],
@@ -461,7 +461,7 @@ test("Ad watcher adds a creative pack cropped around what SAM found", async ({ p
   await page.route("**/api/me", route => route.fulfill(json(signedIn)));
   await page.route("**/api/agent", route => route.fulfill(json({ proactive: true, rules: "", needs: [], tickets: [], watching: [], last_checked: null })));
   await page.route("**/api/instagram/media/**", route => route.fulfill({ status: 404, body: "" }));
-  await page.route("**/api/agents", route => route.fulfill(json({ ai_ready: true, own_key: false, model: "test-model", order: ["leads", "ideas", "replies", "reels", "ads"], runs: [{ agent: "ads", status: "done", error: null, cost_usd: 0.01, created: 1, finished: 2, result: {
+  await page.route("**/api/agents", route => route.fulfill(json({ ai_ready: true, own_key: false, model: "test-model", order: ["leads", "ideas", "replies", "reels", "ads"], runs: [{ agent: "ads", status: "done", error: null, models: [], cost_usd: 0.01, created: 1, finished: 2, result: {
     summary: "One campaign works.", actions: [],
     creative_pack: [
       { id: "p1", permalink: "https://www.instagram.com/p/1", caption: "Blue mug", subject: "ceramic mug", box: { x1: 30, y1: 5, x2: 90, y2: 45, w: 100, h: 50 }, note: null },
@@ -516,7 +516,7 @@ test("a draft queued from Muse opens prefilled and marked From Muse", async ({ p
 test("Post ideas say how many of the creator's pictures they looked at", async ({ page }) => {
   await page.route("**/api/me", route => route.fulfill(json({ ...signedIn, selected: ["instagram:1"] })));
   await page.route("**/api/agent", route => route.fulfill(json({ proactive: true, rules: "", needs: [], tickets: [], watching: [], last_checked: null })));
-  await page.route("**/api/agents", route => route.fulfill(json({ ai_ready: true, own_key: false, model: "test-model", order: ["leads", "ideas", "replies", "reels", "ads"], runs: [{ agent: "ideas", status: "done", error: null, cost_usd: 0.004, created: 1, finished: 2,
+  await page.route("**/api/agents", route => route.fulfill(json({ ai_ready: true, own_key: false, model: "test-model", order: ["leads", "ideas", "replies", "reels", "ads"], runs: [{ agent: "ideas", status: "done", error: null, models: [], cost_usd: 0.004, created: 1, finished: 2,
     result: { looked_at: 4, ideas: [{ hook: "Crab sticker unboxing", caption: "New drop", format: "reel", why: "Your second picture, the close-up, got the most comments." }] } }] })));
   await page.goto("/#agents");
   await expect(page.getByText("Drafted 1 post idea after looking at 4 of your pictures.")).toBeVisible();
@@ -546,4 +546,17 @@ test("Inbox shows each person as a card with the app, the words, when, and what'
   await expect(page.getByRole("button", { name: /Nice post/ })).toContainText("Replied");
   // Unselected filters stay readable on the control's tint (QA 2-3).
   await expect(page.getByRole("radio", { name: "WhatsApp" })).toHaveCSS("color", "rgb(180, 180, 186)");
+});
+
+test("Agents are laid out in the path's order, each naming the models behind its last run", async ({ page }) => {
+  await page.route("**/api/me", route => route.fulfill(json({ ...signedIn, selected: ["instagram:1"], persona: "business" })));
+  await page.route("**/api/agent", route => route.fulfill(json({ proactive: true, rules: "", needs: [], tickets: [], watching: [], last_checked: null })));
+  await page.route("**/api/agents", route => route.fulfill(json({ ai_ready: true, own_key: false, model: "m", order: ["replies", "leads", "ads", "ideas", "reels"], runs: [
+    { agent: "reels", status: "done", error: null, models: ["Muse Wonder"], cost_usd: 0, created: 1, finished: 2, result: { from_captions_only: false, watched: [], scripts: [] } },
+  ] })));
+  await page.goto("/#agents");
+  await expect(page.getByRole("article")).toHaveCount(5);
+  await expect(page.getByRole("article").first()).toHaveAccessibleName("Reply drafts");
+  await expect(page.getByRole("article").last()).toHaveAccessibleName("Reel director");
+  await expect(page.getByRole("article", { name: "Reel director" })).toContainText("Muse Wonder");
 });

@@ -5,15 +5,15 @@ import { Button } from "@astryxdesign/core/Button";
 import { Link } from "@astryxdesign/core/Link";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
-import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { Token } from "@astryxdesign/core/Token";
 import { Heading } from "@astryxdesign/core/Heading";
-import { api, drafts, jobNames, lastReport, senderName, useLoad } from "./api";
+import { ago, api, drafts, jobNames, lastReport, senderName, useLoad } from "./api";
 import type { AgentId, AgentResult, AgentRun, AssetKind, Connections, ReelScript, Ticket } from "./api";
 import { objectPosition, ratios, savePng } from "./crop";
 import type { Crop } from "./crop";
 import { Load } from "./Load";
-import { Modal, Page, Tile } from "./Surface";
+import SourceIcon from "./SourceIcon";
+import { Modal, Page } from "./Surface";
 
 const agents: { id: AgentId; name: string; does: string; needs: AssetKind[] }[] = [
   { id: "leads", name: "Lead finder", does: "Reads your comments and messages, spots people ready to buy, and says what to send them.", needs: ["instagram", "whatsapp", "messenger"] },
@@ -67,12 +67,12 @@ export default function Agents({ state }: { state: Connections }) {
   const shown = agents.find(a => a.id === shownId);
   const shownRun = runs?.find(r => r.agent === shownId);
   return (
-    <Page title="Agents" description="They prepare the work in the background. Nothing is sent or changed until you tap.">
+    <Page title="Agents" description="Each one prepares work in the background. Nothing is sent, posted or changed until you tap.">
       <Load state={list}>{data => (
         <VStack gap={4}>
           {!data.ai_ready && <Banner status="info" title="Agents need AI access" description="Add an AI key in Settings to start running agents." endContent={<Button size="sm" label="Open Settings" href="#settings" />} />}
-          <div className="bento">
-            {agents.map(agent => (
+          <div className="library">
+            {data.order.map(id => agents.find(a => a.id === id)).filter(a => a !== undefined).map(agent => (
               <Agent key={agent.id} agent={agent} run={data.runs.find(r => r.agent === agent.id)} ready={data.ai_ready} connected={on(agent.needs)}
                 onOpen={() => setOpen(agent.id)}
                 onStarted={() => {
@@ -87,7 +87,7 @@ export default function Agents({ state }: { state: Connections }) {
       <RecentWork />
       {shown && shownRun?.result && (
         <Modal isOpen onClose={close} title={shown.name}
-          subtitle={shownRun.finished ? <>Finished <Timestamp value={shownRun.finished} format="relative" />{shownRun.cost_usd != null && ` · cost $${shownRun.cost_usd.toFixed(3)}`}</> : undefined}
+          subtitle={shownRun.finished ? `Finished ${ago(shownRun.finished)}${shownRun.models.length ? ` · made with ${shownRun.models.join(", ")}` : ""}${shownRun.cost_usd != null ? ` · cost $${shownRun.cost_usd.toFixed(3)}` : ""}` : undefined}
           footer={<Button label="Close" onClick={close} />}>
           <Result result={shownRun.result} onLeave={close} />
         </Modal>
@@ -108,28 +108,29 @@ function Agent({ agent, run, ready, connected, onStarted, onOpen }: { agent: (ty
     }
   };
   const running = run?.status === "running";
-  const status = running ? <Token size="sm" color="blue" label="Working" />
-    : run?.status === "done" ? <Token size="sm" color="green" label="Done" />
-    : run?.status === "failed" ? <Token size="sm" color="red" label="Didn't finish" />
-    : null;
   return (
-    <Tile icon={agent.needs[0]} title={agent.name} status={status}>
-      <Text as="p" type="supporting">{agent.does}</Text>
-      <div aria-live="polite">
-        {error && <Text as="p" size="sm">{error}</Text>}
-        {running && <Text as="p" size="sm" className="shimmer">Working on it. This usually takes under a minute.</Text>}
-        {run?.status === "failed" && <Text as="p" size="sm">This run didn't finish: {run.error ?? "no reason given"}</Text>}
-        {run?.status === "done" && run.result && (
-          <Text as="p" size="sm">{found(run.result)} {run.finished && <Text type="supporting" size="sm"><Timestamp value={run.finished} format="relative" size="sm" /></Text>}</Text>
-        )}
-      </div>
-      <HStack gap={2} wrap="wrap">
-        {connected
-          ? <Button variant="primary" label={running ? "Working…" : run ? "Run again" : "Run"} isLoading={running} isDisabled={!ready} clickAction={start} />
-          : <Button label="Connect an app first" href="#setup" />}
-        {run?.status === "done" && run.result && <Button label="See results" onClick={onOpen} />}
+    <article className="agent-tile" data-agent={agent.id} aria-labelledby={`agent-${agent.id}`}>
+      <HStack gap={2} align="center" wrap="wrap" className="agent-top">
+        <SourceIcon source={agent.needs[0]} size={16} />
+        {run?.models.length ? <span className="kind">{run.models.join(" · ")}</span> : null}
       </HStack>
-    </Tile>
+      <VStack gap={2} className="agent-body">
+        <div aria-live="polite">
+          {error && <Text as="p" size="sm">{error}</Text>}
+          {running && <Text as="p" size="sm" className="shimmer">Working on it. This usually takes under a minute.</Text>}
+          {run?.status === "failed" && <Text as="p" size="sm">This run didn't finish: {run.error ?? "no reason given"}</Text>}
+          {run?.status === "done" && run.result && <Text as="p" size="sm">{found(run.result)}{run.finished ? ` ${ago(run.finished)}.` : ""}</Text>}
+          {!run && <Text as="p" size="sm">{agent.does}</Text>}
+        </div>
+        <Heading level={2} id={`agent-${agent.id}`} className="agent-name">{agent.name}</Heading>
+        <HStack gap={2} wrap="wrap">
+          {connected
+            ? <Button variant="primary" size="sm" label={running ? "Working…" : run ? "Run again" : "Run"} isLoading={running} isDisabled={!ready} clickAction={start} />
+            : <Button size="sm" label="Connect an app first" href="#settings" />}
+          {run?.status === "done" && run.result && <Button size="sm" label="See results" onClick={onOpen} />}
+        </HStack>
+      </VStack>
+    </article>
   );
 }
 
@@ -249,7 +250,7 @@ function RecentWork() {
               </HStack>
               <VStack gap={1} as="ol">
                 {t.reports.map((r, i) => (
-                  <li key={i}><Text size="sm"><Text type="supporting" size="sm">{said[r.kind] ?? r.kind} · <Timestamp value={r.created} format="relative" size="sm" /></Text> {r.kind === "idea" || r.kind === "advice" ? ideaLine(r.text) : r.text}</Text></li>
+                  <li key={i}><Text size="sm"><Text type="supporting" size="sm">{said[r.kind] ?? r.kind} · {ago(r.created)}</Text> {r.kind === "idea" || r.kind === "advice" ? ideaLine(r.text) : r.text}</Text></li>
                 ))}
               </VStack>
             </VStack>
