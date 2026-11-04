@@ -72,6 +72,7 @@ test("a signed-in person moves between destinations", async ({ page }) => {
   await page.getByRole("link", { name: "Inbox" }).click();
   await expect(page.getByRole("heading", { name: "Inbox" })).toBeVisible();
   await expect(page.getByRole("link", { name: "Inbox" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByRole("link", { name: "Settings", exact: true })).toBeVisible();
 });
 
 const signedIn = { signed_in: true, name: "Test", selected: ["ads:act_1"], assets: [
@@ -209,6 +210,10 @@ test("Agents run, poll to a result and hand a reply draft to the Inbox", async (
   await page.route("**/api/agents/ideas/run", route => route.fulfill({ status: 402, ...json({ message: "This month's AI budget is used up." }) }));
   await page.goto("/#agents");
 
+  // Each button names its agent; the model shows before the first run (QA 5-2, 5-3).
+  await expect(page.getByRole("button", { name: "Run Lead finder" })).toBeVisible();
+  await expect(page.getByRole("article", { name: "Ad watcher" })).toContainText("test-model");
+  await expect(page.getByRole("article", { name: "Reel director" })).toContainText("Muse Wonder");
   await page.getByRole("article", { name: "Post ideas" }).getByRole("button", { name: "Run" }).click();
   await expect(page.getByText("This month's AI budget is used up.")).toBeVisible();
 
@@ -241,6 +246,8 @@ test("Agents point to Settings when there is no AI access", async ({ page }) => 
   await page.goto("/#agents");
   await expect(page.getByText("Agents need AI access")).toBeVisible();
   await expect(page.getByRole("link", { name: "Open Settings" })).toHaveAttribute("href", "#settings");
+  // An agent whose app isn't on names that app and opens its connect step (QA 5-1).
+  await expect(page.getByRole("article", { name: "Post ideas" }).getByRole("link", { name: "Connect Instagram" })).toHaveAttribute("href", "#setup");
 });
 
 test("Settings switches the agents to Muse Spark 1.3 on Meta's Model API", async ({ page }) => {

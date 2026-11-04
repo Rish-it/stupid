@@ -31,6 +31,10 @@ function ReportMark({ kind }: { kind?: string }) {
   return mark ? <Token size="sm" label={mark.label} color={mark.color} /> : null;
 }
 
+const appNames: Record<AssetKind, string> = { instagram: "Instagram", whatsapp: "WhatsApp", messenger: "your Facebook Page", ads: "Meta Ads" };
+// Before a run, a tile names the model it will use: the Reel director watches with Muse Wonder.
+const plannedModel = (id: AgentId, model: string) => id === "reels" ? "Muse Wonder" : model;
+
 const verbs = { pause: "Pause", keep: "Keep", scale: "Grow", fix: "Fix" } as const;
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
@@ -73,7 +77,7 @@ export default function Agents({ state }: { state: Connections }) {
           {!data.ai_ready && <Banner status="info" title="Agents need AI access" description="Add an AI key in Settings to start running agents." endContent={<Button size="sm" label="Open Settings" href="#settings" />} />}
           <div className="library">
             {data.order.map(id => agents.find(a => a.id === id)).filter(a => a !== undefined).map(agent => (
-              <Agent key={agent.id} agent={agent} run={data.runs.find(r => r.agent === agent.id)} ready={data.ai_ready} connected={on(agent.needs)}
+              <Agent key={agent.id} agent={agent} run={data.runs.find(r => r.agent === agent.id)} model={plannedModel(agent.id, data.model)} ready={data.ai_ready} connected={on(agent.needs)}
                 onOpen={() => setOpen(agent.id)}
                 onStarted={() => {
                   setWaiting(agent.id);
@@ -96,7 +100,7 @@ export default function Agents({ state }: { state: Connections }) {
   );
 }
 
-function Agent({ agent, run, ready, connected, onStarted, onOpen }: { agent: (typeof agents)[number]; run?: AgentRun; ready: boolean; connected: boolean; onStarted: () => void; onOpen: () => void }) {
+function Agent({ agent, run, model, ready, connected, onStarted, onOpen }: { agent: (typeof agents)[number]; run?: AgentRun; model: string; ready: boolean; connected: boolean; onStarted: () => void; onOpen: () => void }) {
   const [error, setError] = useState("");
   const start = async () => {
     try {
@@ -112,7 +116,7 @@ function Agent({ agent, run, ready, connected, onStarted, onOpen }: { agent: (ty
     <article className="agent-tile" data-agent={agent.id} aria-labelledby={`agent-${agent.id}`}>
       <HStack gap={2} align="center" wrap="wrap" className="agent-top">
         <SourceIcon source={agent.needs[0]} size={16} />
-        {run?.models.length ? <span className="kind">{run.models.join(" · ")}</span> : null}
+        {run?.models.length ? <span className="kind">{run.models.join(" · ")}</span> : model ? <span className="kind">{model}</span> : null}
       </HStack>
       <VStack gap={2} className="agent-body">
         <div aria-live="polite">
@@ -125,9 +129,10 @@ function Agent({ agent, run, ready, connected, onStarted, onOpen }: { agent: (ty
         <Heading level={2} id={`agent-${agent.id}`} className="agent-name">{agent.name}</Heading>
         <HStack gap={2} wrap="wrap">
           {connected
-            ? <Button variant="primary" size="sm" label={running ? "Working…" : run ? "Run again" : "Run"} isLoading={running} isDisabled={!ready} clickAction={start} />
-            : <Button size="sm" label="Connect an app first" href="#settings" />}
-          {run?.status === "done" && run.result && <Button size="sm" label="See results" onClick={onOpen} />}
+            ? <Button variant="primary" size="sm" label={running ? "Working…" : run ? "Run again" : "Run"} isLoading={running} isDisabled={!ready} clickAction={start}
+              aria-label={running ? `${agent.name} is working` : run ? `Run again: ${agent.name}` : `Run ${agent.name}`} />
+            : <Button size="sm" label={`Connect ${appNames[agent.needs[0]]}`} href="#setup" />}
+          {run?.status === "done" && run.result && <Button size="sm" label="See results" aria-label={`See results: ${agent.name}`} onClick={onOpen} />}
         </HStack>
       </VStack>
     </article>
