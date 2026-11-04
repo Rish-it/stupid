@@ -132,10 +132,15 @@ async fn recent_posts(s: &AppState, owner: &str) -> Vec<Value> {
         return Vec::new();
     }
     match meta::instagram_data(s, &u).await {
-        Ok(ig) => ig["accounts"].as_array().into_iter().flatten().flat_map(|a| a["media"].as_array().cloned().unwrap_or_default())
-            .filter(|m| crops::picture(m).is_some()).take(MAX_POSTS).collect(),
+        Ok(ig) => candidates(&ig),
         Err(e) => { tracing::warn!("photo match posts: {}", e.1); Vec::new() }
     }
+}
+
+/// The posts a photo is compared with: the newest `MAX_POSTS` that have a picture, in Meta's order.
+pub(crate) fn candidates(ig: &Value) -> Vec<Value> {
+    ig["accounts"].as_array().into_iter().flatten().flat_map(|a| a["media"].as_array().cloned().unwrap_or_default())
+        .filter(|m| crops::picture(m).is_some()).take(MAX_POSTS).collect()
 }
 
 /// One vision call: what the customer's photo shows, and which of these posts (if any) it is.
@@ -154,7 +159,7 @@ fn excerpt(caption: &Value) -> String {
 }
 
 /// The post Muse named, checked against the list it was given; anything else is no match.
-fn pick(answer: &Value, posts: &[Value]) -> Value {
+pub(crate) fn pick(answer: &Value, posts: &[Value]) -> Value {
     let n = answer["match"].as_u64().or_else(|| answer["match"].as_str().and_then(|v| v.parse().ok()));
     match n.and_then(|n| posts.get((n as usize).checked_sub(1)?)) {
         Some(m) => json!({ "matched": true, "post_id": m["id"], "permalink": m["permalink"], "caption": excerpt(&m["caption"]), "posted": m["timestamp"],

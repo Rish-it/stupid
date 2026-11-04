@@ -3,6 +3,8 @@ mod agents;
 mod attention;
 mod control;
 mod crops;
+#[cfg(test)]
+mod eval;
 mod executor;
 mod meta;
 mod mcp;
