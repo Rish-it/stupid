@@ -42,8 +42,9 @@ export function TodayIcon(props: Props) {
 export function InboxIcon(props: Props) {
   return <Glyph {...props}><path d="M22 12h-6l-2 3h-4l-2-3H2" /><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" /></Glyph>;
 }
+// The agent: a detective's hat and glasses, filled.
 export function AgentsIcon(props: Props) {
-  return <Glyph {...props}><path d="M9.94 15.5A2 2 0 0 0 8.5 14.06l-6.14-1.58a.5.5 0 0 1 0-.96L8.5 9.94A2 2 0 0 0 9.94 8.5l1.58-6.14a.5.5 0 0 1 .96 0l1.58 6.14a2 2 0 0 0 1.44 1.44l6.14 1.58a.5.5 0 0 1 0 .96l-6.14 1.58a2 2 0 0 0-1.44 1.44l-1.58 6.14a.5.5 0 0 1-.96 0z" /><path d="M20 3v4M22 5h-4" /></Glyph>;
+  return <Glyph fill="currentColor" stroke="none" {...props}><path d="M5.4 3.7a.8.8 0 0 1 1-.6L12 4.6l5.6-1.5a.8.8 0 0 1 1 .6l1.6 7.6H3.8z" /><rect x="0.7" y="11.9" width="22.6" height="1.5" rx=".75" /><rect x="3" y="14.6" width="8.2" height="6.3" rx="1.6" /><rect x="12.8" y="14.6" width="8.2" height="6.3" rx="1.6" /><rect x="11" y="16.3" width="2" height="2.2" /></Glyph>;
 }
 export function SettingsIcon(props: Props) {
   return <Glyph {...props}><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" /><circle cx="12" cy="12" r="3" /></Glyph>;

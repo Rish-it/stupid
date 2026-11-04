@@ -114,13 +114,13 @@ body { background: var(--color-background-body); }
 /* Calm motion: a section eases in when chosen, cards settle in one after another as they arrive. None of it with reduced motion. */
 @media (prefers-reduced-motion: no-preference) {
   .prefs-panel { animation: arrive .18s ease-out both; }
-  .people > li, .library > .agent-tile { animation: arrive .24s ease-out both; }
-  .people > li:nth-child(2), .library > .agent-tile:nth-child(2) { animation-delay: 30ms; }
-  .people > li:nth-child(3), .library > .agent-tile:nth-child(3) { animation-delay: 60ms; }
-  .people > li:nth-child(4), .library > .agent-tile:nth-child(4) { animation-delay: 90ms; }
-  .people > li:nth-child(n+5), .library > .agent-tile:nth-child(n+5) { animation-delay: 120ms; }
-  .agent-tile { transition: translate .15s ease-out; }
-  .agent-tile:hover { translate: 0 -2px; }
+  .people > li, .covers > .cover { animation: arrive .24s ease-out both; }
+  .people > li:nth-child(2), .covers > .cover:nth-child(2) { animation-delay: 30ms; }
+  .people > li:nth-child(3), .covers > .cover:nth-child(3) { animation-delay: 60ms; }
+  .people > li:nth-child(4) { animation-delay: 90ms; }
+  .people > li:nth-child(n+5) { animation-delay: 120ms; }
+  .cover-art { transition: translate .15s ease-out; }
+  .cover:hover .cover-art { translate: 0 -2px; }
   ::view-transition-old(root), ::view-transition-new(root) { animation-duration: .18s; }
 }
 @keyframes arrive { from { opacity: 0; translate: 0 6px; } }
@@ -168,27 +168,31 @@ body { background: var(--color-background-body); }
 .person-meta [data-status="Not delivered"] { color: var(--live); }
 @media (prefers-reduced-motion: no-preference) { .person { transition: background-color .15s ease-out; } }
 
-/* Agents, after the Images library reference: tall colour tiles, name bottom-left, the work on the tile. */
-.library { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr)); gap: 8px; }
-.agent-tile {
-  display: flex; flex-direction: column; justify-content: space-between; gap: 16px; min-height: 18rem; padding: 14px; border-radius: 12px;
-  background: linear-gradient(to top, #0006, transparent 60%), var(--field); color: #fff;
-  --color-text-primary: #fff; --color-text-secondary: #ffffffd9; --color-icon-primary: #fff;
-}
-.agent-tile .kind { color: #ffffffd9; }
+/* Agents: three apps side by side, each an album cover (a dithered square in the app's colours, its mark in the middle).
+   The covers shrink with the window's height so the page never scrolls on a laptop; on phones they stack. */
+.covers { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; max-width: min(100%, calc((100dvh - 25rem) * 3 + 48px)); }
+@media (max-width: 40rem) { .covers { grid-template-columns: minmax(0, 1fr); max-width: none; } }
+.cover { position: relative; display: grid; gap: 12px; align-content: start; }
+.cover-art { display: grid; place-items: center; aspect-ratio: 1; border-radius: 12px; background: center / 100% 100% no-repeat; image-rendering: pixelated; color: #fff; }
+.cover-art .source-icon { width: 32%; height: 32%; filter: drop-shadow(0 4px 18px #000a); }
+.cover-name { font-size: 1.1875rem; font-weight: 600; }
+.cover-open { padding: 0; border: 0; background: none; font: inherit; color: inherit; text-align: start; cursor: pointer; }
+/* The name's button covers the whole cover, so the artwork opens it too. */
+.cover-open::after { content: ""; position: absolute; inset: 0; border-radius: 12px; }
+.cover:has(.cover-open:focus-visible) .cover-art { outline: 2px solid var(--color-text-primary); outline-offset: 3px; }
+.cover-open:focus-visible { outline: none; }
+.cover-state { color: var(--color-text-secondary); }
+.cover-state[data-on] { color: var(--color-text-primary); }
+/* Inside an app's window: its agents side by side, each on a quiet panel. */
+.agent-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); gap: 12px; }
+.agent-tile { display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 12px; background: var(--color-background-muted); }
 .agent-name { font-size: 1.0625rem; font-weight: 600; }
-.agent-tile[data-agent="reels"] { --field: #7A3E22; }
-.agent-tile[data-agent="ideas"] { --field: #5B3A63; }
-.agent-tile[data-agent="leads"] { --field: #2F4A5C; }
-.agent-tile[data-agent="replies"] { --field: #1F4D47; }
-.agent-tile[data-agent="ads"] { --field: #4A4466; }
-/* Off: the tile stays, in grey, so it reads as resting rather than gone. */
-.agent-tile[data-mode="off"] { --field: #2A2A2D; --color-text-secondary: #ffffffb3; }
-.agent-tile[data-mode="off"] .agent-name { color: #ffffffcc; }
+/* Off: the agent stays, in grey, so it reads as resting rather than gone. */
+.agent-tile[data-mode="off"] .agent-name { color: var(--color-text-secondary); }
 .agent-control .astryx-segmented-control { max-width: 100%; }
 /* Unselected choices in full white: the default grey is under 4.5:1 on the tile colours. */
 .agent-control [role="radio"]:not([aria-checked="true"]) { color: #fff; }
-.agent-control .astryx-segmented-control-item { min-width: 0; height: auto; white-space: normal; text-align: center; }
+.agent-control .astryx-segmented-control-item { flex: auto; min-width: 0; padding-inline: 8px; white-space: nowrap; }
 
 /* Loading words: a light sweeps across, then rests. */
 @media (prefers-reduced-motion: no-preference) {
