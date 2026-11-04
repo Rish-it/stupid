@@ -463,9 +463,6 @@ input[role="switch"]:not(:checked) + div { background: #3a3a40; }
 .home h1 { font-family: "Iowan Old Style", "Charter", Georgia, "Times New Roman", serif; font-weight: 400; font-size: clamp(2.25rem, 4vw, 3rem); letter-spacing: -.01em; }
 /* Every page and Settings share Home's serif titles. */
 .page h1, .prefs-title, .prefs-head h2 { font-family: "Iowan Old Style", "Charter", Georgia, "Times New Roman", serif; font-weight: 400; letter-spacing: -.01em; }
-.page:not(.home) h1 { font-size: clamp(2rem, 3.4vw, 2.5rem); }
-.prefs-title { font-size: 1.375rem; }
-.prefs-head h2 { font-size: 1.625rem; }
 .home .status-line { color: var(--color-text-secondary); }
 .home .panel { padding: 24px; border-radius: 20px; }
 .home .panel-title { font-family: "Iowan Old Style", "Charter", Georgia, serif; font-weight: 400; font-size: 1.375rem; }
