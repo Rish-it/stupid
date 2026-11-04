@@ -233,6 +233,7 @@ body { background: var(--color-background-body); }
 .agent-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); gap: 12px; }
 .agent-tile { display: flex; flex-direction: column; gap: 12px; padding: 16px; border-radius: 12px; background: var(--color-background-muted); }
 .agent-name { font-size: 1.0625rem; font-weight: 600; }
+.agent-says { display: grid; gap: 4px; }
 /* Off: the agent stays, in grey, so it reads as resting rather than gone. */
 .agent-tile[data-mode="off"] .agent-name { color: var(--color-text-secondary); }
 .agent-control .astryx-segmented-control { max-width: 100%; }

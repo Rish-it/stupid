@@ -182,7 +182,7 @@ function Agent({ agent, run, control, onControl, model, ready, connected, onStar
         <Heading level={3} id={`agent-${agent.id}`} className="agent-name">{agent.name}</Heading>
         {run?.models.length ? <Text size="sm" type="supporting">{run.models.join(" · ")}</Text> : model ? <Text size="sm" type="supporting">{model}</Text> : null}
       </VStack>
-      <div aria-live="polite">
+      <div aria-live="polite" className="agent-says">
         {error && <Text as="p" size="sm">{error}</Text>}
         {running && <Text as="p" size="sm" className="shimmer">Working on it. This usually takes under a minute.</Text>}
         {run?.status === "failed" && <Text as="p" size="sm">This run didn't finish: {run.error ?? "no reason given"}</Text>}
