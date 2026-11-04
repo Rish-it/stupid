@@ -4,6 +4,7 @@ import { AlertDialog } from "@astryxdesign/core/AlertDialog";
 import { Button } from "@astryxdesign/core/Button";
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
 import { Heading } from "@astryxdesign/core/Heading";
+import { Link } from "@astryxdesign/core/Link";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { Switch } from "@astryxdesign/core/Switch";
@@ -97,6 +98,22 @@ function AiAccess() {
               : s.workspace_ai ? `Agents run on ${s.model} using Stupid's shared allowance. Add your own Baseten API key to run them on your account instead.`
               : "Add your own Baseten API key so agents can run."}
           </Text>
+          <details>
+            <summary>How to get, pay for and revoke a key</summary>
+            <VStack gap={3}>
+              <Text as="p" type="supporting">Your own key is optional when Stupid's shared allowance is available. Baseten bills your account for model usage, including the small call that checks a key when you save it. Check the current model price and your Baseten billing before saving; Stupid's shared allowance does not cover your own key.</Text>
+              <ol className="steps">
+                <li>Open Baseten → Organization settings → <Link hasUnderline isExternalLink href="https://app.baseten.co/settings/api_keys">API keys</Link> → Create API key. Give it a name such as stupid-replies.</li>
+                <li>Choose Team → Next, select your team if asked, then Call Model APIs → Create API key. Copy the key now; Baseten shows it once. Ask your team admin if that option is unavailable.</li>
+                <li>Paste it below, read and tick the data-sharing consent, then tap Save key. The key is stored encrypted on Stupid's server.</li>
+              </ol>
+              <Text as="p" type="supporting">To stop Stupid using the key, tap Remove my key. To revoke it everywhere, open Baseten's API keys page and select the trash icon beside this key. Revocation is permanent. Baseten also revokes keys unused for 30 days; create a new key if needed.</Text>
+              <HStack gap={3} wrap="wrap">
+                <Link hasUnderline isExternalLink href="https://docs.baseten.co/inference/model-apis/pricing-and-limits">Check current prices</Link>
+                <Link hasUnderline isExternalLink href="https://docs.baseten.co/organization/api-keys">Baseten's key instructions</Link>
+              </HStack>
+            </VStack>
+          </details>
           {s.has_key && s.key_saved_at && <Text as="p" type="supporting" size="sm">Saved <Timestamp value={s.key_saved_at} format="relative" /></Text>}
           <TextInput type="password" label={s.has_key ? "Replace your own Baseten API key" : "Your own Baseten API key"} value={key} onEnter={() => key.trim() && consent && void save(key.trim())}
             onChange={v => { setKey(v); setStatus(undefined); }} description="We check it with one small test call, then store it encrypted. It never comes back to this page." />
