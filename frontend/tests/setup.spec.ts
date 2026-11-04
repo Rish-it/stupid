@@ -123,3 +123,42 @@ test("Before you start explains the account requirements before sign-in", async 
   await expect(page.getByText(/For Instagram, have a public Professional account/)).toBeVisible();
   await expect(page.getByText(/Business verification is needed only when Meta asks/)).toBeVisible();
 });
+
+test("tutorial progress only fills after Meta confirms the change", async ({ page }) => {
+  await page.goto("http://127.0.0.1:8032/?fixtures=1&tutorial=instagram&stage=connect#setup");
+  await page.getByRole("button", { name: "Connect Instagram" }).click();
+  const progress = page.getByRole("progressbar", { name: "Instagram setup progress" });
+  await expect(progress).toHaveAttribute("aria-valuenow", "0");
+  await page.getByRole("button", { name: "Check again" }).click();
+  await expect(page.getByText("Checked just now.")).toBeVisible();
+  await expect(progress).toHaveAttribute("aria-valuenow", "0");
+  await expect(page.locator(".tutorial-complete")).toHaveCount(0);
+  await page.goto("http://127.0.0.1:8032/?fixtures=1&tutorial=instagram&stage=fix#setup");
+  await page.getByRole("button", { name: "Manage Instagram" }).click();
+  await expect(progress).toHaveAttribute("aria-valuenow", "2");
+  await page.getByRole("button", { name: "Check again" }).click();
+  await expect(progress).toHaveAttribute("aria-valuenow", "3");
+  await expect(page.locator(".tutorial-just-completed")).toHaveText("Instagram is ready.");
+});
+
+test("reduced motion completes setup without animations or view transitions", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("http://127.0.0.1:8032/?fixtures=1&tutorial=whatsapp&stage=fix#setup");
+  await page.getByRole("button", { name: "Manage WhatsApp" }).click();
+  await page.evaluate(() => { Object.defineProperty(document, "startViewTransition", { value: () => { throw new Error("Reduced motion must skip view transitions"); } }); });
+  await page.getByRole("button", { name: "Check again" }).click();
+  await expect(page.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "3");
+  await expect(page.getByText("WhatsApp is ready.", { exact: true })).toBeVisible();
+  expect(await page.locator(".tutorial-step").evaluate(el => getComputedStyle(el).animationName)).toBe("none");
+  expect(await page.locator(".tutorial-complete path").evaluate(el => getComputedStyle(el).animationName)).toBe("none");
+  expect(await page.locator(".astryx-progress-bar-fill").evaluate(el => getComputedStyle(el).transitionDuration)).toBe("0s");
+});
+
+test("setup also completes when View Transitions is unavailable", async ({ page }) => {
+  await page.goto("http://127.0.0.1:8032/?fixtures=1&tutorial=ads&stage=fix#setup");
+  await page.getByRole("button", { name: "Manage Meta Ads" }).click();
+  await page.evaluate(() => Object.defineProperty(document, "startViewTransition", { value: undefined }));
+  await page.getByRole("button", { name: "Check again" }).click();
+  await expect(page.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "3");
+  await expect(page.getByText("Meta Ads is ready.", { exact: true })).toBeVisible();
+});
