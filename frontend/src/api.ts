@@ -68,12 +68,15 @@ const phone = (digits: string) => digits.length === 12 && digits.startsWith("91"
 /** The name to show for a message; `sender` stays the id replies go to. A WhatsApp sender is a phone number. */
 export const senderName = (item: Pick<InboxItem, "kind" | "sender" | "sender_name">) => item.sender_name || (item.kind === "whatsapp" ? phone(item.sender) : item.sender);
 
-export type AgentId = "leads" | "ideas" | "replies" | "ads";
+export type AgentId = "leads" | "ideas" | "reels" | "replies" | "ads";
+export type ReelScript = { title: string; hook: string; caption: string; shots: { shot: string; seconds: number; on_screen: string; sound: string }[] };
+export type Watched = { video: number; caption?: string; permalink?: string; works: { at: string; what: string }[]; drop_off_guesses?: { at: string; what: string }[] };
 export type AgentResult =
   | { empty: true }
   | { leads: { who: string; channel: string; said: string; why: string; next_step: string }[] }
   | { ideas: { hook: string; caption: string; format: "reel" | "carousel" | "photo" | "story"; why: string }[] }
   | { replies: { event_id: string; to: string; draft: string }[] }
+  | { scripts: ReelScript[]; watched: Watched[]; from_captions_only: boolean }
   | { summary: string; actions: { campaign: string; do: "pause" | "keep" | "scale" | "fix"; why: string }[] };
 export type AgentRun = {
   agent: AgentId; status: "running" | "done" | "failed"; result: AgentResult | null; error: string | null;
@@ -93,7 +96,7 @@ export type Ticket = { id: number; job: string; state: "open" | "ended"; created
 export type AgentHome = { needs: Need[]; tickets: Ticket[]; proactive: boolean; rules: string };
 /** The last thing a ticket said that a person would read. */
 export const lastReport = (t: Ticket) => t.reports.filter(r => !["question", "answer", "idea", "advice"].includes(r.kind)).at(-1);
-export const jobNames: Record<string, string> = { replies: "Reply drafts", leads: "Lead finder", ideas: "Post ideas", ads: "Ad watcher" };
+export const jobNames: Record<string, string> = { replies: "Reply drafts", leads: "Lead finder", ideas: "Post ideas", reels: "Reel director", ads: "Ad watcher" };
 
 /** status 0 = server unreachable; 401 = signed out; any other 4xx carries a message written for the person. */
 export class ApiError extends Error {

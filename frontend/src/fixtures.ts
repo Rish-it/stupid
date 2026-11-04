@@ -36,6 +36,8 @@ const results: Record<AgentId, AgentRun["result"]> = {
   leads: { leads: [{ who: "Sample buyer", channel: "instagram", said: "Do you ship the blue one?", why: "Asked about a product and shipping.", next_step: "Reply with the price and delivery time." }] },
   ideas: { ideas: [{ hook: "Sample hook: three ways to style it", caption: "Sample caption for a reel.", format: "reel", why: "Your reels reached more people this week." }] },
   replies: { replies: [{ event_id: "m1", to: "Sample customer", draft: "Sample draft: yes, we're open until 7 today." }] },
+  reels: { from_captions_only: false, watched: [{ video: 1, caption: "Sample Reel", permalink: "https://www.instagram.com/", works: [{ at: "0:00-0:02", what: "Sample: the product is in frame in the first second." }], drop_off_guesses: [{ at: "0:08", what: "Sample guess: the middle is slow." }] }],
+    scripts: [{ title: "Sample script", hook: "Sample hook", caption: "Sample caption", shots: [{ shot: "Sample close-up", seconds: 2, on_screen: "Sample text", sound: "Sample sound" }] }] },
   ads: { summary: "Sample summary: one campaign is doing well, one is costly.", actions: [{ campaign: "Sample spring sale", do: "scale", why: "Clicks cost less than average." }, { campaign: "Sample brand video", do: "pause", why: "Spend with almost no clicks." }] },
 };
 const runs = new Map<AgentId, AgentRun>();
@@ -90,7 +92,7 @@ export async function answer(method: string, path: string, body: unknown): Promi
     for (const [id, run] of runs) if (run.status === "running" && now() - run.created >= 4) runs.set(id, { ...run, status: "done", result: results[id], cost_usd: 0.004, finished: now() });
     return { runs: [...runs.values()], ai_ready: true, own_key: hasKey, model: "sample-model" };
   }
-  const run = route.match(/^POST \/api\/agents\/(leads|ideas|replies|ads)\/run$/);
+  const run = route.match(/^POST \/api\/agents\/(leads|ideas|reels|replies|ads)\/run$/);
   if (run) {
     const agent = run[1] as AgentId;
     if (runs.get(agent)?.status === "running") throw new ApiError(409, "That agent is already running.");
