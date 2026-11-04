@@ -27,7 +27,8 @@ export default function Inbox() {
   const [filter, setFilter] = useState<keyof typeof filters>("all");
   const [open, setOpen] = useState(() => [...drafts.keys()].at(-1));
   // The person whose recent messages show in a popover: on hover, on focus, or from the corner's button.
-  const [peek, setPeek] = useState<string>();
+  // Hover and focus show it for a look; the corner's button pins it open, and a second press closes it.
+  const [peek, setPeek] = useState<{ id: string; pinned: boolean }>();
   // Escape closes it, wherever focus is (a hover opens it without moving focus).
   useEffect(() => {
     if (!peek) return;
@@ -82,12 +83,14 @@ export default function Inbox() {
               const status = item.replied ? "Replied" : label ?? (item.reply_error ? "Not delivered" : item.draft ? "Draft ready" : undefined);
               const note = noteLabel(item);
               const name = senderName(item);
-              const peeking = peek === item.id;
+              const peeking = peek?.id === item.id;
+              const pinned = peeking && peek.pinned;
+              const look = () => setPeek(p => p?.id === item.id ? p : { id: item.id, pinned: false });
               const leave = (event: FocusEvent<HTMLLIElement>) => { if (!event.currentTarget.contains(event.relatedTarget)) setPeek(undefined); };
               return (
                 <li key={item.id} className="person-card" data-peek={peeking || undefined}
-                  onMouseEnter={() => setPeek(item.id)} onMouseLeave={() => setPeek(undefined)} onBlur={leave}>
-                  <button type="button" className="person" data-id={item.id} onClick={() => setOpen(item.id)} onFocus={() => setPeek(item.id)}
+                  onMouseEnter={look} onMouseLeave={() => setPeek(p => p?.pinned ? p : undefined)} onBlur={leave}>
+                  <button type="button" className="person" data-id={item.id} onClick={() => setOpen(item.id)} onFocus={look}
                     aria-describedby={peeking ? `history-${item.id}` : undefined}>
                     <span className="kind">{where[item.kind]}{thread.length > 1 ? ` · ${thread.length} messages` : ""}</span>
                     <span className="person-text">{item.transcribing ? working[item.transcribing] : item.text}</span>
@@ -98,7 +101,7 @@ export default function Inbox() {
                   </button>
                   <span className="corner">
                     <button type="button" className="corner-button" aria-label={`Recent messages from ${name}`} aria-expanded={peeking} aria-controls={`history-${item.id}`}
-                      onClick={() => setPeek(peeking ? undefined : item.id)}><HistoryGlyph /></button>
+                      onClick={() => setPeek(pinned ? undefined : { id: item.id, pinned: true })}><HistoryGlyph /></button>
                     <button type="button" className="corner-button" aria-label={`Open the thread with ${name}`} onClick={() => setOpen(item.id)}><OpenGlyph /></button>
                   </span>
                   {peeking && <History id={`history-${item.id}`} name={name} thread={thread} />}

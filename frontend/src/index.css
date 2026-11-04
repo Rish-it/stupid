@@ -74,6 +74,8 @@ body { background: var(--color-background-body); }
   .workspace .rail-logo { display: none; }
   .workspace .rail-me { margin: 0; }
   .workspace .astryx-layout-content { padding-block-end: 72px; }
+  /* Toasts sit above the phone bar, not over it. */
+  body:has(.workspace) [role="region"][aria-label="Notifications"][popover] { bottom: calc(56px + env(safe-area-inset-bottom)); }
 }
 .reconnecting { position: fixed; inset-block-start: 12px; inset-inline-end: 16px; z-index: 20; padding: 4px 10px; border-radius: 9999px; background: var(--color-background-popover); }
 /* Fields show as a filled surface instead of an outline. */
@@ -137,11 +139,13 @@ body { background: var(--color-background-body); }
 /* Home, after the "Today" reference: a centred status line and date, then two quiet panels. */
 .home { max-width: 1040px; }
 .status-line { display: inline-flex; align-items: center; gap: 8px; font-variant-numeric: tabular-nums; }
+.status-wait { visibility: hidden; }
 .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-text-secondary); }
 .live-dot[data-on] { background: var(--live); }
 @media (prefers-reduced-motion: no-preference) { .live-dot[data-on] { animation: breathe 2.4s ease-in-out infinite; } }
 @keyframes breathe { 50% { opacity: .45; } }
-.home-panels { display: grid; gap: 12px; align-items: start; }
+/* The panels keep the rest of the window while they load, so nothing below them jumps when they arrive. */
+.home-panels { display: grid; gap: 12px; align-items: start; min-height: calc(100dvh - 16rem); }
 @media (min-width: 64rem) { .home-panels { grid-template-columns: 1fr 1fr; } }
 .panel { padding: 20px; border-radius: 16px; background: var(--color-background-surface); }
 .panel-title { font-size: 1rem; font-weight: 600; outline: none; }

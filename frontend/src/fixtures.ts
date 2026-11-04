@@ -231,7 +231,7 @@ export async function answer(method: string, path: string, body: unknown): Promi
   if (route === "GET /api/agents") {
     for (const [id, run] of runs) if (run.status === "running" && now() - run.created >= 4) runs.set(id, { ...run, status: "done", result: results[id], cost_usd: 0.004, finished: now(), models: ["Muse Spark Open"] });
     const path: AgentId[] = me.signed_in && me.persona ? order[me.persona] : ["leads", "ideas", "replies", "reels", "ads"];
-    return { runs: [...runs.values()], ai_ready: true, own_key: hasKey, model: "sample-model", order: path, controls };
+    return { runs: [...runs.values()], ai_ready: true, own_key: hasKey, model: "Muse Spark Open (sample)", order: path, controls };
   }
   const control = route.match(/^PUT \/api\/agents\/(leads|ideas|reels|replies|ads)\/control$/);
   if (control) {

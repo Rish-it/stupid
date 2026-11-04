@@ -40,7 +40,8 @@ export default function Home({ state, persona, onSetup }: { state: Connections; 
     <div className="page home">
       <VStack gap={8}>
         <VStack as="header" gap={2} hAlign="center">
-          {home.data && <Status data={home.data} />}
+          {/* The status line's space is kept while it loads, so the date below never moves. */}
+          {home.data ? <Status data={home.data} /> : <Text as="p" type="supporting" size="sm" className="status-line status-wait" aria-hidden><span className="live-dot" />{"\u00a0"}</Text>}
           <Heading level={1} justify="center" tabIndex={-1}><VisuallyHidden>Home, </VisuallyHidden>{today}</Heading>
           {unfinished && <HStack gap={2} align="center" wrap="wrap" justify="center">
             <Text type="supporting" size="sm">{`Setup isn't finished: ${unfinished.title}`}</Text>
