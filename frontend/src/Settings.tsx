@@ -1,7 +1,9 @@
-import { useState } from "react";
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import { AlertDialog } from "@astryxdesign/core/AlertDialog";
 import { Button } from "@astryxdesign/core/Button";
+import { Dialog } from "@astryxdesign/core/Dialog";
+import { Icon } from "@astryxdesign/core/Icon";
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
 import { Heading } from "@astryxdesign/core/Heading";
 import { Link } from "@astryxdesign/core/Link";
@@ -13,18 +15,17 @@ import { TextArea } from "@astryxdesign/core/TextArea";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { api, useLoad } from "./api";
-import type { AiSettings } from "./api";
+import type { AiSettings, Persona } from "./api";
 import { Load } from "./Load";
-import { Page } from "./Surface";
 
 const message = (cause: unknown) => cause instanceof Error ? cause.message : String(cause);
 
-/** One settings row: what it is on the left, its controls on the right (stacked on phones). */
+/** One part of a section: what it is, then its controls. */
 function Row({ id, title, description, children }: { id: string; title: string; description?: string; children: ReactNode }) {
   return (
     <section aria-labelledby={id} className="settings-row">
       <VStack gap={1}>
-        <Heading level={2} id={id}>{title}</Heading>
+        <Heading level={3} id={id}>{title}</Heading>
         {description && <Text as="p" type="supporting" size="sm">{description}</Text>}
       </VStack>
       <VStack gap={3}>{children}</VStack>
@@ -32,19 +33,73 @@ function Row({ id, title, description, children }: { id: string; title: string; 
   );
 }
 
-export default function Settings({ name, onSignedOut }: { name: string; onSignedOut: () => void }) {
+const sections = ["Your work", "Connections", "Your agent", "AI model", "Muse", "Account"] as const;
+type Section = typeof sections[number];
+
+/** Settings is a window over the app: sections on the left, the chosen one on the right. Nothing scrolls the page. */
+export default function Settings({ name, persona, onPersona, onSignedOut, onClose }: {
+  name: string; persona: Persona | null; onPersona: (persona: Persona) => Promise<void>; onSignedOut: () => void; onClose: () => void;
+}) {
+  const [section, setSection] = useState<Section>("Your work");
+  // Closing hands focus back to the rail's Settings link, which opened it.
+  useEffect(() => () => void requestAnimationFrame(() => document.querySelector<HTMLElement>(".rail-me")?.focus()), []);
+  const tabs = useRef<HTMLDivElement>(null);
+  // Arrow keys move between sections, as in any tab list.
+  const move = (event: KeyboardEvent<HTMLDivElement>) => {
+    const step = { ArrowDown: 1, ArrowRight: 1, ArrowUp: -1, ArrowLeft: -1 }[event.key];
+    if (!step) return;
+    event.preventDefault();
+    const next = sections[(sections.indexOf(section) + step + sections.length) % sections.length];
+    setSection(next);
+    tabs.current?.querySelector<HTMLElement>(`[data-section="${next}"]`)?.focus();
+  };
+  const change = (open: boolean) => { if (!open) onClose(); };
   return (
-    <Page title="Settings">
-      <VStack gap={4} maxWidth={960}>
-        <Row id="setup-heading" title="Connections" description="Which accounts Stupid reads, and anything Meta still needs.">
-          <HStack><Button label="Open setup" href="#setup" /></HStack>
-        </Row>
-        <AgentRules />
-        <AiAccess />
-        <UseFromMuse />
-        <Account name={name} onSignedOut={onSignedOut} />
-      </VStack>
-    </Page>
+    <Dialog isOpen onOpenChange={change} width="min(880px, calc(100vw - 16px))" maxHeight="none" padding={0} aria-label="Settings">
+      <div className="prefs">
+        <div className="prefs-side">
+          <Heading level={2} className="prefs-title">Settings</Heading>
+          <div ref={tabs} role="tablist" aria-label="Settings sections" aria-orientation="vertical" className="prefs-tabs" onKeyDown={move}>
+            {sections.map(s => (
+              <button key={s} type="button" role="tab" id={`tab-${s}`} data-section={s} aria-selected={s === section} aria-controls="prefs-panel"
+                tabIndex={s === section ? 0 : -1} className="prefs-tab" onClick={() => setSection(s)}>{s}</button>
+            ))}
+          </div>
+        </div>
+        <div className="prefs-main">
+          <HStack align="center" justify="between" gap={2} className="prefs-head">
+            <Heading level={2}>{section}</Heading>
+            <Button variant="ghost" label="Close settings" isIconOnly icon={<Icon icon="close" />} onClick={onClose} />
+          </HStack>
+          <div id="prefs-panel" role="tabpanel" aria-labelledby={`tab-${section}`} className="prefs-panel">
+            {section === "Your work" && <Path persona={persona} onPersona={onPersona} />}
+            {section === "Connections" && <Row id="setup-heading" title="Apps and accounts" description="Which accounts Stupid reads, and anything Meta still needs.">
+              <HStack><Button label="Open setup" href="#setup" /></HStack>
+            </Row>}
+            {section === "Your agent" && <AgentRules />}
+            {section === "AI model" && <AiAccess />}
+            {section === "Muse" && <UseFromMuse />}
+            {section === "Account" && <Account name={name} onSignedOut={onSignedOut} />}
+          </div>
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
+/** Creator or business: which apps setup asks for and which agents come first. */
+function Path({ persona, onPersona }: { persona: Persona | null; onPersona: (persona: Persona) => Promise<void> }) {
+  const [error, setError] = useState("");
+  return (
+    <Row id="path-heading" title="Your work on Meta" description="Changes the setup steps and the order of your agents. Nothing you connected is removed.">
+      <HStack>
+        <SegmentedControl label="I mostly" value={persona ?? ""} onChange={v => void onPersona(v as Persona).then(() => setError(""), (cause: unknown) => setError(message(cause)))}>
+          <SegmentedControlItem value="creator" label="Create content" />
+          <SegmentedControlItem value="business" label="Run a business" />
+        </SegmentedControl>
+      </HStack>
+      <div aria-live="polite">{error && <Text as="p">{error}</Text>}</div>
+    </Row>
   );
 }
 
@@ -171,32 +226,37 @@ function AiAccess() {
               : s.workspace_ai ? `Agents run on ${s.model} using Stupid's shared allowance. Add your own Baseten API key to run them on your account instead.`
               : "Add your own Baseten API key so agents can run."}
           </Text>}
-          <details>
-            <summary>How to get, pay for and revoke a key</summary>
-            <VStack gap={3}>
-              <Text as="p" type="supporting">Your own key is optional when Stupid's shared allowance is available. Baseten bills your account for model usage, including the small call that checks a key when you save it. Check the current model price and your Baseten billing before saving; Stupid's shared allowance does not cover your own key.</Text>
-              <ol className="steps">
-                <li>Open Baseten → Organization settings → <Link hasUnderline isExternalLink href="https://app.baseten.co/settings/api_keys">API keys</Link> → Create API key. Give it a name such as stupid-replies.</li>
-                <li>Choose Team → Next, select your team if asked, then Call Model APIs → Create API key. Copy the key now; Baseten shows it once. Ask your team admin if that option is unavailable.</li>
-                <li>Paste it below, read and tick the data-sharing consent, then tap Save key. The key is stored encrypted on Stupid's server.</li>
-              </ol>
-              <Text as="p" type="supporting">To stop Stupid using the key, tap Remove my key. To revoke it everywhere, open Baseten's API keys page and select the trash icon beside this key. Revocation is permanent. Baseten also revokes keys unused for 30 days; create a new key if needed.</Text>
-              <HStack gap={3} wrap="wrap">
-                <Link hasUnderline isExternalLink href="https://docs.baseten.co/inference/model-apis/pricing-and-limits">Check current prices</Link>
-                <Link hasUnderline isExternalLink href="https://docs.baseten.co/organization/api-keys">Baseten's key instructions</Link>
+          {s.has_key && s.key_saved_at && <Text as="p" type="supporting" size="sm">Saved <Timestamp value={s.key_saved_at} format="relative" /></Text>}
+          <details className="more" open={s.has_key || undefined}>
+            <summary>Use your own Baseten key</summary>
+            <VStack gap={4}>
+              <details>
+                <summary>How to get, pay for and revoke a key</summary>
+                <VStack gap={3}>
+                  <Text as="p" type="supporting">Your own key is optional when Stupid's shared allowance is available. Baseten bills your account for model usage, including the small call that checks a key when you save it. Check the current model price and your Baseten billing before saving; Stupid's shared allowance does not cover your own key.</Text>
+                  <ol className="steps">
+                    <li>Open Baseten → Organization settings → <Link hasUnderline isExternalLink href="https://app.baseten.co/settings/api_keys">API keys</Link> → Create API key. Give it a name such as stupid-replies.</li>
+                    <li>Choose Team → Next, select your team if asked, then Call Model APIs → Create API key. Copy the key now; Baseten shows it once. Ask your team admin if that option is unavailable.</li>
+                    <li>Paste it below, read and tick the data-sharing consent, then tap Save key. The key is stored encrypted on Stupid's server.</li>
+                  </ol>
+                  <Text as="p" type="supporting">To stop Stupid using the key, tap Remove my key. To revoke it everywhere, open Baseten's API keys page and select the trash icon beside this key. Revocation is permanent. Baseten also revokes keys unused for 30 days; create a new key if needed.</Text>
+                  <HStack gap={3} wrap="wrap">
+                    <Link hasUnderline isExternalLink href="https://docs.baseten.co/inference/model-apis/pricing-and-limits">Check current prices</Link>
+                    <Link hasUnderline isExternalLink href="https://docs.baseten.co/organization/api-keys">Baseten's key instructions</Link>
+                  </HStack>
+                </VStack>
+              </details>
+              <TextInput type="password" label={s.has_key ? "Replace your own Baseten API key" : "Your own Baseten API key"} value={key} onEnter={() => key.trim() && consent && void save(key.trim())}
+                onChange={v => { setKey(v); setStatus(undefined); }} description="We check it with one small test call, then store it encrypted. It never comes back to this page." />
+              <CheckboxInput label="Send the messages agents read to my own AI account" value={consent} onChange={setConsent}
+                description="Agents send message text and first names, captions and campaign totals to your Baseten account, never phone numbers or IDs." />
+              <div aria-live="polite">{status && <Text as="p" color={status.type === "error" ? "primary" : "secondary"}>{status.message}</Text>}</div>
+              <HStack gap={2} wrap="wrap">
+                <Button variant="primary" label="Save key" isDisabled={!key.trim() || !consent} clickAction={() => save(key.trim())} />
+                {s.has_key && <Button variant="ghost" label="Remove my key" clickAction={() => save("")} />}
               </HStack>
             </VStack>
           </details>
-          {s.has_key && s.key_saved_at && <Text as="p" type="supporting" size="sm">Saved <Timestamp value={s.key_saved_at} format="relative" /></Text>}
-          <TextInput type="password" label={s.has_key ? "Replace your own Baseten API key" : "Your own Baseten API key"} value={key} onEnter={() => key.trim() && consent && void save(key.trim())}
-            onChange={v => { setKey(v); setStatus(undefined); }} description="We check it with one small test call, then store it encrypted. It never comes back to this page." />
-          <CheckboxInput label="Send the messages agents read to my own AI account" value={consent} onChange={setConsent}
-            description="Agents send message text and first names, captions and campaign totals to your Baseten account, never phone numbers or IDs." />
-          <div aria-live="polite">{status && <Text as="p" color={status.type === "error" ? "primary" : "secondary"}>{status.message}</Text>}</div>
-          <HStack gap={2} wrap="wrap">
-            <Button variant="primary" label="Save key" isDisabled={!key.trim() || !consent} clickAction={() => save(key.trim())} />
-            {s.has_key && <Button variant="ghost" label="Remove my key" clickAction={() => save("")} />}
-          </HStack>
         </VStack>
       )}</Load>
     </Row>

@@ -61,6 +61,11 @@ export default function App() {
     if (pending) api.setPersona(pending).then(next => { if (next.signed_in) setMe(next); }, () => undefined);
   }, [pending, setMe]);
   const page = usePage() ?? "home";
+  // Settings opens over the page it was opened from, which stays behind it.
+  const [behind, setBehind] = useState<Page>(page === "settings" ? "home" : page);
+  if (page !== "settings" && page !== behind) setBehind(page);
+  const shown = page === "settings" ? behind : page;
+  const setPersona = (persona: Persona) => api.setPersona(persona).then(next => { if (next.signed_in) setMe(next); });
   const [held, setHeld] = useState(later.get);
   const [failed, setFailed] = useState(failure);
   const [connecting, setConnecting] = useState(false);
@@ -78,10 +83,10 @@ export default function App() {
   const signOut = useCallback(() => { setMe({ signed_in: false }); location.hash = ""; }, [setMe]);
   const reconnecting = useStream(signedIn, signOut);
   useEffect(() => {
-    document.title = signedIn ? `${pages[page]} · Stupid` : "Stupid";
     // Each place starts at its top, not where the last one was scrolled to.
     document.querySelector(".astryx-layout-content")?.scrollTo(0, 0);
-  }, [signedIn, page]);
+  }, [signedIn, shown]);
+  useEffect(() => { document.title = signedIn ? `${pages[page]} · Stupid` : "Stupid"; }, [signedIn, page]);
 
   const connect = () => setConnecting(true);
   if (connecting || (returned && !me.data && !me.error)) return (
@@ -92,11 +97,10 @@ export default function App() {
 
   const welcome = !user && Boolean(me.data || me.error?.status === 401);
   let body;
-  if (user && page === "setup") body = <Suspense fallback={loading}><Setup state={user} onChange={next => me.setData({ ...user, ...next })} onConnect={connect} /></Suspense>;
-  else if (user && page === "home") body = <Suspense fallback={loading}><Home state={user} persona={user.persona} /></Suspense>;
-  else if (user && page === "inbox") body = <Suspense fallback={loading}><Inbox /></Suspense>;
-  else if (user && page === "agents") body = <Suspense fallback={loading}><Agents state={user} /></Suspense>;
-  else if (user) body = <Suspense fallback={loading}><Settings name={user.name} onSignedOut={signOut} /></Suspense>;
+  if (user && shown === "setup") body = <Suspense fallback={loading}><Setup state={user} onChange={next => me.setData({ ...user, ...next })} onConnect={connect} /></Suspense>;
+  else if (user && shown === "home") body = <Suspense fallback={loading}><Home state={user} persona={user.persona} /></Suspense>;
+  else if (user && shown === "inbox") body = <Suspense fallback={loading}><Inbox /></Suspense>;
+  else if (user) body = <Suspense fallback={loading}><Agents state={user} /></Suspense>;
   else if (welcome) body = <Welcome onDoor={setSignIn} onPassed={setPassed} />;
   else if (me.error) body = (
     <EmptyState headingLevel={1} title={me.error.status === 0 ? "Stupid is offline" : "Something went wrong"}
@@ -118,8 +122,10 @@ export default function App() {
         </VStack>}
         {reconnecting && <Text className="shimmer reconnecting" type="supporting" size="sm" role="status">Reconnecting…</Text>}
         {body}
+        {user && page === "settings" && <Suspense><Settings name={user.name} persona={user.persona} onPersona={setPersona} onSignedOut={signOut}
+          onClose={() => { location.hash = `#${behind}`; }} /></Suspense>}
         {user && page === "home" && !pending && !held && <Suspense><Onboarding persona={user.persona}
-          onPersona={persona => api.setPersona(persona).then(next => { if (next.signed_in) setMe(next); })}
+          onPersona={setPersona}
           onAccount={next => setMe({ ...user, ...next })} onConnect={connect} onClose={() => { later.set(); setHeld(true); }} /></Suspense>}
         {welcome && signIn && <Suspense><SignIn persona={signIn === "any" ? undefined : signIn} instagram={me.data?.signed_in === false ? me.data.instagram_oauth_start : undefined}
           onConnect={connect} onClose={() => setSignIn(undefined)} /></Suspense>}
