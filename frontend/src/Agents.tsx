@@ -11,6 +11,8 @@ import { Heading } from "@astryxdesign/core/Heading";
 import { api, drafts, jobNames, lastReport, senderName, useLoad } from "./api";
 import type { AgentId, AgentResult, AgentRun, AssetKind, Connections, ReelScript, Ticket } from "./api";
 import { ReportMark } from "./Attention";
+import { objectPosition, ratios, savePng } from "./crop";
+import type { Crop } from "./crop";
 import { Load } from "./Load";
 import { Modal, Page, Tile } from "./Surface";
 
@@ -183,7 +185,38 @@ function Result({ result, onLeave }: { result: AgentResult; onLeave: () => void 
           <Text as="p" type="supporting">{a.why}</Text>
         </VStack>
       )))}
+      {result.creative_pack && result.creative_pack.length > 0 && <CreativePack pack={result.creative_pack} />}
       <Text as="p" type="supporting" size="sm">Change your ads in Meta Ads Manager. Stupid doesn't edit them.</Text>
+    </VStack>
+  );
+}
+
+/** The creator's own best pictures, cropped around the subject SAM 3.1 found, one per ad placement. */
+function CreativePack({ pack }: { pack: Crop[] }) {
+  const [error, setError] = useState("");
+  return (
+    <VStack gap={4}>
+      <Text weight="semibold">Ad creative pack</Text>
+      <Text as="p" type="supporting" size="sm">Your own pictures, cropped around what SAM 3.1 found in each, for every ad placement. Nothing is uploaded to Ads; save the ones you want.</Text>
+      {pack.map(p => {
+        const src = `/api/instagram/media/${encodeURIComponent(p.id)}/image`;
+        return (
+          <VStack key={p.id} gap={2}>
+            <Text size="sm"><Text weight="semibold" size="sm">{p.subject}</Text>{p.permalink && <> · <Link hasUnderline href={p.permalink} isExternalLink>the post</Link></>}</Text>
+            {p.note && <Text as="p" type="supporting" size="sm">{p.note}</Text>}
+            <HStack gap={3} wrap="wrap" align="end">
+              {ratios.map(r => (
+                <VStack key={r.label} gap={1} hAlign="start">
+                  <img className="crop" src={src} alt={`${p.subject}, ${r.label} crop for ${r.name}`} loading="lazy"
+                    style={{ aspectRatio: `${r.a}`, objectPosition: objectPosition(r.a, p.box) }} />
+                  <Button size="sm" label={`Save ${r.label}`} clickAction={() => savePng(src, r.a, p.box, `${p.subject.replace(/\W+/g, "-")}-${r.label.replace(":", "x")}.png`).catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)))} />
+                </VStack>
+              ))}
+            </HStack>
+          </VStack>
+        );
+      })}
+      <div aria-live="polite">{error && <Text as="p" size="sm">{error}</Text>}</div>
     </VStack>
   );
 }
