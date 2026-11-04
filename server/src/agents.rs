@@ -17,7 +17,8 @@ const AGENTS: &[(&str, &str)] = &[
 ];
 // Baseten list price for Muse Spark Open, USD per million tokens (input, output).
 const PRICE: (f64, f64) = (1.25, 4.25);
-const MAX_TOKENS: u32 = 1200;
+// Reasoning tokens count toward this limit, so it leaves room for low-effort thinking plus the answer.
+const MAX_TOKENS: u32 = 4000;
 const MAX_INPUT_CHARS: usize = 12_000;
 const RUNS_PER_DAY: i64 = 30;
 
@@ -123,7 +124,7 @@ pub async fn run(State(s): State<AppState>, headers: HeaderMap, Path(agent): Pat
     };
     let state = s.clone();
     tokio::spawn(async move {
-        let outcome = muse(&state, system, &context, own.as_deref()).await;
+        let outcome = muse(&state, name, system, &context, own.as_deref()).await;
         let db = lock(&state.db);
         let _ = match outcome {
             Ok((result, cost)) => db.execute("UPDATE agent_runs SET status='done',result_json=?1,cost_usd=?2,finished=?3 WHERE id=?4", params![result.to_string(), cost, now(), id]),
@@ -149,7 +150,7 @@ fn busy(db: &rusqlite::Connection, user_id: &str, agent: &str) -> ApiResult<()> 
 
 /// One Muse call, under the workspace spend cap unless the person brought their own key.
 /// Returns the parsed JSON answer and its cost in USD.
-async fn muse(s: &AppState, system: &str, context: &Value, own_key: Option<&str>) -> ApiResult<(Value, f64)> {
+async fn muse(s: &AppState, agent: &str, system: &str, context: &Value, own_key: Option<&str>) -> ApiResult<(Value, f64)> {
     let mut input = context.to_string();
     if input.len() > MAX_INPUT_CHARS {
         input = input.chars().take(MAX_INPUT_CHARS).collect();
@@ -164,18 +165,21 @@ async fn muse(s: &AppState, system: &str, context: &Value, own_key: Option<&str>
             return Err(AppError::new(402, "The AI budget for this workspace is used up."));
         }
     }
-    let body = json!({ "model": s.cfg.muse_model, "max_tokens": MAX_TOKENS, "temperature": 0.4, "messages": [
+    // Muse Spark Open defaults to xhigh reasoning, which can use up max_tokens before the answer starts.
+    let body = json!({ "model": s.cfg.muse_model, "max_tokens": MAX_TOKENS, "reasoning_effort": "low", "messages": [
         { "role": "system", "content": format!("{system} Reply with the JSON object only.") },
         { "role": "user", "content": input },
     ]});
+    let started = std::time::Instant::now();
     let response = s.http.post(format!("{}/chat/completions", s.cfg.muse_base.trim_end_matches('/'))).bearer_auth(own_key.unwrap_or(&s.cfg.muse_key)).timeout(std::time::Duration::from_secs(120)).json(&body).send().await
-        .map_err(|_| AppError::new(502, "Muse could not be reached."))?;
+        .map_err(|e| if e.is_timeout() { AppError::new(504, refusal(504, None)) } else { AppError::new(502, "Muse could not be reached.") })?;
     let status = response.status();
-    let data: Value = response.json().await.map_err(|_| AppError::new(502, "Muse sent an unreadable answer."))?;
     if !status.is_success() {
-        tracing::warn!("Muse error {status}");
-        return Err(AppError::new(502, "Muse refused the request."));
+        tracing::warn!(agent, model = %s.cfg.muse_model, %status, "muse refused");
+        let retry_after = response.headers().get("retry-after").and_then(|v| v.to_str().ok()).map(str::to_owned);
+        return Err(AppError::new(502, refusal(status.as_u16(), retry_after.as_deref())));
     }
+    let data: Value = response.json().await.map_err(|_| AppError::new(502, "Muse sent an unreadable answer."))?;
     let usage = &data["usage"];
     // Without a usage report, charge the worst-case estimate rather than nothing.
     let cost = match (usage["prompt_tokens"].as_f64(), usage["completion_tokens"].as_f64()) {
@@ -183,8 +187,32 @@ async fn muse(s: &AppState, system: &str, context: &Value, own_key: Option<&str>
         _ => estimate,
     };
     lock(&s.db).execute("INSERT INTO spend (usd,created,own) VALUES (?1,?2,?3)", params![cost, now(), own_key.is_some()])?;
-    let text = data["choices"][0]["message"]["content"].as_str().unwrap_or_default();
-    Ok((extract_json(text).ok_or_else(|| AppError::new(502, "Muse answered without the expected format."))?, cost))
+    tracing::info!(agent, model = %s.cfg.muse_model, prompt_tokens = usage["prompt_tokens"].as_u64(), completion_tokens = usage["completion_tokens"].as_u64(),
+        cost_usd = format!("{cost:.4}"), ms = started.elapsed().as_millis() as u64, own_key = own_key.is_some(), "muse call");
+    Ok((extract_json(answer(&data)?).ok_or_else(|| AppError::new(502, "Muse answered without the expected format."))?, cost))
+}
+
+/// The answer text, or a plain-words error when Muse stopped at the token limit.
+fn answer(data: &Value) -> ApiResult<&str> {
+    let choice = &data["choices"][0];
+    if choice["finish_reason"] == "length" {
+        return Err(AppError::new(502, "Muse ran out of room before it finished. Run it again."));
+    }
+    Ok(choice["message"]["content"].as_str().unwrap_or_default())
+}
+
+/// What a refused Muse call means, in plain words.
+fn refusal(status: u16, retry_after: Option<&str>) -> String {
+    match status {
+        402 => "The AI account is out of credit or has no billing set up.".into(),
+        429 => match retry_after.and_then(|v| v.trim().parse::<u64>().ok()) {
+            Some(secs) => format!("Muse is busy. Try again in {secs} seconds."),
+            None => "Muse is busy. Try again in a minute.".into(),
+        },
+        504 => "Muse took too long to answer. Try again.".into(),
+        401 | 403 => "The AI key was refused.".into(),
+        _ => "Muse refused the request.".into(),
+    }
 }
 
 fn extract_json(text: &str) -> Option<Value> {
@@ -202,5 +230,21 @@ mod tests {
         assert_eq!(extract_json("<think>{no}</think>\n```json\n{\"a\":1}\n```").unwrap()["a"], 1);
         assert!(extract_json("no json here").is_none());
         assert!(extract_json("[1,2]").is_none());
+    }
+
+    #[test]
+    fn a_cut_off_answer_is_an_error() {
+        let cut = json!({ "choices": [{ "finish_reason": "length", "message": { "content": "{\"a\":" } }] });
+        assert_eq!(answer(&cut).unwrap_err().1, "Muse ran out of room before it finished. Run it again.");
+        let done = json!({ "choices": [{ "finish_reason": "stop", "message": { "content": "{\"a\":1}" } }] });
+        assert_eq!(answer(&done).unwrap(), "{\"a\":1}");
+    }
+
+    #[test]
+    fn refusals_in_plain_words() {
+        assert!(refusal(402, None).contains("credit"));
+        assert_eq!(refusal(429, Some("30")), "Muse is busy. Try again in 30 seconds.");
+        assert_eq!(refusal(429, Some("Wed, 21 Oct 2026 07:28:00 GMT")), "Muse is busy. Try again in a minute.");
+        assert!(refusal(504, None).contains("too long"));
     }
 }
