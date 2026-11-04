@@ -64,7 +64,7 @@ export type InboxItem = { id: string; kind: InboxKind; asset_id: string; sender:
 // ponytail: only India's +91 is grouped; other numbers show as +<digits>. Add a library if numbers from more countries arrive.
 const phone = (digits: string) => digits.length === 12 && digits.startsWith("91") ? `+91 ${digits.slice(2, 7)} ${digits.slice(7)}` : `+${digits}`;
 /** The name to show for a message; `sender` stays the id replies go to. A WhatsApp sender is a phone number. */
-export const senderName = (item: InboxItem) => item.sender_name || (item.kind === "whatsapp" ? phone(item.sender) : item.sender);
+export const senderName = (item: Pick<InboxItem, "kind" | "sender" | "sender_name">) => item.sender_name || (item.kind === "whatsapp" ? phone(item.sender) : item.sender);
 
 export type AgentId = "leads" | "ideas" | "replies" | "ads";
 export type AgentResult =
@@ -79,6 +79,19 @@ export type AgentRun = {
 };
 export type Agents = { runs: AgentRun[]; ai_ready: boolean; own_key: boolean; model: string };
 export type AiSettings = { has_key: boolean; key_saved_at?: number | null; model: string; workspace_ai: boolean };
+
+/** The customer message a piece of agent work is about. */
+export type AgentMessage = { kind: InboxKind; sender: string; sender_name: string | null; text?: string };
+/** What waits for the person: a ready reply draft, or the agent's one question. */
+export type Need =
+  | { type: "draft"; id: number; event_id: string; text: string; source: string; created: number; message: AgentMessage }
+  | { type: "question"; id: number; question: string; created: number; message: AgentMessage | null };
+export type ReportKind = "progress" | "waiting" | "ready" | "blocked" | "failed" | "dropped" | "question" | "answer" | "idea" | "advice";
+export type Ticket = { id: number; job: string; state: "open" | "ended"; created: number; message: AgentMessage | null; reports: { kind: ReportKind; text: string; created: number }[] };
+export type AgentHome = { needs: Need[]; tickets: Ticket[]; proactive: boolean; rules: string };
+/** The last thing a ticket said that a person would read. */
+export const lastReport = (t: Ticket) => t.reports.filter(r => !["question", "answer", "idea", "advice"].includes(r.kind)).at(-1);
+export const jobNames: Record<string, string> = { replies: "Reply drafts", leads: "Lead finder", ideas: "Post ideas", ads: "Ad watcher" };
 
 /** status 0 = server unreachable; 401 = signed out; any other 4xx carries a message written for the person. */
 export class ApiError extends Error {
@@ -130,6 +143,9 @@ export const api = {
   run: (agent: AgentId) => call<{ agent: AgentId; status: string }>("POST", `/api/agents/${agent}/run`),
   aiSettings: () => call<AiSettings>("GET", "/api/settings/ai"),
   setAiKey: (api_key: string, consent = false) => call<Omit<AiSettings, "workspace_ai">>("PUT", "/api/settings/ai", { api_key, consent }),
+  agent: () => call<AgentHome>("GET", "/api/agent"),
+  answer: (ticket: number, text: string, skip = false) => call<{ state: string }>("POST", `/api/agent/tickets/${ticket}/answer`, { text, skip }),
+  agentSettings: (proactive: boolean, rules: string) => call<{ proactive: boolean; rules: string }>("PUT", "/api/agent/settings", { proactive, rules }),
 };
 
 /** A reply waiting in the Inbox. `source` marks text an agent wrote, so the person sees it came from AI. */
@@ -159,7 +175,8 @@ export function useLoad<T>(key: string, load: () => Promise<T>) {
 }
 
 // Which screen data each field of a live update stands for.
-const streamed = { inbox: "inbox", replies: "inbox", runs: "agents", connections: "me" } as const;
+// A sent reply also clears its draft from "Needs you".
+const streamed = { inbox: ["inbox"], replies: ["inbox", "agent"], runs: ["agents"], agent: ["agent"], connections: ["me"] } as const;
 
 /**
  * Listens to /api/stream while signed in and refetches only what changed. Returns true once it has been down
@@ -179,7 +196,7 @@ export function useStream(on: boolean, onSignedOut: () => void) {
       source.onopen = up;
       source.addEventListener("update", event => {
         const next = JSON.parse((event as MessageEvent<string>).data) as Record<string, string>;
-        const changed = new Set(Object.entries(streamed).filter(([field]) => last && last[field] !== next[field]).map(([, key]) => key));
+        const changed = new Set(Object.entries(streamed).filter(([field]) => last && last[field] !== next[field]).flatMap(([, keys]) => keys));
         last = next;
         changed.forEach(refetch);
       });

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Button } from "@astryxdesign/core/Button";
 import { Grid } from "@astryxdesign/core/Grid";
+import { Icon } from "@astryxdesign/core/Icon";
 import { Link } from "@astryxdesign/core/Link";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
@@ -8,6 +9,7 @@ import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { Token } from "@astryxdesign/core/Token";
 import { api, apps, senderName, useLoad } from "./api";
 import type { Ads as AdsData, AssetKind, Campaign, Connections, Instagram as InstagramData } from "./api";
+import Attention from "./Attention";
 import { Load } from "./Load";
 import SourceIcon from "./SourceIcon";
 import { Modal, Page, Stat, Tile } from "./Surface";
@@ -18,13 +20,21 @@ const money = (n: number, currency: string) => new Intl.NumberFormat(undefined, 
 export default function Today({ state }: { state: Connections }) {
   const on = (kind: AssetKind) => state.assets.some(a => a.kind === kind && state.selected.includes(a.key));
   const messaging = on("whatsapp") || on("messenger") || on("instagram");
+  const [numbers, setNumbers] = useState(false);
   return (
-    <Page title="Today" description="How your business did over the last 7 days.">
-      <div className="bento bento-lead">
-        {messaging ? <Messages /> : <Connect icon="chat" title="Messages" kind="whatsapp" />}
-        {on("ads") ? <Ads /> : <Connect icon="ads" title="Ads" kind="ads" />}
-        {on("instagram") ? <Instagram /> : <Connect icon="instagram" title="Instagram" kind="instagram" />}
-      </div>
+    <Page title="Today" description="What your agent needs from you, and what it did.">
+      <Attention />
+      <VStack gap={3}>
+        <HStack><Button variant="ghost" label="Your numbers, last 7 days" aria-expanded={numbers} aria-controls="today-numbers" onClick={() => setNumbers(!numbers)}
+          endContent={<Icon icon={numbers ? "chevronDown" : "chevronRight"} size="sm" />} /></HStack>
+        {numbers && (
+          <div id="today-numbers" className="bento bento-lead">
+            {messaging ? <Messages /> : <Connect icon="chat" title="Messages" kind="whatsapp" />}
+            {on("ads") ? <Ads /> : <Connect icon="ads" title="Ads" kind="ads" />}
+            {on("instagram") ? <Instagram /> : <Connect icon="instagram" title="Instagram" kind="instagram" />}
+          </div>
+        )}
+      </VStack>
     </Page>
   );
 }
