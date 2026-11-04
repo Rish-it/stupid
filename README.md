@@ -11,7 +11,10 @@ Instagram, WhatsApp, your Facebook Page and Meta Ads, and work from one place:
 - **Setup without the maze.** Each connected account says what Meta still needs (a payment
   method, a time zone, a linked Page) in plain words, with a link to the exact Meta screen.
 
-Stupid is built for Meta's platform. It is not an official Meta product.
+Built with Muse Spark Open. Stupid is built for Meta's platform. It is not an official Meta product.
+
+Live at [app.secndai.com](https://app.secndai.com), served from the owner's machine through a
+Cloudflare tunnel.
 
 ## How it works
 
@@ -26,9 +29,32 @@ checked against `X-Hub-Signature-256` before anything is stored. Messages are ke
 data-deletion callback removes a person's data in one transaction. AI spend stops at
 `STUPID_MUSE_BUDGET_USD`, and people can bring their own key.
 
+## Meta models used and where
+
+| What | Model | Where it runs |
+|---|---|---|
+| Lead finder, post ideas, reply drafts, ad watcher (`server/src/agents.rs`) | Muse Spark Open, `meta-models/muse-spark-open-1026` | Baseten Model APIs (`STUPID_MUSE_BASE_URL`) |
+
+- One chat call per agent run, from the server only. The browser never sees a model key.
+- Spend stops at `STUPID_MUSE_BUDGET_USD` (workspace key), with at most 30 runs per person per day.
+  A person who saves their own key pays their own provider instead.
+- Each run's model id and cost are shown on the Agents screen and stored with the run.
+
+## Service providers
+
+Stupid sends Meta Platform Data to one model provider, only to do the work the person asked for:
+
+| Provider | What it gets | Retention | Agreement |
+|---|---|---|---|
+| Baseten (model inference) | For the agent a person runs: the messages and comments it reads, Instagram bio, captions and post counts, ad campaign totals | Zero data retention on Model APIs; no training on customer data | [DPA](https://www.baseten.co/dpa/), [security practices](https://www.baseten.co/security-practices/) |
+| The person's own AI provider | The same, only when they saved their own key in Settings | Their provider's terms | Their own account |
+
+Meta tokens and the database stay on Stupid's server. The Cloudflare tunnel only carries the
+site's HTTPS traffic to that server.
+
 ## Run it
 
-Needs Rust 1.95 and Node.js 24.
+Needs Rust 1.95 and Node.js 22.12 or newer (CI uses 24).
 
 ```bash
 cp .env.example .env    # fill in the Meta app values; never commit .env
@@ -66,9 +92,10 @@ npm run check           # cargo clippy -D warnings, cargo test, lint, build
 npm run test:inbox      # browser tests
 ```
 
-## Earlier work
+## Also built during this hackathon
 
-Before this workspace, Secnd AI built Ren, an open decision model for Meta business decisions.
-Its weights, model card and training record are at
+Ren, an open decision model for Meta business decisions, was built and published by Secnd AI
+during this hackathon (Oct 29 – Nov 1, 2026); Stupid does not use it at runtime. Its weights,
+model card and training record are at
 [huggingface.co/Secnd-AI/ren](https://huggingface.co/Secnd-AI/ren) and
 [github.com/Secnd-AI/ren](https://github.com/Secnd-AI/ren).
