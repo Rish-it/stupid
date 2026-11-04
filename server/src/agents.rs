@@ -1,5 +1,5 @@
 //! Background agents on Muse Spark Open. Each run prepares work for the person; nothing is sent or changed.
-use crate::{lock, meta, now, reels, tickets, user, ApiResult, AppError, AppState};
+use crate::{crops, lock, meta, now, reels, tickets, user, ApiResult, AppError, AppState};
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
@@ -120,6 +120,8 @@ pub async fn run(State(s): State<AppState>, headers: HeaderMap, Path(agent): Pat
         _ => meta::ads_data(&s, &u).await?,
     };
     let empty = context.as_object().is_some_and(|o| o.values().all(|v| v.as_array().is_some_and(|a| a.is_empty())));
+    // Ad watcher also brings an ad creative pack cut from the creator's own best pictures.
+    let pictures = if name == "ads" && !u.selected_assets("instagram").is_empty() { meta::instagram_data(&s, &u).await.ok() } else { None };
     let (id, ticket) = {
         let db = lock(&s.db);
         busy(&db, &u.id, name)?;
@@ -136,7 +138,12 @@ pub async fn run(State(s): State<AppState>, headers: HeaderMap, Path(agent): Pat
     let state = s.clone();
     let inbox: Vec<String> = u.assets.iter().filter(|a| u.selected.contains(&a.key)).map(|a| a.id.clone()).collect();
     tokio::spawn(async move {
-        let outcome = if name == "reels" { reels::direct(&state, &u.id, &context, own.as_deref()).await } else { muse(&state, name, system, &context, own.as_deref()).await };
+        let mut outcome = if name == "reels" { reels::direct(&state, &u.id, &context, own.as_deref()).await } else { muse(&state, name, system, &context, own.as_deref()).await };
+        if let (Ok((result, cost)), Some(ig)) = (&mut outcome, &pictures) {
+            let (pack, more) = crops::pack(&state, &u.id, ig, own.as_deref()).await;
+            result["creative_pack"] = json!(pack);
+            *cost += more;
+        }
         let db = lock(&state.db);
         let saved = match outcome {
             Ok((result, cost)) => db.execute("UPDATE agent_runs SET status='done',result_json=?1,cost_usd=?2,finished=?3 WHERE id=?4", params![result.to_string(), cost, now(), id])

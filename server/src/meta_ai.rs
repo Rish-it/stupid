@@ -1,8 +1,6 @@
 //! Meta Model API (api.meta.ai) for the media jobs: Muse Wonder watches videos, Muse Voice Transcribe
 //! hears voice notes and SAM 3.1 finds the subject in a picture. Server-side only, under its own budget.
 //! Muse Image is never called: Meta's geographic policy bars it from India, where Stupid runs.
-// The voice-note, Reel and crop jobs call these; drop this once all three are wired.
-#![allow(dead_code)]
 use crate::{digest, lock, now, ApiResult, AppError, AppState};
 use rusqlite::params;
 use serde_json::{json, Value};

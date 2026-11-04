@@ -1,6 +1,7 @@
 //! Stupid server: Meta sign-in, connections, Meta data, webhooks and background agents.
 mod agents;
 mod attention;
+mod crops;
 mod executor;
 mod meta;
 mod meta_ai;
@@ -674,6 +675,7 @@ async fn main() {
         .route("/api/connections/refresh", post(meta::refresh))
         .route("/api/ads", get(meta::ads))
         .route("/api/instagram", get(meta::instagram))
+        .route("/api/instagram/media/{id}/image", get(crops::image))
         .route("/api/inbox", get(meta::inbox))
         .route("/api/stream", get(stream))
         .route("/api/inbox/{id}/reply", post(meta::reply))
