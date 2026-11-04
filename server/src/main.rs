@@ -2,6 +2,7 @@
 mod agents;
 mod meta;
 mod meta_ai;
+mod tickets;
 
 use axum::{
     body::Bytes,
@@ -115,6 +116,7 @@ pub struct AppState {
     pub fernet: Option<Arc<fernet::Fernet>>,
     // ponytail: one in-process cache, swap for a shared cache if this ever runs on more than one host.
     pub cache: Arc<Mutex<HashMap<String, (Instant, Value)>>>,
+    pub queue: tickets::Queue,
 }
 
 #[derive(Debug)]
@@ -186,6 +188,27 @@ CREATE TABLE IF NOT EXISTS deletions (code TEXT PRIMARY KEY, created INTEGER NOT
     // When the person asked Stupid to send what agents read to their own AI account (their express direction).
     "ALTER TABLE users ADD COLUMN ai_key_saved_at INTEGER;",
     "CREATE TABLE meta_api_spend (id INTEGER PRIMARY KEY, model TEXT NOT NULL, usd REAL NOT NULL, created INTEGER NOT NULL);",
+    // The agent's domain: triggers gather on threads, evals judge them, tickets hold prepare-only work.
+    "
+CREATE TABLE threads (id INTEGER PRIMARY KEY, user_id TEXT NOT NULL, key TEXT NOT NULL, created INTEGER NOT NULL, UNIQUE(user_id, key));
+CREATE TABLE triggers (id INTEGER PRIMARY KEY, user_id TEXT NOT NULL, thread_id INTEGER NOT NULL, source TEXT NOT NULL, ref TEXT NOT NULL,
+  event_id INTEGER, created INTEGER NOT NULL, disposition TEXT, reason TEXT, eval_id INTEGER, UNIQUE(user_id, source, ref));
+CREATE INDEX triggers_thread ON triggers(thread_id, disposition);
+CREATE TABLE evals (id INTEGER PRIMARY KEY, user_id TEXT NOT NULL, thread_id INTEGER NOT NULL, decision TEXT NOT NULL, reason TEXT NOT NULL,
+  cost_usd REAL NOT NULL DEFAULT 0, created INTEGER NOT NULL);
+CREATE INDEX evals_user ON evals(user_id, created);
+CREATE TABLE tickets (id INTEGER PRIMARY KEY, user_id TEXT NOT NULL, thread_id INTEGER NOT NULL, trigger_id INTEGER NOT NULL, job TEXT NOT NULL,
+  mandate TEXT NOT NULL DEFAULT 'prepare' CHECK (mandate = 'prepare'), state TEXT NOT NULL DEFAULT 'open', created INTEGER NOT NULL, ended INTEGER);
+CREATE INDEX tickets_user ON tickets(user_id, state);
+CREATE INDEX tickets_thread ON tickets(thread_id, state);
+CREATE TABLE reports (id INTEGER PRIMARY KEY, ticket_id INTEGER NOT NULL, kind TEXT NOT NULL, text TEXT NOT NULL, created INTEGER NOT NULL);
+CREATE INDEX reports_ticket ON reports(ticket_id, id);
+CREATE TABLE drafts (id INTEGER PRIMARY KEY, user_id TEXT NOT NULL, ticket_id INTEGER, event_id INTEGER NOT NULL, text TEXT NOT NULL,
+  source TEXT NOT NULL, created INTEGER NOT NULL);
+CREATE INDEX drafts_user ON drafts(user_id, event_id);
+ALTER TABLE users ADD COLUMN agent_proactive INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE users ADD COLUMN agent_rules TEXT NOT NULL DEFAULT '';
+",
 ];
 
 fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
@@ -425,6 +448,10 @@ fn delete_user(s: &AppState, id: &str) -> rusqlite::Result<()> {
         tx.execute("DELETE FROM replies WHERE user_id=?1", [id])?;
         tx.execute("DELETE FROM sessions WHERE user_id=?1", [id])?;
         tx.execute("DELETE FROM agent_runs WHERE user_id=?1", [id])?;
+        tx.execute("DELETE FROM reports WHERE ticket_id IN (SELECT id FROM tickets WHERE user_id=?1)", [id])?;
+        for table in ["drafts", "tickets", "evals", "triggers", "threads"] {
+            tx.execute(&format!("DELETE FROM {table} WHERE user_id=?1"), [id])?;
+        }
         tx.execute("DELETE FROM users WHERE id=?1", [id])?;
         tx.commit()?;
     }
@@ -498,12 +525,17 @@ async fn webhook(State(s): State<AppState>, headers: HeaderMap, body: Bytes) -> 
         tracing::warn!("WhatsApp send {message_id} failed: {reason}");
         db.execute("UPDATE replies SET error=?2 WHERE message_id=?1", params![message_id, format!("WhatsApp didn't deliver this reply: {reason}")])?;
     }
+    let mut added = Vec::new();
     for e in events {
-        db.execute(
+        if db.execute(
             "INSERT OR IGNORE INTO events (kind,asset_id,sender,sender_name,text,created,dedupe) VALUES (?1,?2,?3,?4,?5,?6,?7)",
             params![e.kind, e.asset_id, e.sender, e.sender_name, e.text, now(), e.dedupe],
-        )?;
+        )? == 1 {
+            added.push(db.last_insert_rowid());
+        }
     }
+    drop(db);
+    tickets::inbound(&s, &added);
     Ok(StatusCode::OK)
 }
 
@@ -552,6 +584,14 @@ fn sweep(s: &AppState, startup: bool) {
         .and_then(|_| db.execute("DELETE FROM replies WHERE created<?1", [t - 30 * 86400]))
         // Lead and reply results quote customer messages, so they expire with them.
         .and_then(|_| db.execute("DELETE FROM agent_runs WHERE created<?1", [t - 30 * 86400]))
+        // The agent's records hold customer words too, so they expire on the same day.
+        .and_then(|_| db.execute_batch(&format!("
+            DELETE FROM reports WHERE created<{old} OR ticket_id IN (SELECT id FROM tickets WHERE created<{old});
+            DELETE FROM drafts WHERE created<{old};
+            DELETE FROM tickets WHERE created<{old};
+            DELETE FROM evals WHERE created<{old};
+            DELETE FROM triggers WHERE created<{old};
+            DELETE FROM threads WHERE created<{old} AND id NOT IN (SELECT thread_id FROM triggers) AND id NOT IN (SELECT thread_id FROM tickets);", old = t - 30 * 86400)))
         .and_then(|_| db.execute(
             "UPDATE agent_runs SET status='failed',error='Interrupted. Run it again.',finished=?1 WHERE status='running' AND created<?2",
             params![t, stale],
@@ -596,7 +636,7 @@ async fn main() {
         .expect("http client");
     let bind = cfg.bind.clone();
     let index = cfg.static_dir.join("index.html");
-    let state = AppState { cfg: Arc::new(cfg), db: Arc::new(Mutex::new(conn)), http, fernet, cache: Default::default() };
+    let state = AppState { cfg: Arc::new(cfg), db: Arc::new(Mutex::new(conn)), http, fernet, cache: Default::default(), queue: Default::default() };
     let static_files = ServeDir::new(&state.cfg.static_dir).fallback(ServeFile::new(index));
     sweep(&state, true);
     let swept = state.clone();
@@ -691,7 +731,7 @@ mod tests {
         for age in [31, 29] {
             conn.execute("INSERT INTO agent_runs (user_id,agent,status,created) VALUES ('u','leads','done',?1)", [now() - age * 86400]).unwrap();
         }
-        let state = AppState { cfg: Arc::new(Config::load()), db: Arc::new(Mutex::new(conn)), http: reqwest::Client::new(), fernet: None, cache: Default::default() };
+        let state = AppState { cfg: Arc::new(Config::load()), db: Arc::new(Mutex::new(conn)), http: reqwest::Client::new(), fernet: None, cache: Default::default(), queue: Default::default() };
         sweep(&state, false);
         let left: i64 = lock(&state.db).query_row("SELECT COUNT(*) FROM agent_runs", [], |r| r.get(0)).unwrap();
         assert_eq!(left, 1);

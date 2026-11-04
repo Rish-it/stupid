@@ -409,13 +409,18 @@ pub async fn pull(state: &AppState, u: &User) -> ApiResult<()> {
                     }
                 }
             }
+            let mut added = Vec::new();
             let db = lock(&state.db);
             for (kind, sender, name, text, created, dedupe) in &rows {
-                db.execute(
+                if db.execute(
                     "INSERT OR IGNORE INTO events (kind,asset_id,sender,sender_name,text,created,dedupe) VALUES (?1,?2,?3,?4,?5,?6,?7)",
                     params![kind, a.id, sender, name, text, created, dedupe],
-                )?;
+                )? == 1 {
+                    added.push(db.last_insert_rowid());
+                }
             }
+            drop(db);
+            crate::tickets::inbound(state, &added);
             Ok(json!(rows.len()))
         }).await;
         if let Err(e) = fetched {
