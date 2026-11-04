@@ -110,7 +110,9 @@ export type InboxItem = { id: string; kind: InboxKind; asset_id: string; sender:
   /** What the owner sent, once a reply went out. */
   reply_text?: string | null;
   /** The owner chose not to answer it. */
-  skipped?: boolean };
+  skipped?: boolean;
+  /** The owner let the agent answer this conversation by itself, until it hands back. */
+  pinned?: boolean };
 // ponytail: only India's +91 is grouped; other numbers show as +<digits>. Add a library if numbers from more countries arrive.
 const phone = (digits: string) => digits.length === 12 && digits.startsWith("91") ? `+91 ${digits.slice(2, 7)} ${digits.slice(7)}` : `+${digits}`;
 /** The name to show for a message; `sender` stays the id replies go to. A WhatsApp sender is a phone number; numeric Meta ids are never shown. */
@@ -246,6 +248,7 @@ export const api = {
   reply: (id: string, text: string) => call<{ sent: true }>("POST", `/api/inbox/${encodeURIComponent(id)}/reply`, { text }),
   /** Ask the agent from Home, about the conversation open beside it. A reply it writes is saved as a draft and waits for a tap. */
   ask: (text: string, about?: string) => call<{ answer: string; drafts: { event_id: number | string; text: string }[] }>("POST", "/api/agent/ask", { text, about: about === undefined ? null : Number(about) }),
+  pin: (id: string, on: boolean) => call<{ pinned: boolean }>("PUT", `/api/inbox/${encodeURIComponent(id)}/pin`, { on }),
   skip: (id: string) => call<{ skipped: true }>("POST", `/api/inbox/${encodeURIComponent(id)}/skip`),
   agents: () => call<Agents>("GET", "/api/agents"),
   control: (agent: AgentId, mode: AgentMode, note: string) => call<AgentControl & { agent: AgentId }>("PUT", `/api/agents/${agent}/control`, { mode, note }),
