@@ -11,6 +11,7 @@ import type { Ads as AdsData, AssetKind, Campaign, Connections, Instagram as Ins
 import { Load } from "./Load";
 import SourceIcon from "./SourceIcon";
 import { Modal, Page, Stat, Tile } from "./Surface";
+import MetaProblem from "./MetaProblem";
 
 const count = (n: number) => n.toLocaleString();
 const money = (n: number, currency: string) => new Intl.NumberFormat(undefined, { style: "currency", currency }).format(n);
@@ -94,7 +95,7 @@ const line = (c: Row) => Number(c.clicks) > 0
   : `${money(Number(c.spend), c.currency)} spent, no clicks yet`;
 
 function AdsSummary({ rows }: { rows: Row[] }) {
-  if (!rows.length) return <Text as="p" type="supporting">No ad results in the last 7 days.</Text>;
+  if (!rows.length) return <MetaProblem issue="adsEmpty" />;
   const totals = new Map<string, number>();
   for (const r of rows) totals.set(r.currency, (totals.get(r.currency) ?? 0) + Number(r.spend));
   const spend = [...totals].map(([cur, sum]) => money(sum, cur)).join(" + ");
@@ -125,7 +126,7 @@ function AdsDetails({ isOpen, onClose, data }: { isOpen: boolean; onClose: () =>
                 <Stat label="Reach" value={count(Number(c.reach))} />
               </Grid>
             </VStack>
-          )) : <Text as="p" type="supporting">No campaigns ran.</Text>}
+          )) : <MetaProblem issue="adsEmpty" />}
         </VStack>
       ))}
       <Text as="p" type="supporting" size="sm">Change your ads in Meta Ads Manager. Stupid doesn't edit them.</Text>
@@ -140,7 +141,7 @@ function Instagram() {
     <>
       <Tile icon="instagram" title="Instagram" actions={Boolean(ig.data?.accounts.length) && <Button size="sm" variant="ghost" label="Details" onClick={() => setOpen(true)} />}>
         <Load state={ig}>{({ accounts }) => {
-          if (!accounts.length) return <Text as="p" type="supporting">Instagram didn't return an account.</Text>;
+          if (!accounts.length) return <MetaProblem issue="instagramMissing" />;
           return accounts.map(a => {
             const insight = (name: string) => a.insights.find(i => i.name === name)?.value;
             const reach = insight("reach"), engaged = insight("accounts_engaged");
@@ -151,8 +152,9 @@ function Instagram() {
                   <Stat label="Followers" value={count(a.profile.followers_count)} />
                   <Stat label="Engaged" value={engaged === undefined ? "–" : count(engaged)} />
                 </Grid>
-                {a.insights_error && <Text as="p" type="supporting" size="sm">Instagram didn't share reach this week: {a.insights_error}</Text>}
-                {!a.media.length && <Text as="p" type="supporting" size="sm">@{a.profile.username} has no posts yet. Reach shows up after the first one.</Text>}
+                {a.insights_error && <MetaProblem issue={a.insights_error} title="Instagram didn't share reach this week" />}
+                {!a.insights_error && !a.insights.length && <MetaProblem issue="instagramInsights" />}
+                {!a.media.length && <MetaProblem issue="instagramEmpty" />}
               </VStack>
             );
           });
@@ -181,7 +183,7 @@ function InstagramDetails({ isOpen, onClose, data }: { isOpen: boolean; onClose:
               <Link hasUnderline key={m.id} href={m.permalink} isExternalLink maxLines={1}>
                 {`${m.caption?.split("\n")[0] || "Untitled post"} · ${count(m.like_count ?? 0)} likes, ${count(m.comments_count ?? 0)} comments`}
               </Link>
-            )) : <Text as="p" type="supporting">No posts yet.</Text>}
+            )) : <MetaProblem issue="instagramEmpty" />}
           </VStack>
         );
       })}
