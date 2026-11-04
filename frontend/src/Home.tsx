@@ -84,9 +84,9 @@ export default function Home({ state, persona }: { state: Connections; persona: 
     const kind = (last?.kind ?? need?.message.kind) as InboxKind;
     const who = last ? senderName(last) : senderName(need!.message);
     const failed = last && !last.replied && last.reply_error;
-    const state = need ? "Draft ready" : !last ? "" : last.replied ? "Replied" : failed ? "Not delivered" : last.transcribing ? working[last.transcribing] : last.draft ? "Draft ready" : "New";
+    const state = need ? "Draft ready" : !last ? "" : last.replied ? "Replied" : last.skipped ? "Skipped" : failed ? "Not delivered" : last.transcribing ? working[last.transcribing] : last.draft ? "Draft ready" : "New";
     rows.push({
-      key: `t:${key}`, group: last?.replied && !need ? "done" : last?.transcribing && !need ? "working" : "needs", who, tag: apps[kind] ?? kind, source: kind,
+      key: `t:${key}`, group: (last?.replied || last?.skipped) && !need ? "done" : last?.transcribing && !need ? "working" : "needs", who, tag: apps[kind] ?? kind, source: kind,
       preview: last ? (last.transcribing ? working[last.transcribing] : last.text) : need?.message.text ?? "", when: Math.max(last?.created ?? 0, need?.created ?? 0), state,
       pane: <Conversation key={key} who={who} kind={kind} thread={thread} need={need} />,
     });
@@ -121,7 +121,7 @@ export default function Home({ state, persona }: { state: Connections; persona: 
     else if (run.status === "failed") rows.push({ key: `r:${run.agent}`, group: "done", who: name, tag: "Agent", agent: true,
       preview: run.error ?? "Didn't finish.", when, state: "Didn't finish",
       pane: <Pane who={name} tag="Didn't finish" when={when} agent actions={<Again run={run} ask={ask} name={name} />}><Text as="p">{run.error ?? "This run didn't finish."}</Text></Pane> });
-    else if (result) rows.push({ key: `r:${run.agent}`, group: "done", who: name, tag: run.models?.length ? list(run.models) : "Agent", agent: true,
+    else if (result) rows.push({ key: `r:${run.agent}`, group: "done", who: name, tag: "Agent", agent: true,
       preview: own ? (result as unknown as CustomResult).summary : gist(result), when, state: own || !thin(result) ? "Ready" : "Nothing new",
       pane: <Pane who={name} tag={run.models?.length ? `Made with ${list(run.models)}` : "Agent"} when={when} agent actions={<Again run={run} ask={ask} name={name} />}>
         {own ? <VStack gap={2}>
@@ -249,9 +249,12 @@ function Conversation({ who, kind, thread, need }: { who: string; kind: InboxKin
   const [error, setError] = useState("");
   const [sent, setSent] = useState(false);
   const id = need?.event_id ?? last?.id;
-  const canReply = id && last ? !last.replied && !sent : Boolean(need) && !sent;
+  const [skipped, setSkipped] = useState(false);
+  const canReply = !sent && !skipped && (last ? !last.replied && !last.skipped : Boolean(need));
   // The tap on Send is the person's approval; nothing goes out before it.
   const send = () => api.reply(id!, text.trim()).then(() => { setSent(true); refetch("inbox"); refetch("agent"); }, (cause: unknown) => setError(message(cause)));
+  // Skipping sends nothing: the message moves to Done and its draft leaves Needs you.
+  const skip = () => api.skip(id!).then(() => { setSkipped(true); refetch("inbox"); refetch("agent"); }, (cause: unknown) => setError(message(cause)));
   const kept = need ?? last?.draft ?? undefined;
   const failed = last && !last.replied && !sent ? last.reply_error : undefined;
   return (
@@ -264,6 +267,7 @@ function Conversation({ who, kind, thread, need }: { who: string; kind: InboxKin
         </VStack>)}
         {sent && <VStack gap={1} hAlign="end"><div className="bubble bubble-mine"><Text as="p">{text}</Text></div><Text size="sm" type="supporting"><Check /> Sent</Text></VStack>}
       </VStack>
+      {(skipped || (last?.skipped && !last.replied)) && <Text as="p" type="supporting" size="sm">Skipped. Nothing was sent.</Text>}
       {failed && <Text as="p" size="sm" className="space-warn">Your last reply didn't arrive: {failed}</Text>}
       {canReply && <VStack gap={3}>
         {draft && !editing && <VStack gap={2}>
@@ -278,6 +282,7 @@ function Conversation({ who, kind, thread, need }: { who: string; kind: InboxKin
         <HStack gap={2}>
           <Button variant="primary" size="sm" label={sample ? sampleSend : "Send"} isDisabled={sample || !text.trim()} clickAction={send} />
           {draft && !editing && <Button variant="ghost" size="sm" label="Edit" onClick={() => setEditing(true)} />}
+          <Button variant="ghost" size="sm" label="Skip" clickAction={skip} />
         </HStack>
         <div aria-live="polite">{error && <Text as="p" size="sm">{error}</Text>}</div>
       </VStack>}

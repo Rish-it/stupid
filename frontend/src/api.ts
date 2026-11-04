@@ -108,7 +108,9 @@ export type InboxItem = { id: string; kind: InboxKind; asset_id: string; sender:
   /** For an Instagram comment: Stupid's own copy of the picture of the post it is on. */
   post_picture?: string | null;
   /** What the owner sent, once a reply went out. */
-  reply_text?: string | null };
+  reply_text?: string | null;
+  /** The owner chose not to answer it. */
+  skipped?: boolean };
 // ponytail: only India's +91 is grouped; other numbers show as +<digits>. Add a library if numbers from more countries arrive.
 const phone = (digits: string) => digits.length === 12 && digits.startsWith("91") ? `+91 ${digits.slice(2, 7)} ${digits.slice(7)}` : `+${digits}`;
 /** The name to show for a message; `sender` stays the id replies go to. A WhatsApp sender is a phone number; numeric Meta ids are never shown. */
@@ -242,6 +244,7 @@ export const api = {
   instagram: () => call<Instagram>("GET", "/api/instagram"),
   inbox: () => call<{ items: InboxItem[] }>("GET", "/api/inbox"),
   reply: (id: string, text: string) => call<{ sent: true }>("POST", `/api/inbox/${encodeURIComponent(id)}/reply`, { text }),
+  skip: (id: string) => call<{ skipped: true }>("POST", `/api/inbox/${encodeURIComponent(id)}/skip`),
   agents: () => call<Agents>("GET", "/api/agents"),
   control: (agent: AgentId, mode: AgentMode, note: string) => call<AgentControl & { agent: AgentId }>("PUT", `/api/agents/${agent}/control`, { mode, note }),
   run: (agent: AgentId) => call<{ agent: AgentId; status: string }>("POST", `/api/agents/${agent}/run`),
