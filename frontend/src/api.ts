@@ -6,7 +6,10 @@ export type AssetKind = "ads" | "instagram" | "whatsapp" | "messenger";
 export type Issue = { blocking: boolean; text: string; fix: string; link?: string | null };
 export type Asset = { key: string; kind: AssetKind; id: string; name: string; issues?: Issue[] };
 /** `instagram_oauth_start` appears once the server offers Instagram sign-in for creators without a Facebook Page. */
-export type Me = { signed_in: false; instagram_oauth_start?: string } | { signed_in: true; name: string; assets: Asset[]; selected: string[]; permissions: string[]; problems?: string[] };
+/** Who Stupid works for: a creator (Instagram first) or a business owner (WhatsApp first). */
+export type Persona = "creator" | "business";
+/** `persona` is null until the person picks a door. */
+export type Me = { signed_in: false; instagram_oauth_start?: string } | { signed_in: true; name: string; assets: Asset[]; selected: string[]; permissions: string[]; problems?: string[]; persona: Persona | null };
 export type Connections = { assets: Asset[]; selected: string[] };
 export type Account = Connections & { permissions?: string[]; problems?: string[] };
 
@@ -38,6 +41,31 @@ export function appStatus(state: Account, kind: AssetKind) {
 /** Setup is done when nothing was refused, nothing needs a step, and at least one app is ready. */
 export const setupDone = (state: Account) => !state.problems?.length
   && apps.every(a => appStatus(state, a.kind).status !== "step") && apps.some(a => appStatus(state, a.kind).status === "ready");
+
+/** The one thing this person must do next, from real Meta state (GET /api/setup/next). */
+export type SetupStep = {
+  id: string; app: AssetKind | "agent"; title: string; why: string;
+  action: "connect" | "fix_in_meta" | "tell_agent"; button: string; link?: string; optional: boolean;
+  /** fix_in_meta only: what to do in Meta, in Meta's words. */
+  fix?: string;
+};
+export type SetupNext = { persona: Persona | null; done: boolean; progress: { done: number; total: number }; step?: SetupStep };
+
+export const factsPrompt: Record<Persona, string> = {
+  creator: "What you post about and what brand deals you take, in one or two sentences.",
+  business: "Your prices, hours and delivery areas, in one or two sentences.",
+};
+
+/** The door picked on the landing page, kept for the trip through Facebook sign-in. */
+const doorKey = "stupid.persona";
+export const door = {
+  get(): Persona | null {
+    try { const v = sessionStorage.getItem(doorKey); return v === "creator" || v === "business" ? v : null; } catch { return null; }
+  },
+  set(persona: Persona) {
+    try { sessionStorage.setItem(doorKey, persona); } catch { /* Storage blocked: the choice is asked again after sign-in. */ }
+  },
+};
 
 export type Campaign = {
   campaign_id: string; campaign_name: string; spend: string; impressions: string; reach: string;
@@ -85,7 +113,8 @@ export type AgentRun = {
   agent: AgentId; status: "running" | "done" | "failed"; result: AgentResult | null; error: string | null;
   cost_usd: number | null; created: number; finished: number | null;
 };
-export type Agents = { runs: AgentRun[]; ai_ready: boolean; own_key: boolean; model: string };
+/** `order` lists agents in the order this person's path shows them. */
+export type Agents = { runs: AgentRun[]; ai_ready: boolean; own_key: boolean; model: string; order: AgentId[] };
 export type AiSettings = { has_key: boolean; key_saved_at?: number | null; model: string; workspace_ai: boolean; brain: "open" | "meta"; meta_brain: boolean; open_model: string; meta_model: string };
 
 /** The customer message a piece of agent work is about. */
@@ -139,6 +168,8 @@ export const legal = [["Privacy", "/privacy.html"], ["Terms", "/terms.html"], ["
 
 export const api = {
   me: () => call<Me>("GET", "/api/me"),
+  setPersona: (persona: Persona) => call<Me>("PUT", "/api/me/persona", { persona }),
+  setupNext: () => call<SetupNext>("GET", "/api/setup/next"),
   signOut: () => call<{ signed_in: false }>("POST", "/api/sign-out"),
   select: (selected: string[]) => call<Connections>("PUT", "/api/connections", { selected }),
   disconnect: () => call<unknown>("DELETE", "/api/connections"),
