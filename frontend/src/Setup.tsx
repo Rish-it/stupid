@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { ProgressBar } from "@astryxdesign/core/ProgressBar";
 import { Banner } from "@astryxdesign/core/Banner";
@@ -22,7 +23,7 @@ const phase = (state: Account, kind: AssetKind) => {
 };
 const message = (cause: unknown) => cause instanceof Error ? cause.message : String(cause);
 
-export default function Setup({ state, onChange, onConnect }: { state: Account; onChange: (next: Account) => void; onConnect: () => void }) {
+export default function Setup({ state, onChange, onConnect, embedded }: { state: Account; onChange: (next: Account) => void; onConnect: () => void; embedded?: boolean }) {
   const [error, setError] = useState("");
   const checking = useRef(false);
   const [waiting, setWaiting] = useState(false);
@@ -74,10 +75,13 @@ export default function Setup({ state, onChange, onConnect }: { state: Account; 
     {!waiting && checked && !error && !done && <Text as="p" type="supporting">Checked just now. Meta can take a minute to catch up. Your progress stays here while it does.</Text>}
   </div>;
 
-  return (
+  // Inside Settings > Connections the same cards show without the page's title.
+  const frame = (children: ReactNode) => embedded ? <VStack gap={4}>{children}</VStack> : (
     <Page title={done ? "You're set" : "Set up Stupid"}
       description={done ? "New messages arrive in your inbox as they come in." : "One step at a time. Open a card to see what to do next."}
-      actions={done && <Button variant="primary" label="Go to Inbox" href="#inbox" />}>
+      actions={done && <Button variant="primary" label="Go to Inbox" href="#inbox" />}>{children}</Page>
+  );
+  return frame(<>
       {!open && checkStatus}
       {state.problems?.map(problem => (
         <VStack key={problem} gap={2}>
@@ -156,8 +160,7 @@ export default function Setup({ state, onChange, onConnect }: { state: Account; 
           </Modal>
         );
       })()}
-    </Page>
-  );
+  </>);
 }
 
 function Completion({ ready, name }: { ready: boolean; name: string }) {

@@ -290,6 +290,16 @@ test("Settings opens over the page, swaps sections in place and closes back to i
   await expect(page.getByRole("link", { name: "Settings" })).toBeFocused();
 });
 
+test("Settings > Connections lists the connected apps and accounts in place", async ({ page }) => {
+  await page.goto("http://127.0.0.1:8032/?fixtures=1&persona=creator&stage=ready#settings");
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  await settings.getByRole("tab", { name: "Connections" }).click();
+  await expect(settings.getByRole("button", { name: "Manage Instagram" })).toBeVisible();
+  await expect(settings.getByText("@sample.creator")).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
+});
+
 test("Settings changes the path between creator and business", async ({ page }) => {
   let account = { ...signedIn, persona: "creator" };
   const sent: unknown[] = [];
@@ -313,7 +323,7 @@ test("Settings saves an AI key, confirms before deleting and signs out", async (
   await page.route("**/api/connections", route => { deleted = route.request().method() === "DELETE"; route.fulfill(json({})); });
   await page.goto("/#settings");
   await page.getByRole("tab", { name: "Connections" }).click();
-  await expect(page.getByRole("link", { name: "Open setup" })).toHaveAttribute("href", "#setup");
+  await expect(page.getByRole("button", { name: "Manage Instagram" })).toBeVisible();
 
   await page.getByRole("tab", { name: "AI model" }).click();
   await page.getByText("Use your own Baseten key").click();

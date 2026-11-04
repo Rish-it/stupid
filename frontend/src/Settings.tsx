@@ -15,8 +15,9 @@ import { TextArea } from "@astryxdesign/core/TextArea";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { Timestamp } from "@astryxdesign/core/Timestamp";
 import { api, useLoad } from "./api";
-import type { AiSettings, Persona } from "./api";
+import type { Account, AiSettings, Persona } from "./api";
 import { Load } from "./Load";
+import Setup from "./Setup";
 
 const message = (cause: unknown) => cause instanceof Error ? cause.message : String(cause);
 
@@ -37,8 +38,9 @@ const sections = ["Your work", "Connections", "Your agent", "AI model", "Muse", 
 type Section = typeof sections[number];
 
 /** Settings is a window over the app: sections on the left, the chosen one on the right. Nothing scrolls the page. */
-export default function Settings({ name, persona, onPersona, onSignedOut, onClose }: {
-  name: string; persona: Persona | null; onPersona: (persona: Persona) => Promise<void>; onSignedOut: () => void; onClose: () => void;
+export default function Settings({ name, persona, account, onAccount, onConnect, onPersona, onSignedOut, onClose }: {
+  name: string; persona: Persona | null; account: Account; onAccount: (next: Account) => void; onConnect: () => void;
+  onPersona: (persona: Persona) => Promise<void>; onSignedOut: () => void; onClose: () => void;
 }) {
   const [section, setSection] = useState<Section>("Your work");
   // Closing hands focus back to the rail's Settings link, which opened it.
@@ -74,12 +76,12 @@ export default function Settings({ name, persona, onPersona, onSignedOut, onClos
           <div id="prefs-panel" role="tabpanel" aria-labelledby={`tab-${section}`} className="prefs-panel">
             {section === "Your work" && <Path persona={persona} onPersona={onPersona} />}
             {section === "Connections" && <Row id="setup-heading" title="Apps and accounts" description="Which accounts Stupid reads, and anything Meta still needs.">
-              <HStack><Button label="Open setup" href="#setup" /></HStack>
+              <Setup state={account} onChange={onAccount} onConnect={onConnect} embedded />
             </Row>}
             {section === "Your agent" && <AgentRules />}
             {section === "AI model" && <AiAccess />}
             {section === "Muse" && <UseFromMuse />}
-            {section === "Account" && <Account name={name} onSignedOut={onSignedOut} />}
+            {section === "Account" && <YourAccount name={name} onSignedOut={onSignedOut} />}
           </div>
         </div>
       </div>
@@ -263,7 +265,7 @@ function AiAccess() {
   );
 }
 
-function Account({ name, onSignedOut }: { name: string; onSignedOut: () => void }) {
+function YourAccount({ name, onSignedOut }: { name: string; onSignedOut: () => void }) {
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState("");
