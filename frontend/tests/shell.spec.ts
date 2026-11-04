@@ -375,3 +375,25 @@ test("Reel director shows what works, labelled guesses and scripts to copy", asy
   await expect(dialog.getByRole("button", { name: "Copy script" })).toBeVisible();
   await expect(dialog.getByText("Nothing is posted.", { exact: false })).toBeVisible();
 });
+
+test("Ad watcher adds a creative pack cropped around what SAM found", async ({ page }) => {
+  await page.route("**/api/me", route => route.fulfill(json(signedIn)));
+  await page.route("**/api/agent", route => route.fulfill(json({ proactive: true, rules: "", needs: [], tickets: [] })));
+  await page.route("**/api/instagram/media/**", route => route.fulfill({ status: 404, body: "" }));
+  await page.route("**/api/agents", route => route.fulfill(json({ ai_ready: true, own_key: false, model: "test-model", runs: [{ agent: "ads", status: "done", error: null, cost_usd: 0.01, created: 1, finished: 2, result: {
+    summary: "One campaign works.", actions: [],
+    creative_pack: [
+      { id: "p1", permalink: "https://www.instagram.com/p/1", caption: "Blue mug", subject: "ceramic mug", box: { x1: 30, y1: 5, x2: 90, y2: 45, w: 100, h: 50 }, note: null },
+      { id: "p2", subject: "product", box: null, note: "SAM 3.1 didn't find \"product\" in this picture, so the crops are centred." },
+    ],
+  } }] })));
+  await page.goto("/#agents");
+  await page.getByRole("button", { name: "See results" }).click();
+  const dialog = page.getByRole("dialog", { name: "Ad watcher" });
+  await expect(dialog.getByText("Ad creative pack")).toBeVisible();
+  // The mug's centre is 60% across a 2:1 picture, so a square crop sits 70% of the way along.
+  await expect(dialog.getByAltText("ceramic mug, 1:1 crop for Feed")).toHaveCSS("object-position", "70% 50%");
+  await expect(dialog.getByRole("button", { name: "Save 9:16" })).toHaveCount(2);
+  await expect(dialog.getByText(/so the crops are centred/)).toBeVisible();
+  await expect(dialog.getByText(/Nothing is uploaded to Ads/)).toBeVisible();
+});

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import type { Crop } from "./crop";
 
 export type AssetKind = "ads" | "instagram" | "whatsapp" | "messenger";
 /** Something Meta still needs from the person. `blocking` means the account can't work yet; otherwise it works with limits. */
@@ -77,7 +78,7 @@ export type AgentResult =
   | { ideas: { hook: string; caption: string; format: "reel" | "carousel" | "photo" | "story"; why: string }[] }
   | { replies: { event_id: string; to: string; draft: string }[] }
   | { scripts: ReelScript[]; watched: Watched[]; from_captions_only: boolean }
-  | { summary: string; actions: { campaign: string; do: "pause" | "keep" | "scale" | "fix"; why: string }[] };
+  | { summary: string; actions: { campaign: string; do: "pause" | "keep" | "scale" | "fix"; why: string }[]; creative_pack?: Crop[] };
 export type AgentRun = {
   agent: AgentId; status: "running" | "done" | "failed"; result: AgentResult | null; error: string | null;
   cost_usd: number | null; created: number; finished: number | null;

@@ -51,6 +51,7 @@ body { background: var(--color-background-body); }
 /* Today: the inbox runs tall on the left, results stack on the right. */
 @media (min-width: 64rem) { .bento-lead { grid-template-columns: 1fr 1fr; } .bento-lead > :first-child { grid-row: span 2; } }
 .inset-list { margin-inline: -.75rem; }
+.crop { display: block; height: 9rem; width: auto; object-fit: cover; border-radius: 12px; background: var(--color-background-muted); }
 .bubble { align-self: flex-start; max-width: 100%; padding: .75rem 1rem; border-radius: 1rem 1rem 1rem .25rem; background: var(--color-background-muted, var(--color-background-surface)); overflow-wrap: anywhere; }
 .steps { display: grid; gap: .5rem; margin: 0; padding-inline-start: 1.25rem; list-style: decimal; }
 .settings-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; padding: 1.25rem; border-radius: 12px; background: var(--color-background-muted); }
