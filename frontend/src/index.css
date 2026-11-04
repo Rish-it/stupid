@@ -446,3 +446,14 @@ input[role="switch"]:not(:checked) + div { background: #3a3a40; }
 .choice:hover { background: color-mix(in srgb, var(--color-background-muted), var(--color-text-primary) 6%); }
 .choice:focus-visible { outline: 2px solid var(--color-text-primary); outline-offset: 2px; }
 @media (prefers-reduced-motion: no-preference) { .choice { transition: background-color .15s, scale .12s ease-out; } .choice:active { scale: .98; } }
+
+/* Ready for you: the actual work, a few lines of it, with the posts it looked at. */
+.ready-thumb { width: 28px; height: 28px; border-radius: 6px; }
+.ready-clamp { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+@media (prefers-reduced-motion: no-preference) {
+  .rows > .row { animation: arrive .28s cubic-bezier(.2, .8, .2, 1) both; transition: background-color .15s ease-out; }
+  .rows > .row:nth-child(2) { animation-delay: 40ms; }
+  .rows > .row:nth-child(3) { animation-delay: 80ms; }
+  .rows > .row:nth-child(n+4) { animation-delay: 120ms; }
+}
+.rows > .row:hover { background: color-mix(in srgb, var(--color-background-muted), var(--color-text-primary) 4%); }
