@@ -2,7 +2,7 @@
 //! Muse call (Eval) decides whether to open a Ticket. Every Ticket's mandate is "prepare": the agent drafts
 //! and asks, and nothing here can send. Sending stays the person's tap in the Inbox (`meta::reply`).
 //! Design after deepseek-ai/dsh-superagent-prototype (Source, Trigger, Thread, Eval, Ticket); new code.
-use crate::{agents, executor, lock, meta, now, ApiResult, AppState};
+use crate::{agents, control, executor, lock, meta, now, ApiResult, AppState};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Value};
 use std::{collections::HashMap, future::Future, sync::{Arc, Mutex}, time::Duration};
@@ -195,6 +195,8 @@ async fn eval_thread(s: &AppState, user_id: &str, thread_id: i64) -> ApiResult<(
         let assets: Vec<meta::Asset> = serde_json::from_str(&assets).unwrap_or_default();
         let selected: Vec<String> = serde_json::from_str(&selected).unwrap_or_default();
         let open_ticket: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM tickets WHERE thread_id=?1 AND state='open')", [thread_id], |r| r.get(0))?;
+        // Reply drafts switched off in Agents works like drafting off: no eval, no cost.
+        let proactive = proactive && control::get(&db, user_id, "replies")?.0 != "off";
         let calls = calls_today(&db, user_id)?;
         let mut stmt = db.prepare(
             "SELECT t.id,e.kind,e.asset_id,e.sender,e.created,EXISTS(SELECT 1 FROM replies r WHERE r.event_id=e.id AND r.error IS NULL)
@@ -246,12 +248,7 @@ async fn eval_thread(s: &AppState, user_id: &str, thread_id: i64) -> ApiResult<(
     }
     let mut accepted = None;
     match decided {
-        "accept" => {
-            db.execute("INSERT INTO tickets (user_id,thread_id,trigger_id,job,created) VALUES (?1,?2,?3,'replies',?4)", params![user_id, thread_id, batch[batch.len() - 1], now()])?;
-            let ticket = db.last_insert_rowid();
-            db.execute("INSERT INTO reports (ticket_id,kind,text,created) VALUES (?1,'progress',?2,?3)", params![ticket, reason, now()])?;
-            accepted = Some(ticket);
-        }
+        "accept" => accepted = open_reply(&db, user_id, thread_id, batch[batch.len() - 1], &reason)?,
         "stop" => {
             let mut stmt = db.prepare("SELECT id FROM tickets WHERE thread_id=?1 AND state='open'")?;
             let open = stmt.query_map([thread_id], |r| r.get::<_, i64>(0))?.collect::<Result<Vec<_>, _>>()?;
@@ -270,6 +267,21 @@ async fn eval_thread(s: &AppState, user_id: &str, thread_id: i64) -> ApiResult<(
         executor::work(s, ticket).await?;
     }
     Ok(())
+}
+
+/// An accepted message becomes a replies ticket. It is returned to work now, or, when the owner set
+/// Reply drafts to ask first, it waits on their yes and None is returned.
+fn open_reply(db: &Connection, user_id: &str, thread_id: i64, trigger: i64, reason: &str) -> rusqlite::Result<Option<i64>> {
+    db.execute("INSERT INTO tickets (user_id,thread_id,trigger_id,job,created) VALUES (?1,?2,?3,'replies',?4)", params![user_id, thread_id, trigger, now()])?;
+    let ticket = db.last_insert_rowid();
+    db.execute("INSERT INTO reports (ticket_id,kind,text,created) VALUES (?1,'progress',?2,?3)", params![ticket, reason, now()])?;
+    if control::get(db, user_id, "replies")?.0 != "ask" {
+        return Ok(Some(ticket));
+    }
+    for (kind, text) in [("question", control::ASK_FIRST), ("waiting", "Waiting for your answer.")] {
+        db.execute("INSERT INTO reports (ticket_id,kind,text,created) VALUES (?1,?2,?3,?4)", params![ticket, kind, text, now()])?;
+    }
+    Ok(None)
 }
 
 /// A tap on Run is an explicit request: no gate or eval, straight to a ticket for that job.
@@ -412,6 +424,28 @@ mod tests {
         assert_eq!(reasons, ["No AI budget or key left.", "Our own message."]);
         let evals: i64 = db.query_row("SELECT COUNT(*) FROM evals", [], |r| r.get(0)).unwrap();
         assert_eq!(evals, 0, "the gate spends nothing");
+    }
+
+    #[tokio::test]
+    async fn reply_drafts_mode_decides_whether_a_message_is_judged_drafted_or_asked_about() {
+        let (s, _) = crate::tests_support::state_with_user();
+        let set = |mode: &str| lock(&s.db).execute("INSERT OR REPLACE INTO agent_controls (user_id,agent,mode,note) VALUES ('u','replies',?1,'')", [mode]).unwrap();
+        lock(&s.db).execute("INSERT INTO events (id,kind,asset_id,sender,sender_name,text,created) VALUES (1,'whatsapp','p1','9198','Asha','price?',?1)", [now() - 60]).unwrap();
+        let thread = record(&lock(&s.db), "u", "inbox:whatsapp:p1:9198", "inbox", "wa:a", Some(1)).unwrap().unwrap();
+        set("off");
+        eval_thread(&s, "u", thread).await.unwrap();
+        let reason: String = lock(&s.db).query_row("SELECT reason FROM triggers", [], |r| r.get(0)).unwrap();
+        assert_eq!(reason, "Drafting on new messages is off.", "off: never judged, nothing spent");
+
+        let db = lock(&s.db);
+        assert!(open_reply(&db, "u", thread, 1, "Asks the price.").unwrap().is_some(), "draft: works now");
+        drop(db);
+        set("ask");
+        let db = lock(&s.db);
+        assert_eq!(open_reply(&db, "u", thread, 1, "Asks the price.").unwrap(), None, "ask: waits for the owner");
+        let said: Vec<String> = db.prepare("SELECT kind||': '||text FROM reports WHERE ticket_id=(SELECT MAX(id) FROM tickets) ORDER BY id").unwrap()
+            .query_map([], |r| r.get(0)).unwrap().map(Result::unwrap).collect();
+        assert_eq!(said, ["progress: Asks the price.", &format!("question: {}", control::ASK_FIRST), "waiting: Waiting for your answer."]);
     }
 
     #[test]

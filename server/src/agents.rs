@@ -1,5 +1,5 @@
 //! Background agents on Muse Spark Open. Each run prepares work for the person; nothing is sent or changed.
-use crate::{attention, crops, lock, meta, now, reels, tickets, user, ApiResult, AppError, AppState, User};
+use crate::{attention, control, crops, lock, meta, now, reels, tickets, user, ApiResult, AppError, AppState, User};
 use axum::{
     extract::{Path, State},
     http::HeaderMap,
@@ -218,9 +218,10 @@ pub async fn list(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Js
             "models": serde_json::from_str::<Value>(&r.get::<_, String>(7)?).unwrap_or_else(|_| json!([])) }))
     })?.collect::<Result<Vec<_>, _>>()?;
     drop(stmt);
+    let controls = control::all(&db, &u.id)?;
     drop(db);
     let ai = ai(&s, &u.id)?;
-    Ok(Json(json!({ "runs": runs, "ai_ready": ready(&s, &ai)?, "own_key": ai.own(), "model": ai.model(&s), "order": order(u.persona.as_deref()) })))
+    Ok(Json(json!({ "runs": runs, "ai_ready": ready(&s, &ai)?, "own_key": ai.own(), "model": ai.model(&s), "order": order(u.persona.as_deref()), "controls": controls })))
 }
 
 pub async fn run(State(s): State<AppState>, headers: HeaderMap, Path(agent): Path<String>) -> ApiResult<Json<Value>> {
@@ -231,7 +232,11 @@ pub async fn run(State(s): State<AppState>, headers: HeaderMap, Path(agent): Pat
 /// Start one job for the person, from a Run tap or from Muse over MCP: same spend cap and daily limit.
 pub async fn start(s: &AppState, u: User, agent: &str) -> ApiResult<Value> {
     let (name, base) = AGENTS.iter().find(|(n, _)| *n == agent).copied().ok_or_else(|| AppError::new(404, "Unknown agent."))?;
-    let system = system_for(name, base, u.persona.as_deref());
+    let (mode, note) = control::get(&lock(&s.db), &u.id, name)?;
+    if mode == "off" {
+        return Err(AppError::new(409, "This agent is off. Turn it on to run it."));
+    }
+    let system = format!("{}{}", system_for(name, base, u.persona.as_deref()), control::note_line(&note));
     let ai = ai(s, &u.id)?;
     if ai == Ai::Workspace && s.cfg.muse_key.is_empty() {
         return Err(AppError::new(503, "Add an AI key in Settings to run agents."));
@@ -256,6 +261,9 @@ pub async fn start(s: &AppState, u: User, agent: &str) -> ApiResult<Value> {
     // What the owner told the agent before; added after the empty check, since facts alone are nothing to read.
     if matches!(name, "leads" | "replies") {
         context["owner_facts"] = json!(attention::facts_for_model(&lock(&s.db), &u.id)?);
+    }
+    if !note.is_empty() {
+        context["owner_note"] = json!(note);
     }
     // Ad watcher also brings an ad creative pack cut from the creator's own best pictures.
     let pictures = if name == "ads" && !u.selected_assets("instagram").is_empty() { meta::instagram_data(s, &u).await.ok() } else { None };

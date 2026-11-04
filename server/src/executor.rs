@@ -1,7 +1,7 @@
 //! The agent's executor: Muse Spark Open works one ticket with the tool registry, in a bounded loop.
 //! It stops at MAX_STEPS model calls or TICKET_CAP_USD, whichever comes first, and always ends with an
 //! honest report. Its tools only read and prepare; nothing here sends.
-use crate::{agents, attention, lock, now, tools, user_by_id, ApiResult, AppState, User};
+use crate::{agents, attention, control, lock, now, tools, user_by_id, ApiResult, AppState, User};
 use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Value};
 
@@ -129,9 +129,19 @@ pub async fn work(s: &AppState, ticket: i64) -> ApiResult<()> {
     if job != "replies" {
         return Ok(());
     }
-    let input = context(&lock(&s.db), &user_id, ticket, event_id)?;
+    let (mode, note) = control::get(&lock(&s.db), &user_id, "replies")?;
+    if mode == "off" {
+        let db = lock(&s.db);
+        db.execute("INSERT INTO reports (ticket_id,kind,text,created) VALUES (?1,'dropped','Reply drafts is off.',?2)", params![ticket, now()])?;
+        db.execute("UPDATE tickets SET state='ended',ended=?2 WHERE id=?1", params![ticket, now()])?;
+        return Ok(());
+    }
+    let mut input = context(&lock(&s.db), &user_id, ticket, event_id)?;
+    if !note.is_empty() {
+        input["owner_note"] = json!(note);
+    }
     let u = user_by_id(s, &user_id)?;
-    let system = format!("{}{REPLY_JOB}", agents::owner_line(u.persona.as_deref()));
+    let system = format!("{}{REPLY_JOB}{}", agents::owner_line(u.persona.as_deref()), control::note_line(&note));
     let mut brain = Muse { s, u, ticket, ai: agents::ai(s, &user_id)?, tools: tools::specs() };
     let messages = vec![
         json!({ "role": "system", "content": system }),
