@@ -491,8 +491,14 @@ pub async fn pull(state: &AppState, u: &User) -> ApiResult<()> {
                 }
             }
             let mut added = Vec::new();
+            let mut from_owner = Vec::new();
             let db = lock(&state.db);
             for (kind, sender, name, text, created, dedupe, media) in &rows {
+                // The owner writing to their own Page on Messenger is talking to their agent, never a customer.
+                if let Some(owned) = crate::owner::take_owner(&db, kind, &a.id, sender, text, dedupe, *created)? {
+                    from_owner.push(owned);
+                    continue;
+                }
                 if db.execute(
                     "INSERT OR IGNORE INTO events (kind,asset_id,sender,sender_name,text,created,dedupe,media) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
                     params![kind, a.id, sender, name, text, created, dedupe, media],
@@ -503,6 +509,10 @@ pub async fn pull(state: &AppState, u: &User) -> ApiResult<()> {
             db.execute("UPDATE users SET last_pull=?1 WHERE id=?2", params![now(), u.id])?;
             drop(db);
             crate::voice::arrived(state, &added);
+            // Answered by the owner worker, in order (the agent's own tools pull the inbox, so not from here).
+            for owned in from_owner {
+                crate::owner::later(owned);
+            }
             Ok(json!(rows.len()))
         }).await;
         if let Err(e) = fetched {
