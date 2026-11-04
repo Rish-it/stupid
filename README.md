@@ -13,6 +13,8 @@ WhatsApp, your Facebook Page and Meta Ads, and let it do the busywork while you 
   engagement, straight from Meta. An empty or unconnected account says so; no numbers are invented.
 - **Setup without the maze.** Each connected account says what Meta still needs (a payment
   method, a time zone, a linked Page) in plain words, with a link to the exact Meta screen.
+  Pick creator or business (`PUT /api/me/persona`) and `GET /api/setup/next` names the one
+  thing left to do for that path, read from what is already stored; the agents follow that order.
 
 Built with Muse Spark Open. Stupid is built for Meta's platform. It is not an official Meta product.
 

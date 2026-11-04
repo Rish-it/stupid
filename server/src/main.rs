@@ -7,6 +7,7 @@ mod meta;
 mod mcp;
 mod meta_ai;
 mod reels;
+mod setup;
 mod tickets;
 mod tools;
 mod voice;
@@ -222,6 +223,8 @@ ALTER TABLE users ADD COLUMN agent_rules TEXT NOT NULL DEFAULT '';
     "CREATE TABLE access_keys (id INTEGER PRIMARY KEY, user_id TEXT NOT NULL, hash TEXT UNIQUE NOT NULL, created INTEGER NOT NULL, last_used INTEGER, revoked INTEGER);",
     // Which model runs the person's agents: `open` (Muse Spark Open) or `meta` (Muse Spark 1.3 on the Model API).
     "ALTER TABLE users ADD COLUMN ai_brain TEXT NOT NULL DEFAULT 'open';",
+    // Who Stupid works for: `creator` or `business`; NULL until the person picks.
+    "ALTER TABLE users ADD COLUMN persona TEXT;",
 ];
 
 fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
@@ -258,6 +261,8 @@ pub struct User {
     pub selected: Vec<String>,
     pub permissions: Vec<String>,
     pub problems: Vec<String>,
+    /// `creator` or `business`, once the person picked one.
+    pub persona: Option<String>,
 }
 impl User {
     pub fn selected_assets(&self, kind: &str) -> Vec<&meta::Asset> {
@@ -277,12 +282,12 @@ pub fn user(state: &AppState, headers: &HeaderMap) -> ApiResult<User> {
 pub fn user_by_id(state: &AppState, id: &str) -> ApiResult<User> {
     let row = lock(&state.db)
         .query_row(
-            "SELECT name,token_blob,assets_json,selected_json,permissions_json,problems_json FROM users WHERE id=?1",
+            "SELECT name,token_blob,assets_json,selected_json,permissions_json,problems_json,persona FROM users WHERE id=?1",
             [id],
-            |r| Ok((r.get::<_, String>(0)?, r.get(1)?, r.get::<_, String>(2)?, r.get::<_, String>(3)?, r.get::<_, String>(4)?, r.get::<_, String>(5)?)),
+            |r| Ok((r.get::<_, String>(0)?, r.get(1)?, r.get::<_, String>(2)?, r.get::<_, String>(3)?, r.get::<_, String>(4)?, r.get::<_, String>(5)?, r.get(6)?)),
         )
         .optional()?;
-    let (name, token_blob, assets, selected, permissions, problems) = row.ok_or_else(|| AppError::new(401, "Your session ended. Sign in again."))?;
+    let (name, token_blob, assets, selected, permissions, problems, persona) = row.ok_or_else(|| AppError::new(401, "Your session ended. Sign in again."))?;
     Ok(User {
         id: id.to_string(),
         name,
@@ -291,6 +296,7 @@ pub fn user_by_id(state: &AppState, id: &str) -> ApiResult<User> {
         selected: serde_json::from_str(&selected).unwrap_or_default(),
         permissions: serde_json::from_str(&permissions).unwrap_or_default(),
         problems: serde_json::from_str(&problems).unwrap_or_default(),
+        persona,
     })
 }
 
@@ -333,11 +339,24 @@ async fn health(State(s): State<AppState>) -> Json<Value> {
     Json(json!({ "status": if db { "ok" } else { "degraded" }, "meta_configured": !s.cfg.app_id.is_empty(), "ai_configured": !s.cfg.muse_key.is_empty(), "meta_api_configured": !s.cfg.meta_api_key.is_empty() }))
 }
 
+fn me_json(u: &User) -> Value {
+    json!({ "signed_in": true, "name": u.name, "assets": u.assets, "selected": u.selected, "permissions": u.permissions, "problems": u.problems, "persona": u.persona })
+}
+
 async fn me(State(s): State<AppState>, headers: HeaderMap) -> Json<Value> {
     match user(&s, &headers) {
-        Ok(u) => Json(json!({ "signed_in": true, "name": u.name, "assets": u.assets, "selected": u.selected, "permissions": u.permissions, "problems": u.problems })),
+        Ok(u) => Json(me_json(&u)),
         Err(_) => Json(json!({ "signed_in": false })),
     }
+}
+
+/// Creator or business: it picks the setup steps, the agents' order and how drafts sound.
+async fn save_persona(State(s): State<AppState>, headers: HeaderMap, Json(body): Json<Value>) -> ApiResult<Json<Value>> {
+    let mut u = user(&s, &headers)?;
+    let persona = body["persona"].as_str().filter(|p| matches!(*p, "creator" | "business")).ok_or_else(|| AppError::new(400, "Choose creator or business."))?;
+    lock(&s.db).execute("UPDATE users SET persona=?1 WHERE id=?2", params![persona, u.id])?;
+    u.persona = Some(persona.into());
+    Ok(Json(me_json(&u)))
 }
 
 async fn oauth_start(State(s): State<AppState>) -> ApiResult<Response> {
@@ -672,6 +691,8 @@ async fn main() {
     let app = Router::new()
         .route("/api/health", get(health))
         .route("/api/me", get(me))
+        .route("/api/me/persona", put(save_persona))
+        .route("/api/setup/next", get(setup::next))
         .route("/api/v1/meta/oauth/start", get(oauth_start))
         .route("/api/v1/meta/oauth/callback", get(oauth_callback))
         .route("/api/v1/meta/deletion", post(deletion))
@@ -788,6 +809,22 @@ mod tests {
         sweep(&state, false);
         let left: i64 = lock(&state.db).query_row("SELECT COUNT(*) FROM agent_runs", [], |r| r.get(0)).unwrap();
         assert_eq!(left, 1);
+    }
+
+    #[tokio::test]
+    async fn persona_is_creator_or_business() {
+        let (s, _) = tests_support::state_with_user();
+        let h = tests_support::signed_in(&s);
+        assert_eq!(me(State(s.clone()), h.clone()).await.0["persona"], Value::Null);
+        for bad in [json!({ "persona": "agency" }), json!({}), json!({ "persona": 1 })] {
+            assert_eq!(save_persona(State(s.clone()), h.clone(), Json(bad)).await.unwrap_err().0, StatusCode::BAD_REQUEST);
+        }
+        let saved = save_persona(State(s.clone()), h.clone(), Json(json!({ "persona": "creator" }))).await.unwrap().0;
+        assert_eq!((saved["signed_in"].clone(), saved["persona"].clone()), (json!(true), json!("creator")));
+        assert_eq!(me(State(s.clone()), h.clone()).await.0, saved);
+        assert_eq!(save_persona(State(s.clone()), h.clone(), Json(json!({ "persona": "business" }))).await.unwrap().0["persona"], "business");
+        assert_eq!(user_by_id(&s, "u").unwrap().persona.as_deref(), Some("business"));
+        assert_eq!(save_persona(State(s.clone()), HeaderMap::new(), Json(json!({ "persona": "creator" }))).await.unwrap_err().0, StatusCode::UNAUTHORIZED);
     }
 
     #[test]
