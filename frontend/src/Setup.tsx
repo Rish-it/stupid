@@ -1,14 +1,15 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Banner } from "@astryxdesign/core/Banner";
 import { Button } from "@astryxdesign/core/Button";
-import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { VStack } from "@astryxdesign/core/Stack";
 import { Step, Stepper } from "@astryxdesign/core/Stepper";
 import { Switch } from "@astryxdesign/core/Switch";
 import { Text } from "@astryxdesign/core/Text";
 import { Token } from "@astryxdesign/core/Token";
 import { api, apps, appStatus, oauthStartUrl, setupDone } from "./api";
-import type { Account, AssetKind, Issue } from "./api";
+import type { Account, AssetKind } from "./api";
 import { Modal, Page, Tile } from "./Surface";
+import MetaProblem from "./MetaProblem";
 
 const Tutorial = lazy(() => import("./Tutorial"));
 
@@ -65,7 +66,11 @@ export default function Setup({ state, onChange, onConnect }: { state: Account; 
         {!waiting && checked && !error && !done && <Text as="p" type="supporting">Checked just now. Meta can take a minute to catch up.</Text>}
       </div>
       {state.problems?.map(problem => (
-        <Banner key={problem} status="warning" title="Meta didn't share everything" description={problem} endContent={connect} />
+        <VStack key={problem} gap={2}>
+          <MetaProblem issue={problem} />
+          <Text as="p" type="supporting" size="sm">{problem}</Text>
+          <div>{connect}</div>
+        </VStack>
       ))}
       <div className="bento">
         {apps.map(app => {
@@ -121,11 +126,11 @@ export default function Setup({ state, onChange, onConnect }: { state: Account; 
                     
                     <Switch label={a.name} labelPosition="start" labelSpacing="spread" width="100%"
                       value={state.selected.includes(a.key)} changeAction={next => toggle(a.key, next)} />
-                    {state.selected.includes(a.key) && a.issues?.map(issue => <Problem key={issue.text} issue={issue} />)}
+                    {state.selected.includes(a.key) && a.issues?.map(issue => <MetaProblem key={issue.text} issue={issue} />)}
                   </VStack>
                 ))}
                 {refused.length > 0 && (
-                  <Banner status="warning" title={`Meta wasn't allowed to share ${refused.join(", ")}.`} description={`Connect again and allow ${refused.length > 1 ? "them" : "it"}.`} endContent={connect} />
+                  <Banner status="warning" title={`Meta wasn't allowed to share ${refused.join(", ")}.`} description={`Connect again and allow ${refused.length > 1 ? "them" : "it"}. In Facebook Business Integrations → Stupid → View and Edit, tick the missing access and Save.`} endContent={connect} />
                 )}
                 {step === 3 && <Text as="p" type="supporting">{app.name} is ready.</Text>}
               </VStack>
@@ -134,16 +139,5 @@ export default function Setup({ state, onChange, onConnect }: { state: Account; 
         );
       })()}
     </Page>
-  );
-}
-
-function Problem({ issue }: { issue: Issue }) {
-  const open = issue.link && <Button size="sm" variant={issue.blocking ? "primary" : "ghost"} label="Open in Meta" href={issue.link} target="_blank" rel="noopener noreferrer" />;
-  if (issue.blocking) return <Banner status="warning" title={issue.text} description={issue.fix} endContent={open} />;
-  return (
-    <HStack gap={2} align="center" justify="between" wrap="wrap">
-      <Text as="p" type="supporting" size="sm">{issue.text} {issue.fix}</Text>
-      {open}
-    </HStack>
   );
 }
