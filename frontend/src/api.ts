@@ -258,6 +258,8 @@ export const api = {
   switchAgent: (id: number, on: boolean) => call<CustomAgent>("PUT", `/api/custom-agents/${id}`, { on }),
   deleteAgent: (id: number) => call<{ deleted: number }>("DELETE", `/api/custom-agents/${id}`),
   runAgent: (id: number) => call<{ agent: string; status: string }>("POST", `/api/custom-agents/${id}/run`),
+  sounds: () => call<import("./sounds").Sounds>("GET", "/api/settings/sounds"),
+  setSounds: (sounds: import("./sounds").Sounds) => call<import("./sounds").Sounds>("PUT", "/api/settings/sounds", sounds),
   aiSettings: () => call<AiSettings>("GET", "/api/settings/ai"),
   setAiKey: (api_key: string, consent = false) => call<Omit<AiSettings, "workspace_ai">>("PUT", "/api/settings/ai", { api_key, consent }),
   setModel: (model: string) => call<AiSettings>("PUT", "/api/settings/ai/model", { model }),
