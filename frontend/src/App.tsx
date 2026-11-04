@@ -10,7 +10,7 @@ import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { Avatar } from "@astryxdesign/core/Avatar";
 import { TopNav, TopNavHeading } from "@astryxdesign/core/TopNav";
-import { api, legal, oauthStartUrl, sample, setupDone, useLoad, useStream } from "./api";
+import { api, door, legal, oauthStartUrl, sample, setupDone, useLoad, useStream } from "./api";
 import { Logo } from "./Icons";
 import Welcome from "./Welcome";
 
@@ -48,6 +48,13 @@ function usePage(): Page | null {
 export default function App() {
   const me = useLoad("me", api.me);
   const user = me.data?.signed_in ? me.data : undefined;
+  // The door picked before sign-in becomes the account's path, once, right after sign-in.
+  // A server without the endpoint answers 404; the stored choice then stands in for this visit.
+  const pending = user && !user.persona ? door.get() : null;
+  const { setData: setMe } = me;
+  useEffect(() => {
+    if (pending) api.setPersona(pending).then(next => { if (next.signed_in) setMe(next); }, () => undefined);
+  }, [pending, setMe]);
   const ready = user && setupDone(user);
   // Until setup is done, it is home; afterwards it lives in Settings. Pin it to the address so finishing doesn't jump away.
   const named = usePage();
@@ -64,7 +71,6 @@ export default function App() {
   }, []);
   const loading = <Center minHeight={240}><Spinner size="lg" aria-label="Loading" /></Center>;
   const signedIn = Boolean(user);
-  const { setData: setMe } = me;
   const signOut = useCallback(() => { setMe({ signed_in: false }); location.hash = ""; }, [setMe]);
   const reconnecting = useStream(signedIn, signOut);
   useEffect(() => { document.title = signedIn ? `${pages[page]} · Stupid` : "Stupid"; }, [signedIn, page]);
