@@ -6,6 +6,7 @@ mod meta;
 mod meta_ai;
 mod tickets;
 mod tools;
+mod voice;
 
 use axum::{
     body::Bytes,
@@ -212,6 +213,8 @@ CREATE INDEX drafts_user ON drafts(user_id, event_id);
 ALTER TABLE users ADD COLUMN agent_proactive INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE users ADD COLUMN agent_rules TEXT NOT NULL DEFAULT '';
 ",
+    // A voice note: `media` points at the audio until it is transcribed, then the words replace it.
+    "ALTER TABLE events ADD COLUMN voice INTEGER NOT NULL DEFAULT 0; ALTER TABLE events ADD COLUMN media TEXT;",
 ];
 
 fn migrate(conn: &mut Connection) -> rusqlite::Result<()> {
@@ -537,14 +540,14 @@ async fn webhook(State(s): State<AppState>, headers: HeaderMap, body: Bytes) -> 
     let mut added = Vec::new();
     for e in events {
         if db.execute(
-            "INSERT OR IGNORE INTO events (kind,asset_id,sender,sender_name,text,created,dedupe) VALUES (?1,?2,?3,?4,?5,?6,?7)",
-            params![e.kind, e.asset_id, e.sender, e.sender_name, e.text, now(), e.dedupe],
+            "INSERT OR IGNORE INTO events (kind,asset_id,sender,sender_name,text,created,dedupe,media) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+            params![e.kind, e.asset_id, e.sender, e.sender_name, e.text, now(), e.dedupe, e.media],
         )? == 1 {
             added.push(db.last_insert_rowid());
         }
     }
     drop(db);
-    tickets::inbound(&s, &added);
+    voice::arrived(&s, &added);
     Ok(StatusCode::OK)
 }
 

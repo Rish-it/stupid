@@ -421,26 +421,32 @@ fn graph_time(t: &str) -> Option<i64> {
 /// Unpublished Meta apps get no real webhooks, so the inbox also reads recent Messenger and
 /// Instagram conversations and Instagram comments directly, at most every 15 seconds per account.
 /// Rows share the webhook de-duplication keys, so a message never appears twice.
+/// kind, sender, sender name, text, created, de-duplication key, voice-note audio.
+type Pulled = (String, String, String, String, i64, String, Option<String>);
+
 pub async fn pull(state: &AppState, u: &User) -> ApiResult<()> {
     let t = tokens(state, u)?;
     let oldest = now() - 30 * 86400;
     for a in u.assets.iter().filter(|a| u.selected.contains(&a.key) && (a.kind == "messenger" || a.kind == "instagram")) {
         let token = t.for_asset(&a.key).to_string();
         let fetched = cached(state, format!("{}:pull:{}", u.id, a.key), Duration::from_secs(15), || async {
-            let mut rows: Vec<(String, String, String, String, i64, String)> = Vec::new();
-            let fields = "messages.limit(10){id,message,from,created_time}".to_string();
+            let mut rows: Vec<Pulled> = Vec::new();
+            let fields = "messages.limit(10){id,message,from,created_time,attachments{mime_type,file_url}}".to_string();
             let conversations = get(state, "me/conversations", &[("platform", a.kind.clone()), ("fields", fields), ("limit", "20".into())], &token).await?;
             for conv in conversations["data"].as_array().into_iter().flatten() {
                 for m in conv["messages"]["data"].as_array().into_iter().flatten() {
                     let from = &m["from"];
                     let (id, handle) = (from["id"].as_str().unwrap_or_default(), from["username"].as_str().or(from["name"].as_str()).unwrap_or_default());
                     let text = m["message"].as_str().unwrap_or_default();
+                    // A voice note comes as an audio attachment with no text; it is transcribed after it is stored.
+                    let audio = m["attachments"]["data"].as_array().into_iter().flatten()
+                        .find(|x| x["mime_type"].as_str().is_some_and(|t| t.starts_with("audio/"))).and_then(|x| x["file_url"].as_str()).map(|u| format!("url:{u}"));
                     // Skip the account's own messages and anything the 30-day sweep would remove.
                     let created = m["created_time"].as_str().and_then(graph_time).unwrap_or_else(now);
-                    if text.is_empty() || id.is_empty() || id == a.id || handle == a.name || created < oldest {
+                    if (text.is_empty() && audio.is_none()) || id.is_empty() || id == a.id || handle == a.name || created < oldest {
                         continue;
                     }
-                    rows.push((a.kind.clone(), id.into(), handle.into(), text.chars().take(4000).collect(), created, format!("{}:{}", a.kind, m["id"].as_str().unwrap_or_default())));
+                    rows.push((a.kind.clone(), id.into(), handle.into(), text.chars().take(4000).collect(), created, format!("{}:{}", a.kind, m["id"].as_str().unwrap_or_default()), audio));
                 }
             }
             if a.kind == "instagram" {
@@ -453,22 +459,22 @@ pub async fn pull(state: &AppState, u: &User) -> ApiResult<()> {
                         if text.is_empty() || who.is_empty() || who == a.name || created < oldest {
                             continue;
                         }
-                        rows.push(("instagram_comment".into(), who.into(), who.into(), text.chars().take(4000).collect(), created, format!("igc:{}", c["id"].as_str().unwrap_or_default())));
+                        rows.push(("instagram_comment".into(), who.into(), who.into(), text.chars().take(4000).collect(), created, format!("igc:{}", c["id"].as_str().unwrap_or_default()), None));
                     }
                 }
             }
             let mut added = Vec::new();
             let db = lock(&state.db);
-            for (kind, sender, name, text, created, dedupe) in &rows {
+            for (kind, sender, name, text, created, dedupe, media) in &rows {
                 if db.execute(
-                    "INSERT OR IGNORE INTO events (kind,asset_id,sender,sender_name,text,created,dedupe) VALUES (?1,?2,?3,?4,?5,?6,?7)",
-                    params![kind, a.id, sender, name, text, created, dedupe],
+                    "INSERT OR IGNORE INTO events (kind,asset_id,sender,sender_name,text,created,dedupe,media) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+                    params![kind, a.id, sender, name, text, created, dedupe, media],
                 )? == 1 {
                     added.push(db.last_insert_rowid());
                 }
             }
             drop(db);
-            crate::tickets::inbound(state, &added);
+            crate::voice::arrived(state, &added);
             Ok(json!(rows.len()))
         }).await;
         if let Err(e) = fetched {
@@ -494,10 +500,11 @@ pub fn inbox_rows(state: &AppState, u: &User) -> ApiResult<Vec<Value>> {
     let marks = vec!["?"; ids.len()].join(",");
     let db = lock(&state.db);
     let mut stmt = db.prepare(&format!("SELECT id,kind,asset_id,sender,text,created,EXISTS(SELECT 1 FROM replies r WHERE r.event_id=events.id AND r.error IS NULL),sender_name,
-          (SELECT error FROM replies r WHERE r.event_id=events.id)
+          (SELECT error FROM replies r WHERE r.event_id=events.id),voice,media IS NOT NULL
           FROM events WHERE asset_id IN ({marks}) ORDER BY created DESC, id DESC LIMIT 100"))?;
     let rows = stmt.query_map(rusqlite::params_from_iter(ids.iter()), |r| {
-        Ok(json!({ "id": r.get::<_, i64>(0)?, "kind": r.get::<_, String>(1)?, "asset_id": r.get::<_, String>(2)?, "sender": r.get::<_, String>(3)?, "text": r.get::<_, String>(4)?, "created": r.get::<_, i64>(5)?, "replied": r.get::<_, bool>(6)?, "sender_name": r.get::<_, Option<String>>(7)?, "reply_error": r.get::<_, Option<String>>(8)? }))
+        Ok(json!({ "id": r.get::<_, i64>(0)?, "kind": r.get::<_, String>(1)?, "asset_id": r.get::<_, String>(2)?, "sender": r.get::<_, String>(3)?, "text": r.get::<_, String>(4)?, "created": r.get::<_, i64>(5)?, "replied": r.get::<_, bool>(6)?, "sender_name": r.get::<_, Option<String>>(7)?, "reply_error": r.get::<_, Option<String>>(8)?,
+            "voice": r.get::<_, bool>(9)?, "transcribing": r.get::<_, bool>(10)? }))
     })?;
     Ok(rows.collect::<Result<_, _>>()?)
 }
@@ -508,7 +515,7 @@ pub fn marks(state: &AppState, u: &User) -> ApiResult<Value> {
     let marks = vec!["?"; ids.len().max(1)].join(",");
     let db = lock(&state.db);
     let inbox: String = db.query_row(
-        &format!("SELECT IFNULL(MAX(id),0)||':'||COUNT(*) FROM events WHERE asset_id IN ({marks})"),
+        &format!("SELECT IFNULL(MAX(id),0)||':'||COUNT(*)||':'||IFNULL(SUM(voice),0) FROM events WHERE asset_id IN ({marks})"),
         rusqlite::params_from_iter(ids.iter().map(String::as_str).chain(ids.is_empty().then_some(""))),
         |r| r.get(0),
     )?;
@@ -605,6 +612,8 @@ pub struct Event {
     pub sender_name: String,
     pub text: String,
     pub dedupe: String,
+    /// A voice note waiting to be transcribed: `wa:<media id>` or `url:<attachment url>`.
+    pub media: Option<String>,
 }
 
 /// Incoming WhatsApp, Messenger and Instagram messages and Instagram comments.
@@ -621,25 +630,28 @@ pub fn parse_webhook(payload: &Value) -> Vec<Event> {
                 let contacts = v["contacts"].as_array().map(Vec::as_slice).unwrap_or_default();
                 for m in v["messages"].as_array().into_iter().flatten() {
                     let text = clip(&m["text"]["body"]);
-                    if !text.is_empty() {
+                    let media = Some(clip(&m["audio"]["id"])).filter(|id| m["type"] == "audio" && !id.is_empty()).map(|id| format!("wa:{id}"));
+                    if !text.is_empty() || media.is_some() {
                         let sender = clip(&m["from"]);
                         let sender_name = contacts.iter().find(|c| clip(&c["wa_id"]) == sender).map(|c| clip(&c["profile"]["name"])).unwrap_or_default();
-                        out.push(Event { kind: "whatsapp".into(), asset_id: phone.clone(), sender, sender_name, text, dedupe: format!("wa:{}", clip(&m["id"])) });
+                        out.push(Event { kind: "whatsapp".into(), asset_id: phone.clone(), sender, sender_name, text, dedupe: format!("wa:{}", clip(&m["id"])), media });
                     }
                 }
             } else if object == "instagram" && change["field"] == "comments" {
                 let sender = Some(clip(&v["from"]["username"])).filter(|s| !s.is_empty()).unwrap_or_else(|| clip(&v["from"]["id"]));
-                out.push(Event { kind: "instagram_comment".into(), asset_id: entry_id.clone(), sender_name: clip(&v["from"]["username"]), sender, text: clip(&v["text"]), dedupe: format!("igc:{}", clip(&v["id"])) });
+                out.push(Event { kind: "instagram_comment".into(), asset_id: entry_id.clone(), sender_name: clip(&v["from"]["username"]), sender, text: clip(&v["text"]), dedupe: format!("igc:{}", clip(&v["id"])), media: None });
             }
         }
         for m in entry["messaging"].as_array().into_iter().flatten() {
             let message = &m["message"];
             let text = clip(&message["text"]);
-            if text.is_empty() || message["is_echo"].as_bool() == Some(true) {
+            let media = message["attachments"].as_array().into_iter().flatten()
+                .find(|x| x["type"] == "audio").map(|x| clip(&x["payload"]["url"])).filter(|u| !u.is_empty()).map(|u| format!("url:{u}"));
+            if (text.is_empty() && media.is_none()) || message["is_echo"].as_bool() == Some(true) {
                 continue;
             }
             let kind = if object == "instagram" { "instagram" } else { "messenger" };
-            out.push(Event { kind: kind.into(), asset_id: entry_id.clone(), sender: clip(&m["sender"]["id"]), sender_name: String::new(), text, dedupe: format!("{kind}:{}", clip(&message["mid"])) });
+            out.push(Event { kind: kind.into(), asset_id: entry_id.clone(), sender: clip(&m["sender"]["id"]), sender_name: String::new(), text, dedupe: format!("{kind}:{}", clip(&message["mid"])), media });
         }
     }
     out
@@ -673,6 +685,11 @@ mod tests {
         assert_eq!(e.len(), 1);
         assert_eq!((e[0].kind.as_str(), e[0].asset_id.as_str()), ("instagram", "77"));
         assert!(numeric("act_123") && !numeric("act_") && !numeric("12a"));
+        let voice = json!({"object":"whatsapp_business_account","entry":[{"id":"1","changes":[{"field":"messages","value":{"metadata":{"phone_number_id":"55"},"messages":[{"id":"m2","from":"91","type":"audio","audio":{"id":"777","mime_type":"audio/ogg; codecs=opus","voice":true}}]}}]}]});
+        let e = parse_webhook(&voice);
+        assert_eq!((e[0].text.as_str(), e[0].media.as_deref()), ("", Some("wa:777")));
+        let dm = json!({"object":"page","entry":[{"id":"5","messaging":[{"sender":{"id":"9"},"message":{"mid":"z","attachments":[{"type":"audio","payload":{"url":"https://cdn.example/a.mp4"}}]}}]}]});
+        assert_eq!(parse_webhook(&dm)[0].media.as_deref(), Some("url:https://cdn.example/a.mp4"));
         let st = json!({"entry":[{"changes":[{"value":{"statuses":[{"status":"delivered"},{"status":"failed","id":"wamid.1","recipient_id":"91","errors":[{"code":131031,"title":"Business Account locked","error_data":{"details":"Business account has been locked."}}]}]}}]}]});
         assert_eq!(failed_sends(&st), vec![("wamid.1".to_string(), "Business account has been locked. (131031)".to_string())]);
     }

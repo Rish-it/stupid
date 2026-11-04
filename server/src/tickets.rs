@@ -123,7 +123,7 @@ pub fn record(db: &Connection, user_id: &str, key: &str, source: &str, reference
 }
 
 /// People who have the account that received `asset_id` switched on.
-fn owners(db: &Connection, asset_id: &str) -> rusqlite::Result<Vec<String>> {
+pub fn owners(db: &Connection, asset_id: &str) -> rusqlite::Result<Vec<String>> {
     let mut stmt = db.prepare("SELECT id,assets_json,selected_json FROM users")?;
     let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?)))?;
     let mut out = Vec::new();
