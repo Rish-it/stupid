@@ -113,36 +113,48 @@ pub async fn run(State(s): State<AppState>, headers: HeaderMap, Path(agent): Pat
     let context = match name {
         // The inbox already holds Instagram comments next to messages.
         "leads" => json!({ "messages": for_model(meta::fresh_inbox(&s, &u).await?) }),
-        "ideas" => {
-            let ig = meta::instagram_data(&s, &u).await?;
-            json!({ "accounts": ig["accounts"].as_array().into_iter().flatten().map(|a| json!({
-                "bio": a["profile"]["biography"], "followers": a["profile"]["followers_count"],
-                "posts": a["media"].as_array().into_iter().flatten().map(|m| json!({ "caption": m["caption"], "type": m["media_product_type"], "likes": m["like_count"], "comments": m["comments_count"], "when": m["timestamp"] })).collect::<Vec<_>>() })).collect::<Vec<_>>() })
-        }
+        "ideas" => instagram_context(&meta::instagram_data(&s, &u).await?),
         "replies" => json!({ "messages": for_model(meta::fresh_inbox(&s, &u).await?.into_iter().filter(|m| m["kind"] != "instagram_comment").take(20).collect()) }),
         _ => meta::ads_data(&s, &u).await?,
     };
     let empty = context.as_object().is_some_and(|o| o.values().all(|v| v.as_array().is_some_and(|a| a.is_empty())));
-    let id = {
+    let (id, ticket) = {
         let db = lock(&s.db);
         busy(&db, &u.id, name)?;
         if empty {
             db.execute("INSERT INTO agent_runs (user_id,agent,status,result_json,created,finished) VALUES (?1,?2,'done','{\"empty\":true}',?3,?3)", params![u.id, name, now()])?;
+            let ticket = tickets::open_job(&db, &u.id, name, db.last_insert_rowid())?;
+            tickets::close_job(&db, ticket, "dropped", "Nothing to read yet.")?;
             return Ok(Json(json!({ "agent": name, "status": "done", "result": { "empty": true } })));
         }
         db.execute("INSERT INTO agent_runs (user_id,agent,status,created) VALUES (?1,?2,'running',?3)", params![u.id, name, now()])?;
-        db.last_insert_rowid()
+        let id = db.last_insert_rowid();
+        (id, tickets::open_job(&db, &u.id, name, id)?)
     };
     let state = s.clone();
+    let inbox: Vec<String> = u.assets.iter().filter(|a| u.selected.contains(&a.key)).map(|a| a.id.clone()).collect();
     tokio::spawn(async move {
         let outcome = muse(&state, name, system, &context, own.as_deref()).await;
         let db = lock(&state.db);
-        let _ = match outcome {
-            Ok((result, cost)) => db.execute("UPDATE agent_runs SET status='done',result_json=?1,cost_usd=?2,finished=?3 WHERE id=?4", params![result.to_string(), cost, now(), id]),
-            Err(e) => db.execute("UPDATE agent_runs SET status='failed',error=?1,finished=?2 WHERE id=?3", params![e.1, now(), id]),
+        let saved = match outcome {
+            Ok((result, cost)) => db.execute("UPDATE agent_runs SET status='done',result_json=?1,cost_usd=?2,finished=?3 WHERE id=?4", params![result.to_string(), cost, now(), id])
+                .and_then(|_| keep_drafts(&db, &u.id, ticket, &inbox, &result))
+                .and_then(|_| { let (kind, text) = tickets::summary(name, &result); tickets::close_job(&db, ticket, kind, &text) }),
+            Err(e) => db.execute("UPDATE agent_runs SET status='failed',error=?1,finished=?2 WHERE id=?3", params![e.1, now(), id])
+                .and_then(|_| tickets::close_job(&db, ticket, "failed", &e.1)),
         };
+        if let Err(e) = saved {
+            tracing::error!("agent run {id}: {e}");
+        }
     });
     Ok(Json(json!({ "agent": name, "status": "running" })))
+}
+
+/// What the model may see of Instagram: bio, followers, and each recent post's caption and counts.
+pub fn instagram_context(ig: &Value) -> Value {
+    json!({ "accounts": ig["accounts"].as_array().into_iter().flatten().map(|a| json!({
+        "bio": a["profile"]["biography"], "followers": a["profile"]["followers_count"],
+        "posts": a["media"].as_array().into_iter().flatten().map(|m| json!({ "caption": m["caption"], "type": m["media_product_type"], "likes": m["like_count"], "comments": m["comments_count"], "when": m["timestamp"] })).collect::<Vec<_>>() })).collect::<Vec<_>>() })
 }
 
 /// Only what a draft needs from inbox rows. The sender's phone number, PSID or IGSID and the asset id never reach the model.
@@ -150,6 +162,20 @@ pub fn for_model(rows: Vec<Value>) -> Vec<Value> {
     let t = now();
     rows.into_iter().map(|m| json!({ "id": m["id"], "kind": m["kind"], "sender_name": m["sender_name"], "text": m["text"],
         "hours_ago": m["created"].as_i64().map(|c| (t - c).max(0) / 3600) })).collect()
+}
+
+/// Reply drafts from a Reply drafts run become durable drafts, for messages in this person's own inbox only.
+fn keep_drafts(db: &rusqlite::Connection, user_id: &str, ticket: i64, inbox: &[String], result: &Value) -> rusqlite::Result<()> {
+    for r in result["replies"].as_array().into_iter().flatten() {
+        let event = r["event_id"].as_i64().or_else(|| r["event_id"].as_str().and_then(|v| v.parse().ok()));
+        let (Some(event), Some(text)) = (event, r["draft"].as_str().filter(|t| !t.trim().is_empty())) else { continue };
+        let asset: Option<String> = db.query_row("SELECT asset_id FROM events WHERE id=?1", [event], |r| r.get(0)).optional()?;
+        if asset.is_some_and(|a| inbox.contains(&a)) {
+            db.execute("INSERT INTO drafts (user_id,ticket_id,event_id,text,source,created) VALUES (?1,?2,?3,?4,'agent',?5)",
+                params![user_id, ticket, event, text.chars().take(1000).collect::<String>(), now()])?;
+        }
+    }
+    Ok(())
 }
 
 /// Refuse a second run of the same agent, and more than the daily limit of runs and evals per person.
@@ -164,15 +190,24 @@ fn busy(db: &rusqlite::Connection, user_id: &str, agent: &str) -> ApiResult<()> 
     Ok(())
 }
 
-/// One Muse call, under the workspace spend cap unless the person brought their own key.
+/// One Muse call with a JSON answer, under the workspace spend cap unless the person brought their own key.
 /// Returns the parsed JSON answer and its cost in USD.
 pub async fn muse(s: &AppState, agent: &str, system: &str, context: &Value, own_key: Option<&str>) -> ApiResult<(Value, f64)> {
     let mut input = context.to_string();
     if input.len() > MAX_INPUT_CHARS {
         input = input.chars().take(MAX_INPUT_CHARS).collect();
     }
+    let messages = [json!({ "role": "system", "content": format!("{system} Reply with the JSON object only.") }), json!({ "role": "user", "content": input })];
+    let (data, cost) = chat(s, agent, &messages, None, own_key).await?;
+    Ok((extract_json(answer(&data)?).ok_or_else(|| AppError::new(502, "Muse answered without the expected format."))?, cost))
+}
+
+/// One chat call to Muse with these messages and, for the agent's executor, its tools.
+/// Spend is recorded whatever the answer says. Returns the whole answer and its cost in USD.
+pub async fn chat(s: &AppState, agent: &str, messages: &[Value], tools: Option<&[Value]>, own_key: Option<&str>) -> ApiResult<(Value, f64)> {
     // Rough worst case: 3 characters per token, every output token used.
-    let estimate = ((input.len() + system.len()) as f64 / 3.0 * PRICE.0 + MAX_TOKENS as f64 * PRICE.1) / 1e6;
+    let chars = Value::from(messages.to_vec()).to_string().len() + tools.map_or(0, |t| Value::from(t.to_vec()).to_string().len());
+    let estimate = (chars as f64 / 3.0 * PRICE.0 + MAX_TOKENS as f64 * PRICE.1) / 1e6;
     if own_key.is_none() {
         let db = lock(&s.db);
         let spent: f64 = db.query_row("SELECT COALESCE(SUM(usd),0) FROM spend WHERE own=0", [], |r| r.get(0))?;
@@ -182,10 +217,11 @@ pub async fn muse(s: &AppState, agent: &str, system: &str, context: &Value, own_
         }
     }
     // Muse Spark Open defaults to xhigh reasoning, which can use up max_tokens before the answer starts.
-    let body = json!({ "model": s.cfg.muse_model, "max_tokens": MAX_TOKENS, "reasoning_effort": "low", "messages": [
-        { "role": "system", "content": format!("{system} Reply with the JSON object only.") },
-        { "role": "user", "content": input },
-    ]});
+    let mut body = json!({ "model": s.cfg.muse_model, "max_tokens": MAX_TOKENS, "reasoning_effort": "low", "messages": messages });
+    if let Some(tools) = tools {
+        body["tools"] = json!(tools);
+        body["tool_choice"] = json!("auto");
+    }
     let started = std::time::Instant::now();
     let response = s.http.post(format!("{}/chat/completions", s.cfg.muse_base.trim_end_matches('/'))).bearer_auth(own_key.unwrap_or(&s.cfg.muse_key)).timeout(std::time::Duration::from_secs(120)).json(&body).send().await
         .map_err(|e| if e.is_timeout() { AppError::new(504, refusal(504, None)) } else { AppError::new(502, "Muse could not be reached.") })?;
@@ -205,11 +241,11 @@ pub async fn muse(s: &AppState, agent: &str, system: &str, context: &Value, own_
     lock(&s.db).execute("INSERT INTO spend (usd,created,own) VALUES (?1,?2,?3)", params![cost, now(), own_key.is_some()])?;
     tracing::info!(agent, model = %s.cfg.muse_model, prompt_tokens = usage["prompt_tokens"].as_u64(), completion_tokens = usage["completion_tokens"].as_u64(),
         cost_usd = format!("{cost:.4}"), ms = started.elapsed().as_millis() as u64, own_key = own_key.is_some(), "muse call");
-    Ok((extract_json(answer(&data)?).ok_or_else(|| AppError::new(502, "Muse answered without the expected format."))?, cost))
+    Ok((data, cost))
 }
 
 /// The answer text, or a plain-words error when Muse stopped at the token limit.
-fn answer(data: &Value) -> ApiResult<&str> {
+pub fn answer(data: &Value) -> ApiResult<&str> {
     let choice = &data["choices"][0];
     if choice["finish_reason"] == "length" {
         return Err(AppError::new(502, "Muse ran out of room before it finished. Run it again."));

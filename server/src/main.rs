@@ -1,8 +1,10 @@
 //! Stupid server: Meta sign-in, connections, Meta data, webhooks and background agents.
 mod agents;
+mod executor;
 mod meta;
 mod meta_ai;
 mod tickets;
+mod tools;
 
 use axum::{
     body::Bytes,
@@ -254,18 +256,24 @@ impl User {
 
 pub fn user(state: &AppState, headers: &HeaderMap) -> ApiResult<User> {
     let session = cookie(headers, &state.cfg.cookie_name("stupid_session")).ok_or_else(|| AppError::new(401, "Sign in with Facebook first."))?;
-    let db = lock(&state.db);
-    let row = db
+    let id: Option<String> = lock(&state.db)
+        .query_row("SELECT user_id FROM sessions WHERE hash=?1 AND expires>?2", params![digest(&session), now()], |r| r.get(0))
+        .optional()?;
+    user_by_id(state, &id.ok_or_else(|| AppError::new(401, "Your session ended. Sign in again."))?)
+}
+
+/// The person by id, for background work that has no session (the agent).
+pub fn user_by_id(state: &AppState, id: &str) -> ApiResult<User> {
+    let row = lock(&state.db)
         .query_row(
-            "SELECT u.id,u.name,u.token_blob,u.assets_json,u.selected_json,u.permissions_json,u.problems_json FROM sessions s JOIN users u ON u.id=s.user_id
-             WHERE s.hash=?1 AND s.expires>?2",
-            params![digest(&session), now()],
-            |r| Ok((r.get::<_, String>(0)?, r.get(1)?, r.get(2)?, r.get::<_, String>(3)?, r.get::<_, String>(4)?, r.get::<_, String>(5)?, r.get::<_, String>(6)?)),
+            "SELECT name,token_blob,assets_json,selected_json,permissions_json,problems_json FROM users WHERE id=?1",
+            [id],
+            |r| Ok((r.get::<_, String>(0)?, r.get(1)?, r.get::<_, String>(2)?, r.get::<_, String>(3)?, r.get::<_, String>(4)?, r.get::<_, String>(5)?)),
         )
         .optional()?;
-    let (id, name, token_blob, assets, selected, permissions, problems) = row.ok_or_else(|| AppError::new(401, "Your session ended. Sign in again."))?;
+    let (name, token_blob, assets, selected, permissions, problems) = row.ok_or_else(|| AppError::new(401, "Your session ended. Sign in again."))?;
     Ok(User {
-        id,
+        id: id.to_string(),
         name,
         token_blob,
         assets: serde_json::from_str(&assets).unwrap_or_default(),
@@ -680,6 +688,24 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(&bind).await.expect("bind");
     tracing::info!("listening on http://{bind}");
     axum::serve(listener, app).with_graceful_shutdown(shutdown()).await.expect("server");
+}
+
+#[cfg(test)]
+pub mod tests_support {
+    use super::*;
+
+    /// A migrated in-memory state with one person whose WhatsApp number `p1` is switched on.
+    pub fn state_with_user() -> (AppState, User) {
+        let mut conn = Connection::open_in_memory().unwrap();
+        migrate(&mut conn).unwrap();
+        conn.execute("INSERT INTO users (id,meta_user_id,name,token_blob,token_expires,assets_json,selected_json) VALUES ('u','1','n','b',0,?1,'[\"wa:p1\"]')",
+            [r#"[{"key":"wa:p1","kind":"whatsapp","id":"p1","name":"Shop"}]"#]).unwrap();
+        let mut cfg = Config::load();
+        cfg.muse_key = String::new();
+        let state = AppState { cfg: Arc::new(cfg), db: Arc::new(Mutex::new(conn)), http: reqwest::Client::new(), fernet: None, cache: Default::default(), queue: Default::default() };
+        let u = user_by_id(&state, "u").unwrap();
+        (state, u)
+    }
 }
 
 #[cfg(test)]
