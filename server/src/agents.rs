@@ -1,4 +1,4 @@
-//! Background agents on Muse Spark. Each run prepares work for the person; nothing is sent or changed.
+//! Background agents on Muse Spark Open. Each run prepares work for the person; nothing is sent or changed.
 use crate::{lock, meta, now, user, ApiResult, AppError, AppState};
 use axum::{
     extract::{Path, State},
@@ -22,7 +22,7 @@ const MAX_TOKENS: u32 = 4000;
 const MAX_INPUT_CHARS: usize = 12_000;
 const RUNS_PER_DAY: i64 = 30;
 
-/// The person's own AI key, decrypted, if they saved one.
+/// The person's own key for the provider at `muse_base` (Baseten by default), decrypted, if they saved one.
 fn own_key(s: &AppState, user_id: &str) -> ApiResult<Option<String>> {
     let blob: Option<String> = lock(&s.db).query_row("SELECT ai_key_blob FROM users WHERE id=?1", [user_id], |r| r.get(0)).optional()?.flatten();
     let (Some(blob), Some(f)) = (blob, s.fernet.as_ref()) else { return Ok(None) };
@@ -35,17 +35,25 @@ fn workspace_ready(s: &AppState) -> ApiResult<bool> {
     Ok(!s.cfg.muse_key.is_empty() && s.cfg.muse_budget_usd > spent)
 }
 
+fn saved_at(s: &AppState, user_id: &str) -> ApiResult<Option<i64>> {
+    Ok(lock(&s.db).query_row("SELECT ai_key_saved_at FROM users WHERE id=?1", [user_id], |r| r.get(0)).optional()?.flatten())
+}
+
 pub async fn settings(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Value>> {
     let u = user(&s, &headers)?;
-    Ok(Json(json!({ "has_key": own_key(&s, &u.id)?.is_some(), "model": s.cfg.muse_model, "workspace_ai": workspace_ready(&s)? })))
+    Ok(Json(json!({ "has_key": own_key(&s, &u.id)?.is_some(), "key_saved_at": saved_at(&s, &u.id)?, "model": s.cfg.muse_model, "workspace_ai": workspace_ready(&s)? })))
 }
 
 #[derive(Deserialize)]
 pub struct KeyBody {
     api_key: String,
+    #[serde(default)]
+    consent: bool,
 }
 
-/// Save the person's own AI key after one tiny test call, or remove it when empty. It never leaves the server.
+/// Save the person's own Baseten API key after one tiny test call, or remove it when empty. It never leaves the server.
+/// Never a Meta Model API key: those may not be shared with another service (Model API ToS §3.1).
+/// Saving needs the person's consent to send what agents read to their own account; the time is kept as proof.
 pub async fn save_key(State(s): State<AppState>, headers: HeaderMap, Json(body): Json<KeyBody>) -> ApiResult<Json<Value>> {
     let u = user(&s, &headers)?;
     let key = body.api_key.trim();
@@ -54,6 +62,9 @@ pub async fn save_key(State(s): State<AppState>, headers: HeaderMap, Json(body):
     } else {
         if !(16..=512).contains(&key.len()) || !key.bytes().all(|b| b.is_ascii_graphic()) {
             return Err(AppError::new(400, "That does not look like an API key."));
+        }
+        if !body.consent {
+            return Err(AppError::new(400, "Tick the box to send the messages agents read to your own AI account."));
         }
         let fernet = s.fernet.as_ref().ok_or_else(|| AppError::new(503, "Key storage is not configured."))?;
         let test = json!({ "model": s.cfg.muse_model, "max_tokens": 1, "messages": [{ "role": "user", "content": "ok" }] });
@@ -67,8 +78,9 @@ pub async fn save_key(State(s): State<AppState>, headers: HeaderMap, Json(body):
         }
         Some(fernet.encrypt(key.as_bytes()))
     };
-    lock(&s.db).execute("UPDATE users SET ai_key_blob=?1 WHERE id=?2", params![blob, u.id])?;
-    Ok(Json(json!({ "has_key": blob.is_some(), "model": s.cfg.muse_model })))
+    let at = blob.is_some().then(now);
+    lock(&s.db).execute("UPDATE users SET ai_key_blob=?1, ai_key_saved_at=?2 WHERE id=?3", params![blob, at, u.id])?;
+    Ok(Json(json!({ "has_key": blob.is_some(), "key_saved_at": at, "model": s.cfg.muse_model })))
 }
 
 pub async fn list(State(s): State<AppState>, headers: HeaderMap) -> ApiResult<Json<Value>> {

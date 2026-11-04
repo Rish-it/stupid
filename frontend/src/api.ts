@@ -78,7 +78,7 @@ export type AgentRun = {
   cost_usd: number | null; created: number; finished: number | null;
 };
 export type Agents = { runs: AgentRun[]; ai_ready: boolean; own_key: boolean; model: string };
-export type AiSettings = { has_key: boolean; model: string; workspace_ai: boolean };
+export type AiSettings = { has_key: boolean; key_saved_at?: number | null; model: string; workspace_ai: boolean };
 
 /** status 0 = server unreachable; 401 = signed out; any other 4xx carries a message written for the person. */
 export class ApiError extends Error {
@@ -129,7 +129,7 @@ export const api = {
   agents: () => call<Agents>("GET", "/api/agents"),
   run: (agent: AgentId) => call<{ agent: AgentId; status: string }>("POST", `/api/agents/${agent}/run`),
   aiSettings: () => call<AiSettings>("GET", "/api/settings/ai"),
-  setAiKey: (api_key: string) => call<Omit<AiSettings, "workspace_ai">>("PUT", "/api/settings/ai", { api_key }),
+  setAiKey: (api_key: string, consent = false) => call<Omit<AiSettings, "workspace_ai">>("PUT", "/api/settings/ai", { api_key, consent }),
 };
 
 /** A reply waiting in the Inbox. `source` marks text an agent wrote, so the person sees it came from AI. */

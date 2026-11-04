@@ -68,6 +68,6 @@ export async function answer(method: string, path: string, body: unknown): Promi
     return { agent, status: "running" };
   }
   if (route === "GET /api/settings/ai") return { has_key: hasKey, model: "sample-model", workspace_ai: true };
-  if (route === "PUT /api/settings/ai") { hasKey = Boolean((body as { api_key: string }).api_key); return { has_key: hasKey, model: "sample-model" }; }
+  if (route === "PUT /api/settings/ai") { hasKey = Boolean((body as { api_key: string }).api_key); return { has_key: hasKey, key_saved_at: hasKey ? Math.floor(Date.now() / 1000) : null, model: "sample-model" }; }
   throw new ApiError(404, "Sample data has no answer for this.");
 }

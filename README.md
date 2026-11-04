@@ -37,7 +37,8 @@ data-deletion callback removes a person's data in one transaction. AI spend stop
 
 - One chat call per agent run, from the server only. The browser never sees a model key.
 - Spend stops at `STUPID_MUSE_BUDGET_USD` (workspace key), with at most 30 runs per person per day.
-  A person who saves their own key pays their own provider instead.
+  A person who saves their own Baseten API key pays their own account instead. Stupid never asks
+  for a Meta Model API key, which may not be shared with another service.
 - Each run's model id and cost are shown on the Agents screen and stored with the run. The server
   logs one `muse call` line per call: agent, model, prompt and completion tokens, cost and time.
 - Calls use `reasoning_effort: "low"` and a 4,000-token cap. A model id containing `contributor`
@@ -50,7 +51,7 @@ Stupid sends Meta Platform Data to one model provider, only to do the work the p
 | Provider | What it gets | Retention | Agreement |
 |---|---|---|---|
 | Baseten (model inference) | For the agent a person runs: message and comment text with the sender's first name, Instagram bio, captions and post counts, ad campaign totals. Never phone numbers, Meta IDs or tokens | Zero data retention on Model APIs; no training on customer data | [DPA](https://www.baseten.co/dpa/), [security practices](https://www.baseten.co/security-practices/) |
-| The person's own AI provider | The same, only when they saved their own key in Settings | Their provider's terms | Their own account |
+| The person's own Baseten account | The same, only after they save their own Baseten API key in Settings and tick the consent box (the time is stored) | Their account's terms | Their own account |
 
 Meta tokens and the database stay on Stupid's server. The Cloudflare tunnel only carries the
 site's HTTPS traffic to that server. Agent results expire after 30 days, like messages.

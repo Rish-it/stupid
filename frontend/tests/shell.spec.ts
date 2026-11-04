@@ -210,21 +210,25 @@ test("Settings saves an AI key, confirms before deleting and signs out", async (
     ? route.fulfill(json({ has_key: false, model: "test-model", workspace_ai: true }))
     : route.request().postDataJSON().api_key === "bad"
       ? route.fulfill({ status: 400, ...json({ message: "Meta refused that key." }) })
-      : route.fulfill(json({ has_key: true, model: "test-model" })));
+      : route.fulfill(json({ has_key: route.request().postDataJSON().consent === true, key_saved_at: 1793700000, model: "test-model" })));
   let deleted = false;
   await page.route("**/api/connections", route => { deleted = route.request().method() === "DELETE"; route.fulfill(json({})); });
   await page.goto("/#settings");
   await expect(page.getByRole("link", { name: "Open setup" })).toHaveAttribute("href", "#setup");
 
-  const key = page.getByLabel("Your Muse API key");
+  const key = page.getByLabel("Your own Baseten API key");
   await key.fill("bad");
+  await expect(page.getByRole("button", { name: "Save key" })).toBeDisabled();
+  await page.getByLabel("Send the messages agents read to my own AI account").check();
   await page.getByRole("button", { name: "Save key" }).click();
   await expect(page.getByText("Meta refused that key.")).toBeVisible();
   await key.fill("good");
   await page.getByRole("button", { name: "Save key" }).click();
   await expect(page.getByText(/Key saved/)).toBeVisible();
-  await expect(page.getByText("Agents run on test-model with your own key.")).toBeVisible();
-  await expect(page.getByLabel("Replace your Muse API key")).toHaveValue("");
+  await expect(page.getByText("Agents run on test-model with your own Baseten API key.")).toBeVisible();
+  await expect(page.getByText(/^Saved /)).toBeVisible();
+  await expect(page.getByLabel("Replace your own Baseten API key")).toHaveValue("");
+  await expect(page.getByLabel("Send the messages agents read to my own AI account")).not.toBeChecked();
 
   await page.getByRole("button", { name: "Disconnect and delete my data" }).click();
   await page.getByRole("button", { name: "Cancel" }).click();
