@@ -289,6 +289,10 @@ test("Settings opens over the page, swaps sections in place and closes back to i
   await settings.getByRole("tab", { name: "Your work" }).press("ArrowDown");
   await expect(settings.getByRole("tab", { name: "Connections" })).toBeFocused();
   await expect(settings.getByRole("tab", { name: "Connections" })).toHaveAttribute("aria-selected", "true");
+  await settings.getByRole("tab", { name: "Connections" }).press("End");
+  await expect(settings.getByRole("tab", { name: "Account" })).toBeFocused();
+  await settings.getByRole("tab", { name: "Account" }).press("Home");
+  await expect(settings.getByRole("tab", { name: "Your work" })).toHaveAttribute("aria-selected", "true");
   // One window, no page scroll, at desktop and phone sizes.
   for (const size of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
     await page.setViewportSize(size);
@@ -308,6 +312,15 @@ test("Settings > Connections lists the connected apps and accounts in place", as
   await expect(settings.getByText("@sample.creator")).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   expect(await page.evaluate(() => document.documentElement.scrollHeight <= innerHeight)).toBe(true);
+});
+
+test("Settings > Connections puts WhatsApp and the Page first for a business", async ({ page }) => {
+  await page.goto("http://127.0.0.1:8032/?fixtures=1&persona=business&stage=ready#settings");
+  const settings = page.getByRole("dialog", { name: "Settings" });
+  await settings.getByRole("tab", { name: "Connections" }).click();
+  const cards = settings.getByRole("button", { name: /^(Connect|Manage) / });
+  await expect(cards.nth(0)).toHaveAccessibleName(/WhatsApp/);
+  await expect(cards.nth(1)).toHaveAccessibleName(/Facebook Page/);
 });
 
 test("Settings changes the path between creator and business", async ({ page }) => {
